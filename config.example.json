@@ -1,0 +1,50 @@
+{
+  "port": 8080,
+  "ma2": {
+    "export_cmd": "Export Fixture 1 Thru 9999 \"panel_fixtures\""
+  },
+  "rate_hz": 10,
+  "master": {
+    "cmd": "Master 2.1 At {v}"
+  },
+  "groups": [],
+  "fixtures": [],
+  "scenes": [],
+  "plan": {
+    "image": "plan.svg",
+    "stage": {
+      "x": 0.08,
+      "y": 0.5
+    }
+  },
+  "attrs": {
+    "pan": {
+      "cmd": "Attribute \"Pan\" At {v}",
+      "min": -270,
+      "max": 270
+    },
+    "tilt": {
+      "cmd": "Attribute \"Tilt\" At {v}",
+      "min": -135,
+      "max": 135
+    },
+    "zoom": {
+      "cmd": "Attribute \"Zoom\" At {v}",
+      "min": 0,
+      "max": 100
+    },
+    "focus": {
+      "cmd": "Attribute \"Focus\" At {v}",
+      "min": 0,
+      "max": 100
+    },
+    "strobe": {
+      "cmd": "Attribute \"Strobe\" At {v}",
+      "min": 0,
+      "max": 100
+    }
+  },
+  "presets": [],
+  "version": 4,
+  "pages": {}
+}

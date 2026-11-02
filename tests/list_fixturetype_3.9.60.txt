@@ -1,0 +1,9 @@
+              No.  LongName               ShortName             Manufacturer  ShortManu  DMXFootprint  Instances  Mode        Used  XYZ  Model        RDMFixtureType  
+FixtureType 1 1    Universal Attributes   Universal Attributes  AutoMA        AutoMA     0             1                      0          [automatic]                   (7)
+FixtureType 2 2    Dimmer                 Dim                   Generic       Generic    1             1          00          0          [automatic]                   (7)
+FixtureType 3 3    ARTIST_FL_1000         ARTIST                IMLIGHT       IMLIGHT    9             1          RGB_CT      11         [automatic]                   (7)
+FixtureType 4 4    Mini-B                 MiniBB8               Clay Paky     Clay P     17            1          Basic RGBW  2          [automatic]                   (7)
+FixtureType 5 5    Oxygen                 CM400ZM1              Acme          Acme       17            1          Mode 1      3          [automatic]                   (7)
+FixtureType 6 6    ARTIST_FRESNEL         ARTIST                IMLIGHT       IMLIGHT    9             1          RGB_CT      2          [automatic]                   (7)
+FixtureType 7 7    PROCBET PAR LED 200 W  P200 COB              PROCBET       PROCBET    2             1          D           0          [automatic]                   (7)
+FixtureType 8 8    PAR 14X15 SLIM         P14X15 SLIM           ANZHEE        ANZHEE     10            1          10 ch       6          [automatic]                   (7)

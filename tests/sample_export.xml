@@ -1,0 +1,6 @@
+<MA xmlns="urn:ma">
+  <Fixture fixture_id="1" name="BAR 1"><FixtureType name="BAR"/><Patch>1.001</Patch></Fixture>
+  <Fixture fixture_id="2" name="BAR 2"><FixtureType name="BAR"/><Patch>1.020</Patch></Fixture>
+  <Fixture fixture_id="12" name="Front"><FixtureType name="ACME"/><Address>2.001</Address></Fixture>
+  <Fixture fixture_id="99" name="New"><FixtureType name="PAR"/></Fixture>
+</MA>

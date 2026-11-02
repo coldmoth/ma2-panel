@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Сцены</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    main { display: grid; gap: 24px; }
+    header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+    #scenes, section { display: grid; gap: 16px; }
+    .simple-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+    .simple-scene { display: grid; gap: 8px; padding: 12px; border-radius: var(--r); background: var(--s1); }
+    .simple-scene .go { min-height: 108px; flex-direction: column; font-size: 20px; overflow-wrap: anywhere; }
+    .simple-scene.running .go { background: var(--live); color: var(--live-ink); }
+    #blackout { width: 100%; min-height: 80px; font-size: 24px; }
+    #error { color: var(--bad-text); }
+  </style>
+  <script src="/simple.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><h1>Сцены</h1><p id="connection" role="status">Подключение…</p></header>
+    <p id="error" role="alert" hidden></p>
+    <div id="scenes"><p class="muted">Загружаю сцены…</p></div>
+    <button id="blackout" class="btn blackout" type="button" disabled>Погасить всё</button>
+  </main>
+</body>
+</html>

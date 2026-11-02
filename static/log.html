@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Журнал · MA2</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th { text-align: left; padding: 8px 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+    td { padding: 10px 12px; vertical-align: top; overflow-wrap: anywhere; }
+    tbody tr:nth-child(odd) { background: var(--stock); }
+    .bad { color: var(--alarm-text); }
+    .back { margin: 0 0 16px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="back"><a href="/">К панели</a></p>
+    <h1>Журнал действий</h1>
+    <p class="muted" id="count"></p>
+    <table><thead><tr><th>Время</th><th>Устройство</th><th>Действие</th><th>Что</th><th>Итог</th></tr></thead><tbody id="rows"></tbody></table>
+  </main>
+  <script>
+    function load() {
+      fetch('/api/log').then(function (r) { return r.json(); }).then(function (items) {
+        var rows = document.getElementById('rows');
+        rows.textContent = '';
+        items.forEach(function (e) {
+          var tr = document.createElement('tr');
+          [e.t, e.ip, e.a, JSON.stringify(e.what), e.ok ? 'ок' : (e.err || 'ошибка')].forEach(function (text, i) {
+            var td = document.createElement('td');
+            td.textContent = text;
+            if (i === 4 && !e.ok) td.className = 'bad';
+            tr.appendChild(td);
+          });
+          rows.appendChild(tr);
+        });
+        document.getElementById('count').textContent = 'Последние ' + items.length + ' (с момента запуска моста). Полный журнал: bridge.log';
+      });
+    }
+    load();
+    setInterval(load, 5000);
+  </script>
+</body>
+</html>

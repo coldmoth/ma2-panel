@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Диагностика · MA2</title><link rel="stylesheet" href="style.css">
+  <style>pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--stock); padding: 12px; } li { margin-bottom: 16px; } .diagsec { margin: 16px 0; } .diagsec .row { margin: 8px 0; }</style>
+</head>
+<body><main>
+  <p><a href="/">К панели</a> · <a href="settings.html">Настройки</a></p>
+  <h1>Диагностика</h1>
+  <p id="connection" role="status">Загрузка…</p><p class="muted" id="details"></p>
+  <h2>Последняя команда</h2><pre id="last">Ещё не отправлялась</pre>
+  <h2>Ответ входа</h2><pre id="login"></pre>
+  <section class="card diagsec"><h2>1. Отчёт без отправки команд</h2>
+    <p class="note">Собирает уже имеющиеся журналы и состояние. На пульт ничего не отправляется. Скачивается, даже если часть данных недоступна.</p>
+    <p><a class="btn" href="/api/diag.zip">Скачать диагностический пакет</a></p></section>
+  <section class="card diagsec"><h2>2. Активные проверки</h2>
+    <p class="note">Эти кнопки отправляют команды на пульт. Свет, патч, сцены и шоу не меняются.</p>
+    <div class="row">
+      <button id="link-test" class="btn" type="button">Проверить соединение с пультом</button>
+      <button id="probe" class="btn" type="button">Прочитать списки пульта (только чтение)</button>
+      <button id="export-probe" class="btn" type="button">Проверить экспорт приборов</button>
+      <button id="all" class="btn primary" type="button">Всё сразу и скачать пакет</button>
+    </div>
+    <p class="note">«Проверить соединение» ничего не отправляет на пульт: показывает попытки подключения с точной причиной, кто занимает порт 30000 на этом ПК и одно пробное TCP-соединение без входа (только если на Площадке нажато «Разорвать связь»: иначе оно конкурировало бы с автоподключением моста). «Проверить экспорт» создаёт на ПК с MA2 несколько файлов panel_diag_* в папке экспорта (importexport) и ищет, куда они попали. Нужна галочка «Разрешить получение приборов из MA2».</p>
+    <p id="probe-status" role="status"></p><div id="probe-results"></div><div id="export-results"></div><pre id="link-results"></pre></section>
+  <h2>Чтение приборов: что известно</h2><pre id="export-info">Загрузка…</pre>
+  <h2>Ошибки и подсказки</h2><p id="refresh-error" class="bad" role="status"></p><ul id="errors"></ul>
+  <h2>Последние сырые ответы</h2><div id="raw"></div>
+</main><script src="diag.js"></script></body>
+</html>

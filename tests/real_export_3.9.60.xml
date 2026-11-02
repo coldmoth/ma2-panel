@@ -1,0 +1,583 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet type="text/xsl" href="styles/fixture+layer+layers@html@default.xsl"?>
+<?xml-stylesheet type="text/xsl" href="styles/fixture+layer+layers@csv.xsl" alternate="yes"?>
+<MA xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://schemas.malighting.de/grandma2/xml/MA" xsi:schemaLocation="http://schemas.malighting.de/grandma2/xml/MA http://schemas.malighting.de/grandma2/xml/3.9.60/MA.xsd" major_vers="3" minor_vers="9" stream_vers="60">
+	<Info datetime="2026-10-18T18:15:36" showfile="big room v2" />
+	<Fixture index="0" name="1.1" fixture_id="1">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>200</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="1" name="2.1" fixture_id="2">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>210</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="2" name="2.2" fixture_id="3">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>220</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="3" name="R-2 WINDOW" fixture_id="4">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>230</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="4" name="R-3 WINDOW" fixture_id="5">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>240</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="5" name="L-2 WINDOW" fixture_id="6">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>250</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="6" name="L-3 WINDOW" fixture_id="7">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>260</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="7" name="L-1 WINDOW" fixture_id="8">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>270</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="8" name="R-1 WINDOW" fixture_id="9">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>280</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="0" name="MiniB L" fixture_id="10">
+		<FixtureType name="4 Mini-B Basic RGBW">
+			<No>4</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>82</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+			<Channel index="10" />
+			<Channel index="11" />
+			<Channel index="12" />
+			<Channel index="13" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="1" name="MiniB R" fixture_id="11">
+		<FixtureType name="4 Mini-B Basic RGBW">
+			<No>4</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>99</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+			<Channel index="10" />
+			<Channel index="11" />
+			<Channel index="12" />
+			<Channel index="13" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="0" name="ACME LEFT" fixture_id="12">
+		<FixtureType name="5 Oxygen Mode 1">
+			<No>5</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>116</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+			<Channel index="10" />
+			<Channel index="11" />
+			<Channel index="12" />
+			<Channel index="13" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="1" name="ACME 2" fixture_id="13">
+		<FixtureType name="5 Oxygen Mode 1">
+			<No>5</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>133</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+			<Channel index="10" />
+			<Channel index="11" />
+			<Channel index="12" />
+			<Channel index="13" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="2" name="ACME RIGHT" fixture_id="14">
+		<FixtureType name="5 Oxygen Mode 1">
+			<No>5</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>150</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+			<Channel index="10" />
+			<Channel index="11" />
+			<Channel index="12" />
+			<Channel index="13" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="0" name="RIGHT FRESNEL" fixture_id="15">
+		<FixtureType name="6 ARTIST_FRESNEL RGB_CT">
+			<No>6</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>167</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="1" name="LEFT FRESNEL" fixture_id="16">
+		<FixtureType name="6 ARTIST_FRESNEL RGB_CT">
+			<No>6</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>176</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="9" name="L-4 WINDOW" fixture_id="23">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>289</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="10" name="R-4 WINDOW" fixture_id="24">
+		<FixtureType name="3 ARTIST_FL_1000 RGB_CT">
+			<No>3</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>298</Address>
+			</Patch>
+			<AbsolutePosition>
+				<Location x="0" y="0" z="0" />
+				<Rotation x="0" y="-0" z="0" />
+				<Scaling x="1" y="1" z="1" />
+			</AbsolutePosition>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="0" name="PAR L-2" fixture_id="25">
+		<FixtureType name="8 PAR 14X15 SLIM 10 ch">
+			<No>8</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>310</Address>
+			</Patch>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="1" name="PAR L-3" fixture_id="26">
+		<FixtureType name="8 PAR 14X15 SLIM 10 ch">
+			<No>8</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>320</Address>
+			</Patch>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="2" name="PAR R-1" fixture_id="27">
+		<FixtureType name="8 PAR 14X15 SLIM 10 ch">
+			<No>8</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>330</Address>
+			</Patch>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="3" name="PAR R-2" fixture_id="28">
+		<FixtureType name="8 PAR 14X15 SLIM 10 ch">
+			<No>8</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>340</Address>
+			</Patch>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="4" name="PAR R-3" fixture_id="29">
+		<FixtureType name="8 PAR 14X15 SLIM 10 ch">
+			<No>8</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>350</Address>
+			</Patch>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+		</SubFixture>
+	</Fixture>
+	<Fixture index="5" name="PAR L-1" fixture_id="30">
+		<FixtureType name="8 PAR 14X15 SLIM 10 ch">
+			<No>8</No>
+		</FixtureType>
+		<SubFixture index="0" react_to_grandmaster="true" color="ffffff">
+			<Patch>
+				<Address>360</Address>
+			</Patch>
+			<Channel index="0" />
+			<Channel index="1" />
+			<Channel index="2" />
+			<Channel index="3" />
+			<Channel index="4" />
+			<Channel index="5" />
+			<Channel index="6" />
+			<Channel index="7" />
+			<Channel index="8" />
+			<Channel index="9" />
+		</SubFixture>
+	</Fixture>
+</MA>

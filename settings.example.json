@@ -1,0 +1,21 @@
+{
+  "bind": "127.0.0.1",
+  "port": 8080,
+  "rate_hz": 5,
+  "poll_seconds": 0,
+  "ma2": {
+    "host": "127.0.0.1",
+    "port": 30000,
+    "user": "Remote",
+    "require_prompt": true
+  },
+  "safety": {
+    "mode": "test",
+    "allowed_fixtures": [],
+    "allowed_scenes": [],
+    "store_execs": [],
+    "allow_master": false,
+    "allow_page_change": false
+  },
+  "simple_port": 8090
+}

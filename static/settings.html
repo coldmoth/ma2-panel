@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Настройки · MA2</title><link rel="stylesheet" href="style.css">
+</head>
+<body><main class="sx">
+  <p class="toplinks"><a href="/">К панели</a> · <a href="diag.html">Диагностика</a></p>
+  <h1>Настройки</h1><p class="muted">Сохранение ничего не отправляет на пульт.</p>
+  <p id="status" role="status" aria-live="polite">Загрузка…</p><p class="muted" id="path"></p>
+  <form id="settings-form" hidden novalidate>
+    <fieldset><legend>Подключение к пульту</legend><div class="grid">
+      <label class="fld"><span class="lbl">Адрес пульта</span><input id="ma2-host" required><span class="err" id="err-ma2-host"></span></label>
+      <label class="fld"><span class="lbl">Порт Telnet</span><input id="ma2-port" type="number" min="1" max="65535" required><span class="err" id="err-ma2-port"></span></label>
+      <label class="fld"><span class="lbl">Пользователь</span><input id="ma2-user" required><span class="err" id="err-ma2-user"></span></label>
+      <label class="fld"><span class="lbl">Новый пароль <span id="password-state" class="muted"></span></span><input id="password" type="password" autocomplete="new-password" placeholder="Пусто — оставить действующий"><span class="err" id="err-password"></span></label>
+      <label class="fld"><span class="lbl">Ожидание ответа, с <span class="muted">(ma2.timeout)</span></span><input id="ma2-timeout" type="number" min="0.001" step="any" required><span class="err" id="err-ma2-timeout"></span></label>
+      <label class="fld"><span class="lbl">Приглашение <span class="muted">(prompt_regex)</span></span><input id="ma2-prompt_regex" placeholder="По умолчанию: ]> в конце ответа"><span class="err" id="err-ma2-prompt_regex"></span></label>
+      <label class="fld"><span class="lbl">Подтверждение входа <span class="muted">(login_ok_regex)</span></span><input id="ma2-login_ok_regex" placeholder="По умолчанию: logged in"><span class="err" id="err-ma2-login_ok_regex"></span></label>
+      <label class="fld"><span class="lbl">Пустой executor <span class="muted">(exec_empty_regex)</span></span><input id="ma2-exec_empty_regex"><span class="err" id="err-ma2-exec_empty_regex"></span></label>
+    </div>
+    <div class="opts">
+      <label class="opt"><input id="ma2-require_prompt" type="checkbox"><span class="t">Требовать приглашение пульта <span class="muted">(require_prompt)</span></span></label>
+      <label class="opt"><input id="clear-password" type="checkbox"><span class="t">Стереть действующий пароль</span></label>
+    </div></fieldset>
+    <fieldset><legend>Панель</legend><div class="grid">
+      <label class="fld"><span class="lbl">Адрес моста <span class="muted">(bind)</span></span><input id="bind" required><span class="err" id="err-bind"></span></label>
+      <label class="fld"><span class="lbl">Порт панели</span><input id="port" type="number" min="1" max="65535" required><span class="err" id="err-port"></span></label>
+      <label class="fld"><span class="lbl">Частота команд, 1–10 в секунду <span class="muted">(rate_hz)</span></span><input id="rate_hz" type="number" min="1" max="10" step="any" required><span class="err" id="err-rate_hz"></span></label>
+      <label class="fld"><span class="lbl">Период опроса, с <span class="muted">(0 — выключен)</span></span><input id="poll_seconds" type="number" min="0" step="any" required><span class="err" id="err-poll_seconds"></span></label>
+      <label class="fld"><span class="lbl">Чтение DMX для плана, с <span class="muted">(0 — выключено; Lua, только чтение)</span></span><input id="dmx_seconds" type="number" min="0" step="any" required><span class="err" id="err-dmx_seconds"></span></label>
+    </div></fieldset>
+    <fieldset><legend>Безопасность</legend>
+      <div class="grid">
+        <label class="fld"><span class="lbl">Режим</span><select id="mode"><option value="test">test — проверка</option><option value="store">store — запись в разрешённые места</option><option value="full">full — полный доступ</option></select></label>
+        <label class="fld"><span class="lbl">Разрешённые приборы <span class="muted">(allowed_fixtures, через запятую)</span></span><input id="allowed_fixtures" placeholder="12, 14"><span class="err" id="err-allowed_fixtures"></span></label>
+        <label class="fld"><span class="lbl">Разрешённые сцены <span class="muted">(allowed_scenes)</span></span><input id="allowed_scenes" placeholder="1.101, 1.102"></label>
+        <label class="fld"><span class="lbl">Места записи <span class="muted">(store_execs)</span></span><input id="store_execs" placeholder="1.103"></label>
+      </div>
+      <p id="full-warning" class="warnbox" role="note" hidden>Внимание: режим full снимает ограничения на приборы, сцены, мастер и смену страницы. Действия панели меняют реальный свет.</p>
+      <div class="opts">
+        <label class="opt"><input id="allow_master" type="checkbox"><span class="t">Разрешить мастер</span></label>
+        <label class="opt"><input id="allow_page_change" type="checkbox"><span class="t">Разрешить смену страницы пульта</span></label>
+        <label class="opt"><input id="allow_fixture_read" type="checkbox"><span class="t">Разрешить получение приборов из MA2</span><span class="d">Создаёт файл экспорта на ПК с MA2. Патч не меняется.</span></label>
+        <label class="opt"><input id="allow_highlight" type="checkbox"><span class="t">Разрешить подсветку прибора</span></label>
+        <label class="opt"><input id="allow_show_load" type="checkbox"><span class="t">Разрешить загрузку шоу</span></label>
+        <label class="opt"><input id="allow_group_store" type="checkbox"><span class="t">Разрешить запись группы в MA2</span><span class="d">Только в пустой номер.</span></label>
+        <label class="opt"><input id="allow_patch" type="checkbox"><span class="t">Разрешить менять патч MA2</span><span class="d">Раздел «Патч»: Assign Fixture … At Dmx, только после подтверждения плана.</span></label>
+        <label class="opt"><input id="allow_rdm" type="checkbox"><span class="t">Разрешить RDM</span><span class="d">RdmList и смена адреса/Identify по UID. Меняет сам прибор, во всех шоу.</span></label>
+        <label class="opt"><input id="allow_show_save" type="checkbox"><span class="t">Разрешить сохранение шоу</span></label>
+      </div>
+    </fieldset>
+    <fieldset><legend>Функции</legend><p class="muted">Снимите галочку или укажите причину, чтобы заблокировать функцию.</p><div id="features" class="feats"></div></fieldset>
+    <fieldset><legend>Сопоставление атрибутов</legend>
+      <label class="fld"><span class="lbl">attrs (JSON; {} — использовать config.json)</span><textarea id="attrs" spellcheck="false"></textarea><span class="err" id="err-attrs"></span></label>
+      <details><summary>Подсказка: атрибуты из config.json</summary><pre id="config-attrs"></pre></details>
+    </fieldset>
+    <div class="savebar">
+      <button id="save" class="btn primary" type="submit">Сохранить</button>
+      <button id="restart" class="btn" type="button" hidden>Перезапустить мост</button>
+      <p id="save-status" class="savestatus" role="status" aria-live="polite"></p>
+    </div>
+  </form>
+  <fieldset class="importbox"><legend>Импорт подготовленного XML-файла (не из пульта)</legend>
+    <p class="muted">План должен быть привязан к шоу. В MA2 ничего не отправляется.</p>
+    <label class="fld"><span class="lbl">Файл XML</span><input id="fixture-file" type="file" accept=".xml,text/xml,application/xml"></label>
+    <button id="import-file" class="btn" type="button">Импортировать файл</button>
+  </fieldset>
+</main><script src="settings.js"></script></body>
+</html>

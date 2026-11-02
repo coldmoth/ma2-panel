@@ -1,0 +1,283 @@
+{
+  "version": 4,
+  "port": 8080,
+  "ma2": {
+    "host": "127.0.0.1",
+    "port": 30000,
+    "user": "panel",
+    "password": "",
+    "export_cmd": "Export Fixture 1 Thru 9999 \"panel_fixtures\"",
+    "export_dir": "C:/ProgramData/MA Lighting Technologies/grandma/gma2_V_3.9.60/importexport"
+  },
+  "rate_hz": 10,
+  "master": {
+    "cmd": "Master 2.1 At {v}"
+  },
+  "groups": [
+    {
+      "id": "potolok",
+      "n": 101,
+      "label": "Потолок",
+      "fixtures": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        23,
+        24
+      ]
+    },
+    {
+      "id": "front",
+      "n": 102,
+      "label": "Фронт",
+      "fixtures": [
+        12,
+        14
+      ]
+    },
+    {
+      "id": "pushki",
+      "n": 103,
+      "label": "Пушки",
+      "fixtures": [
+        15,
+        16
+      ]
+    },
+    {
+      "id": "fon",
+      "n": 104,
+      "label": "Фон",
+      "fixtures": [
+        10,
+        11
+      ]
+    },
+    {
+      "id": "back",
+      "n": 105,
+      "label": "Контровой",
+      "fixtures": [
+        13
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": 1,
+      "label": "BAR 1",
+      "type": "bar",
+      "x": 0.2,
+      "y": 0.3
+    },
+    {
+      "id": 2,
+      "label": "BAR 2",
+      "type": "bar",
+      "x": 0.2,
+      "y": 0.5
+    },
+    {
+      "id": 3,
+      "label": "BAR 3",
+      "type": "bar",
+      "x": 0.2,
+      "y": 0.7
+    },
+    {
+      "id": 4,
+      "label": "BAR 4",
+      "type": "bar",
+      "x": 0.4,
+      "y": 0.4
+    },
+    {
+      "id": 5,
+      "label": "BAR 5",
+      "type": "bar",
+      "x": 0.4,
+      "y": 0.5
+    },
+    {
+      "id": 6,
+      "label": "BAR 6",
+      "type": "bar",
+      "x": 0.4,
+      "y": 0.6
+    },
+    {
+      "id": 7,
+      "label": "BAR 7",
+      "type": "bar",
+      "x": 0.5,
+      "y": 0.4
+    },
+    {
+      "id": 8,
+      "label": "BAR 8",
+      "type": "bar",
+      "x": 0.5,
+      "y": 0.5
+    },
+    {
+      "id": 9,
+      "label": "BAR 9",
+      "type": "bar",
+      "x": 0.5,
+      "y": 0.6
+    },
+    {
+      "id": 10,
+      "label": "Mini-B 10",
+      "type": "minib",
+      "x": 0.15,
+      "y": 0.15
+    },
+    {
+      "id": 11,
+      "label": "Mini-B 11",
+      "type": "minib",
+      "x": 0.15,
+      "y": 0.85
+    },
+    {
+      "id": 12,
+      "label": "ACME 12",
+      "type": "acme",
+      "x": 0.8,
+      "y": 0.15,
+      "moves": true,
+      "beam": {
+        "home": 50,
+        "invert": false
+      }
+    },
+    {
+      "id": 13,
+      "label": "ACME 13",
+      "type": "acme",
+      "x": 0.05,
+      "y": 0.5,
+      "moves": true,
+      "beam": {
+        "home": 50,
+        "invert": false
+      }
+    },
+    {
+      "id": 14,
+      "label": "ACME 14",
+      "type": "acme",
+      "x": 0.8,
+      "y": 0.85,
+      "moves": true,
+      "beam": {
+        "home": 50,
+        "invert": false
+      }
+    },
+    {
+      "id": 15,
+      "label": "Fresnel 15",
+      "type": "fresnel",
+      "x": 0.5,
+      "y": 0.1
+    },
+    {
+      "id": 16,
+      "label": "Fresnel 16",
+      "type": "fresnel",
+      "x": 0.5,
+      "y": 0.9
+    },
+    {
+      "id": 17,
+      "label": "PAR 17",
+      "type": "par"
+    },
+    {
+      "id": 18,
+      "label": "PAR 18",
+      "type": "par"
+    },
+    {
+      "id": 19,
+      "label": "PAR 19",
+      "type": "par"
+    },
+    {
+      "id": 20,
+      "label": "PAR 20",
+      "type": "par"
+    },
+    {
+      "id": 21,
+      "label": "PAR 21",
+      "type": "par"
+    },
+    {
+      "id": 22,
+      "label": "PAR 22",
+      "type": "par"
+    },
+    {
+      "id": 23,
+      "label": "BAR 23",
+      "type": "bar",
+      "x": 0.6,
+      "y": 0.45
+    },
+    {
+      "id": 24,
+      "label": "BAR 24",
+      "type": "bar",
+      "x": 0.6,
+      "y": 0.55
+    }
+  ],
+  "scenes": [
+    {
+      "id": "pianist",
+      "exec": "1.101",
+      "label": "Pianist"
+    }
+  ],
+  "plan": {
+    "image": "plan.svg",
+    "stage": {
+      "x": 0.08,
+      "y": 0.5
+    }
+  },
+  "attrs": {
+    "pan": {
+      "cmd": "Attribute \"Pan\" At {v}",
+      "min": -270,
+      "max": 270
+    },
+    "tilt": {
+      "cmd": "Attribute \"Tilt\" At {v}",
+      "min": -135,
+      "max": 135
+    },
+    "zoom": {
+      "cmd": "Attribute \"Zoom\" At {v}",
+      "min": 0,
+      "max": 100
+    },
+    "focus": {
+      "cmd": "Attribute \"Focus\" At {v}",
+      "min": 0,
+      "max": 100
+    },
+    "strobe": {
+      "cmd": "Attribute \"Strobe\" At {v}",
+      "min": 0,
+      "max": 100
+    }
+  },
+  "presets": []
+}
