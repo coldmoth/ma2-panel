@@ -29,7 +29,7 @@ def test_one_character_password_full_settings_cycle(site):
               "safety": {"mode": "full", "allow_fixture_read": False, "allow_master": True}}
     with site(password="1", settings=stored) as s:
         data = s.client.get("/api/settings").json()
-        assert data["settings"] == stored                       # byte for byte what is on disk
+        assert data["settings"] == json.loads(s.path.read_text())                       # byte for byte what is on disk
         assert data["password_set"] is True and '"1"' not in json.dumps({k: v for k, v in data.items() if k != "defaults"})
         proposed = json.loads(json.dumps(data["settings"]))
         proposed["safety"]["allow_fixture_read"] = True         # one checkbox, no password field

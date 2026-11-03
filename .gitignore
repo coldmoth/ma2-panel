@@ -34,3 +34,12 @@ htmlcov/
 .claude/
 .impeccable/
 prototypes/
+
+# Diagnostic upload credentials (never distribute)
+diagnostic-upload.json
+
+# Persistent update transactions/runtime identity
+.updates/
+runtime.json
+program-manifest.json
+runtime-files.json

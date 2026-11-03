@@ -66,7 +66,14 @@ const context = vm.createContext({document, WebSocket, console, location: {proto
 for (const path of ['static/app.js', 'static/light.js', 'static/plan.js', 'static/move.js']) vm.runInContext(fs.readFileSync(path, 'utf8'), context, {filename: path});
 vm.runInContext('connect()', context);
 const ws = () => context.state.ws;
-const sent = () => ws().sent;
+// Semantic assertions omit transport fields; protocol-panel.cjs checks their exact lifecycle.
+const semanticAction = ({request_id,config_revision,...action}) => action;
+const sent = () => ws().sent.map(semanticAction);
+const reply = message => {
+  const action = ws().sent.slice().reverse().find(action => action.a === message.a && context.pending[action.request_id]);
+  assert.ok(action, 'a synthetic acknowledgement must match an outstanding ' + message.a);
+  context.receive({...message,request_id:action.request_id});
+};
 const page = document.getElementById('page');
 const findBtn = text => page.all().concat(document.getElementById('banners').all()).find(n => n.tagName === 'BUTTON' && n.textContent.includes(text));
 const status = extra => context.receive({status: Object.assign({ma2: 'logged_in', safety: {mode: 'full', allow_fixture_read: true, allow_highlight: true, allow_show_load: true, allow_show_save: true, master: true}, show: {name: 'Mock show'}}, extra)});
@@ -80,25 +87,34 @@ const fetchBtn = findBtn('Получить оборудование из MA2');
 assert.ok(fetchBtn && !fetchBtn.disabled);
 fetchBtn.click();
 assert.equal(sent().at(-1).a, 'fixtures_fetch');
-context.receive({ok: false, a: 'fixtures_fetch', err: 'MA2 не создала файл'});
+reply({ok: false, a: 'fixtures_fetch', err: 'MA2 не создала файл'});
 assert.match(page.textContent, /Не получено из MA2: MA2 не создала файл/);
 console.log('empty workspace and fetch passed');
 
-// Shows: explicit load only, typed confirmation, save is separate.
+// Shows: explicit load only, one confirmation dialog, save is separate.
 context.go('shows');
 const before = sent().length;
-context.receive({ok: true, a: 'shows_list', names: ['Demo', 'Mock show'], raw_lines: ['"Demo"'], local_names: []});
+findBtn('Показать список').click();
+reply({ok: true, a: 'shows_list', names: ['Demo', 'Mock show'], raw_lines: ['"Demo"'], local_names: []});
 status();
 assert.equal(sent().slice(before).filter(a => a.a === 'show_load').length, 0);
 findBtn('Demo').click();
 const load = findBtn('Загрузить «Demo»');
-assert.equal(load.disabled, true);
-const inputs = page.all().filter(n => n.tagName === 'INPUT');
-const ack = inputs.find(n => n.type === 'checkbox'), conf = inputs.find(n => n.id === 'load-confirm');
-ack.checked = true; ack.fire('change');
-conf.value = 'Demo'; conf.fire('input');
 assert.equal(load.disabled, false);
+assert.equal(page.all().some(n => n.tagName === 'INPUT' && (n.id === 'load-confirm' || n.type === 'checkbox')), false);
+let confirmation;
+context.confirm = text => { confirmation = text; return false; };
+const beforeCancel = sent().length;
 load.click();
+assert.match(confirmation, /Demo/);
+assert.match(confirmation, /[Нн]есохранённые изменения/);
+assert.equal(sent().length, beforeCancel, 'Cancel must not send a command');
+assert.equal(context.state.showPick, 'Demo');
+context.confirm = () => true;
+status({safety: {mode: 'full', allow_show_load: false}});
+assert.equal(findBtn('Загрузить «Demo»').disabled, true);
+status();
+findBtn('Загрузить «Demo»').click();
 assert.deepEqual(sent().at(-1), {a: 'show_load', name: 'Demo', confirm_name: 'Demo', ack_unsaved: true});
 findBtn('Сохранить шоу на пульте').click();  // one button, after confirm(): no typed name
 assert.deepEqual(sent().at(-1), {a: 'show_save'});
@@ -106,6 +122,8 @@ status({show_load: {state: 'loading', name: 'Demo'}});
 assert.equal(context.connected(), false);
 assert.equal(document.getElementById('halt').disabled, false);
 status({show_load: {state: 'done', name: 'Demo'}});
+reply({ok:true,a:'show_load'});
+reply({ok:true,a:'show_save'});
 console.log('shows: explicit load, confirmation, save passed');
 
 // Highlight lifecycle in Зал.
@@ -202,7 +220,8 @@ managePresets.click();
 const deletePreset = page.all().find(n=>n.tagName==='BUTTON' && n.getAttribute('aria-label')==='Удалить пресет Центр');
 const beforeDelete = sent().length; deletePreset.click();
 assert.deepEqual(JSON.parse(JSON.stringify(sent().slice(beforeDelete))),[{a:'preset_delete',id:'p1'}]);
-context.moveState.drag={pointer:1,t:0,vx:1,vy:0,timer:1};
+reply({ok:true,a:'preset_delete'});
+context.moveState.drag={pointer:1,t:0,vx:1,vy:0,timer:0};
 findBtn('Свет',true); context.go('scenes');
 const afterLeave=sent().length; context.joyTick(); assert.equal(sent().length,afterLeave);
 console.log('compact movement and preset deletion passed');
@@ -211,7 +230,7 @@ console.log('compact movement and preset deletion passed');
 context.receive({config:{show:'Demo',fixtures:[],groups:[],presets:[],attrs:{},scenes:[
  {id:'a',exec:'1.101',label:'Рояль'}, {id:'b',exec:'2.105',label:'Финал'}]}});
 context.go('scenes');
-const tiles = page.all().filter(n=>n.tagName==='BUTTON' && n.dataset.scene);
+const tiles = page.all().filter(n=>n.tagName==='BUTTON' && n.dataset.scene && n.classList.contains('tile'));
 assert.ok(tiles[0].textContent.includes('Рояль'));
 assert.ok(tiles[1].textContent.includes('Финал'));
 assert.ok(!tiles[0].textContent.includes('1.101'));
@@ -226,7 +245,7 @@ const storeName=storeDialog.all().find(n=>n.id==='store-name'); storeName.value=
 const search=storeDialog.all().find(n=>n.tagName==='BUTTON' && n.textContent==='Найти место');
 assert.ok(search); search.click();
 const searchRequest=sent().at(-1); assert.equal(searchRequest.a,'scene_slot_find');
-context.receive({ok:true,a:'scene_slot_find'});
+reply({ok:true,a:'scene_slot_find'});
 context.receive({scene_slot:{request:'old',state:'ready',exec:'2.200',token:'stale'}});
 assert.ok(!storeDialog.textContent.includes('2.200'));
 context.receive({scene_slot:{request:searchRequest.request,state:'ready',exec:'1.1',token:'token1'}});
@@ -236,7 +255,7 @@ assert.equal(sent().filter(a=>a.a==='scene_create' && a.token==='token1').length
 console.log('safe slot offer dialog passed');
 
 // Preparation exposes compact fixture settings without changing the desk.
-context.receive({ok:true,a:'scene_create'});
+reply({ok:true,a:'scene_create'});
 context.receive({config:{show:'Demo',hall:{w:18,d:14,stage:'top',stageDepth:4},fixtures:[{id:12,label:'Голова',moves:true,x:.3,y:.3}],groups:[],scenes:[],presets:[],plan:{},attrs:{pan:{min:-270,max:270},tilt:{min:-135,max:135}}}});
 context.go('hall');
 const fixtureSettings=page.all().find(n=>n.tagName==='DETAILS' && n.textContent.includes('Настройки прибора'));
@@ -252,8 +271,9 @@ const simpleIds=new Map(); const simpleDoc={createElement:tag=>new Node(tag),get
  if(!simpleIds.has(id))simpleIds.set(id,new Node('div')); return simpleIds.get(id);
 }};
 let simpleSocket;
+const simpleReply = message => ({...message,request_id:simpleSocket.sent.slice().reverse().find(action=>action.a===message.a).request_id});
 class SimpleSocket extends WebSocket { constructor(){super();simpleSocket=this;} }
-const simpleContext=vm.createContext({document:simpleDoc,WebSocket:SimpleSocket,location:{protocol:'http:',host:'localhost'},setTimeout:()=>0,confirm:()=>true});
+const simpleContext=vm.createContext({document:simpleDoc,WebSocket:SimpleSocket,location:{protocol:'http:',host:'localhost'},setTimeout:()=>0,setInterval:(fn,delay)=>{timers.push({fn,delay});return timers.length;},confirm:()=>true});
 vm.runInContext(fs.readFileSync(process.env.MA2_SIMPLE_SCRIPT || 'static/simple.js','utf8'),simpleContext);
 simpleSocket.onmessage({data:JSON.stringify({status:{ma2:'logged_in',safety:{mode:'full'}}})});
 simpleSocket.onmessage({data:JSON.stringify({config:{scenes:[{id:'z',exec:'2.105',label:'Финал'},{id:'a',exec:'1.101',label:'Рояль'}]}})});
@@ -268,13 +288,16 @@ console.log('simple panel flat scene order passed');
 context.receive({config:{show:'Demo',fixtures:[{id:12,label:'A',moves:true},{id:14,label:'B',moves:true}],groups:[],scenes:[],presets:[],attrs:{pan:{min:-270,max:270},tilt:{min:-135,max:135}}}});
 context.state.selection=[12,14];context.lightUI.controlTab='movement';context.go('light');
 const beforeFlip=sent().length;findBtn('Pan наоборот').click();
+assert.deepEqual(JSON.parse(JSON.stringify(sent().slice(beforeFlip))),[{a:'fixture_flag',id:12,flip_pan:true}]);
+reply({ok:true,a:'fixture_flag'});
 assert.deepEqual(JSON.parse(JSON.stringify(sent().slice(beforeFlip))),[
  {a:'fixture_flag',id:12,flip_pan:true},{a:'fixture_flag',id:14,flip_pan:true}
 ]);
+reply({ok:true,a:'fixture_flag'});
 console.log('multi-head inversion gesture passed');
 
 // Unconfirmed writes must be visible and blocked in the teacher UI too.
-simpleSocket.onmessage({data:JSON.stringify({ok:true,a:'scene_go'})});
+simpleSocket.onmessage({data:JSON.stringify(simpleReply({ok:true,a:'scene_go'}))});
 simpleSocket.onmessage({data:JSON.stringify({config:{scenes:[{id:'z',exec:'2.105',label:'Финал',write_error:'Запись не подтверждена'}]}})});
 const unsafeGo=simpleDoc.getElementById('scenes').all().find(n=>n.tagName==='BUTTON');
 assert.equal(unsafeGo.disabled,true);
@@ -295,3 +318,136 @@ focusedMaster.focus();
 context.receive({master:85,values_revision:12});
 assert.equal(Number(focusedMaster.value),85);
 console.log('focused master follows confirmed state passed');
+
+// A transport acknowledgement is never evidence that a scene is running.
+context.discardPending();
+status({show_load:{state:'idle'}});
+context.receive({config:{show:'Demo',fixtures:[],groups:[],scenes:[{id:'evidence',exec:'1.101',label:'Проверка'}],presets:[],attrs:{}}});
+context.go('scenes');
+page.all().find(n=>n.tagName==='BUTTON' && n.dataset.scene==='evidence').click();
+reply({ok:true,a:'scene_go'});
+assert.notEqual(context.state.scenes.evidence,true);
+assert.match(page.textContent,/неизвест/i);
+assert.equal(document.getElementById('notice').textContent,'Команда отправлена');
+context.receive({running:{evidence:true},running_meta:{evidence:{source:'ma2',freshness:'fresh',updated_at:1}}});
+assert.match(page.textContent,/Идёт/);
+context.receive({running:{evidence:null},running_meta:{evidence:{source:'ma2',freshness:'stale',updated_at:1}}});
+assert.doesNotMatch(page.textContent,/Идёт/);
+assert.match(page.textContent,/устар/i);
+const unknownOff=page.all().find(n=>n.tagName==='BUTTON' && n.textContent==='Выключить');
+assert.ok(unknownOff && !unknownOff.disabled);
+unknownOff.click();
+assert.equal(sent().at(-1).a,'scene_off');
+reply({ok:true,a:'scene_off'});
+assert.equal(context.state.scenes.evidence,null);
+console.log('main scenes distinguish command acknowledgement and evidence passed');
+
+// The teacher panel follows the same bridge evidence and retains explicit Off for unknown scenes.
+simpleSocket.onmessage({data:JSON.stringify({config:{scenes:[{id:'q',exec:'1.101',label:'Проверка'}]}})});
+simpleDoc.getElementById('scenes').all().find(n=>n.tagName==='BUTTON').click();
+simpleSocket.onmessage({data:JSON.stringify(simpleReply({ok:true,a:'scene_go'}))});
+assert.doesNotMatch(simpleDoc.getElementById('scenes').textContent,/· идёт/);
+assert.match(simpleDoc.getElementById('scenes').textContent,/неизвест/i);
+simpleSocket.onmessage({data:JSON.stringify({running:{q:true},running_meta:{q:{source:'ma2',freshness:'fresh',updated_at:1}}})});
+assert.match(simpleDoc.getElementById('scenes').textContent,/· идёт/);
+simpleSocket.onmessage({data:JSON.stringify({running:{q:null},running_meta:{q:{source:'ma2',freshness:'stale',updated_at:1}}})});
+assert.match(simpleDoc.getElementById('scenes').textContent,/устар/i);
+assert.ok(simpleDoc.getElementById('scenes').all().find(n=>n.tagName==='BUTTON' && n.textContent==='Выключить'));
+console.log('teacher scenes distinguish command acknowledgement and evidence passed');
+
+// Output colouring requires a fresh MA2 read; panel history alone is not measured output.
+context.receive({config:{show:'Demo',hall:{w:18,d:14,stage:'top',stageDepth:4},fixtures:[{id:12,label:'Голова',moves:true,x:.3,y:.3}],groups:[],scenes:[],presets:[],attrs:{}}});
+context.state.selection=[12];context.lightUI.tab='plan';context.lightUI.controlTab='light';context.go('light');
+context.receive({shown:{12:{dim:80,rgb:[100,0,0]}},live:{12:{dim:80,rgb:[100,0,0]}},values_meta:{shown:{source:'panel',freshness:'fresh'},live:{source:'ma2',freshness:'fresh'}}});
+assert.ok(page.all().some(n=>n.classList.contains('lit')));
+context.receive({values_meta:{shown:{source:'panel',freshness:'stale'},live:{source:'ma2',freshness:'stale'}}});
+assert.equal(page.all().some(n=>n.classList.contains('lit')),false);
+assert.match(page.textContent,/устар/i);
+assert.match(page.textContent,/отправлен.*панел/i);
+context.receive({running:{evidence:true},shown:{12:{dim:80}},live:{12:{dim:80}}});
+ws().onclose();
+assert.equal(Object.keys(context.state.scenes).length,0);
+assert.equal(Object.keys(context.state.shown).length,0);
+assert.equal(Object.keys(context.state.live).length,0);
+simpleSocket.onclose();
+assert.doesNotMatch(simpleDoc.getElementById('scenes').textContent,/· идёт/);
+console.log('stale output, source labels and websocket invalidation passed');
+
+// A silent but still-open socket must not freeze a fresh snapshot forever.
+context.browserNow=1000;simpleContext.browserNow=1000;
+vm.runInContext('Date.now = () => browserNow',context);
+vm.runInContext('Date.now = () => browserNow',simpleContext);
+status();
+context.receive({config:{show:'Demo',fixtures:[],groups:[],scenes:[{id:'silent',exec:'1.101',label:'Тишина'}],presets:[],attrs:{}}});
+context.go('scenes');
+context.receive({running:{silent:true},running_meta:{silent:{source:'ma2',freshness:'fresh',updated_at:987654321}}});
+assert.match(page.textContent,/Идёт/);
+simpleSocket.onmessage({data:JSON.stringify({status:{ma2:'logged_in',safety:{mode:'full'}},config:{scenes:[{id:'silent',exec:'1.101',label:'Тишина'}]},running:{silent:true},running_meta:{silent:{source:'ma2',freshness:'fresh',updated_at:987654321}}})});
+context.browserNow=7000;simpleContext.browserNow=7000;
+timers.filter(t=>t.delay===500 && !t.cleared).forEach(t=>t.fn());
+assert.doesNotMatch(page.textContent,/Идёт/);
+assert.match(page.textContent,/устар/i);
+assert.doesNotMatch(simpleDoc.getElementById('scenes').textContent,/· идёт/);
+assert.match(simpleDoc.getElementById('scenes').textContent,/устар/i);
+console.log('silent sockets expire evidence using local receipt time passed');
+
+// A rapid replacement must switch off prior configured scenes whose state is still unknown.
+const replacementScenes=[{id:'prior',exec:'1.101',label:'Первая'},{id:'next',exec:'1.102',label:'Следующая'},
+ {id:'stale',exec:'1.103',label:'Устаревшая'},{id:'stopped',exec:'1.104',label:'Остановленная'}];
+const replacementEvidence={running:{stale:null,stopped:false},running_meta:{
+ stale:{source:'ma2',freshness:'stale',updated_at:1},stopped:{source:'ma2',freshness:'fresh',updated_at:2}}};
+status();context.discardPending();
+context.receive({config:{show:'Demo',fixtures:[],groups:[],scenes:replacementScenes,presets:[],attrs:{}}});
+context.go('scenes');context.receive(replacementEvidence);
+page.all().find(n=>n.classList.contains('tile') && n.dataset.scene==='prior').click();
+reply({ok:true,a:'scene_go'}); // Polling may be disabled, or the next tap may arrive before a read.
+page.all().find(n=>n.classList.contains('tile') && n.dataset.scene==='next').click();
+assert.deepEqual(JSON.parse(JSON.stringify(sent().at(-1).swap)),['prior','stale']);
+reply({ok:true,a:'scene_go'});
+simpleSocket.onmessage({data:JSON.stringify({status:{ma2:'logged_in',safety:{mode:'full'}},config:{scenes:replacementScenes}})});
+simpleSocket.onmessage({data:JSON.stringify(replacementEvidence)});
+simpleDoc.getElementById('scenes').all().find(n=>n.tagName==='BUTTON' && n.textContent.startsWith('1 ·')).click();
+simpleSocket.onmessage({data:JSON.stringify(simpleReply({ok:true,a:'scene_go'}))});
+simpleDoc.getElementById('scenes').all().find(n=>n.tagName==='BUTTON' && n.textContent.startsWith('2 ·')).click();
+assert.deepEqual(JSON.parse(JSON.stringify(simpleSocket.sent.at(-1).swap)),['prior','stale']);
+console.log('rapid replacements include unknown/stale scenes and exclude confirmed stopped passed');
+
+// Replacement must respect the same scene permissions as the launch target.
+const scenePermissions={mode:'simple',scenes:['1.101','1.102'],fixtures:[]};
+status({safety:scenePermissions});context.discardPending();
+page.all().find(n=>n.classList.contains('tile') && n.dataset.scene==='next').click();
+assert.deepEqual(JSON.parse(JSON.stringify(sent().at(-1).swap)),['prior']);
+reply({ok:true,a:'scene_go'});
+simpleSocket.onmessage({data:JSON.stringify(simpleReply({ok:true,a:'scene_go'}))});
+simpleSocket.onmessage({data:JSON.stringify({status:{ma2:'logged_in',safety:scenePermissions}})});
+simpleDoc.getElementById('scenes').all().find(n=>n.tagName==='BUTTON' && n.textContent.startsWith('2 ·')).click();
+assert.deepEqual(JSON.parse(JSON.stringify(simpleSocket.sent.at(-1).swap)),['prior']);
+console.log('replacement candidates respect scene permissions passed');
+
+// Bare bools are not verified MA2 evidence, including a false that would hide explicit Off.
+const noReadScenes=[{id:'no-read-on',exec:'1.110',label:'Без чтения 1'},{id:'no-read-off',exec:'1.111',label:'Без чтения 2'}];
+status();context.discardPending();
+context.receive({config:{show:'Demo',fixtures:[],groups:[],scenes:noReadScenes,presets:[],attrs:{}},running:{'no-read-on':true,'no-read-off':false}});
+context.go('scenes');
+assert.doesNotMatch(page.textContent,/Идёт|Остановлена/);
+assert.match(page.textContent,/Статус неизвестен/);
+assert.equal(page.all().filter(n=>n.tagName==='BUTTON' && n.textContent==='Выключить').length,2);
+simpleSocket.onmessage({data:JSON.stringify(simpleReply({ok:true,a:'scene_go'}))});
+simpleSocket.onmessage({data:JSON.stringify({status:{ma2:'logged_in',safety:{mode:'full'}},config:{scenes:noReadScenes},running:{'no-read-on':true,'no-read-off':false}})});
+assert.doesNotMatch(simpleDoc.getElementById('scenes').textContent,/· идёт|· остановлена/);
+assert.match(simpleDoc.getElementById('scenes').textContent,/статус неизвестен/);
+assert.equal(simpleDoc.getElementById('scenes').all().filter(n=>n.tagName==='BUTTON' && n.textContent==='Выключить').length,2);
+console.log('scene booleans without read metadata remain unknown passed');
+
+// Diagnostic upload runs in its own VM and never sends panel actions.
+require('./diag-upload.cjs');
+
+require('./update-ui.cjs');
+
+require('./import-confirm-ui.cjs')({context:Object.assign(Object.create(context),{receive:message=>('ok' in message && message.a==='import_confirm_merge') ? reply(message) : context.receive(message)}),page,document,findBtn,sent,status,Node}).catch(error=>{console.error(error);process.exitCode=1;});
+
+require('./absolute-axes.cjs');
+require('./protocol-panel.cjs');
+require('./setup-ui.cjs');
+require('./show-files-ui.cjs');
+require('./rdm-search-ui.cjs');

@@ -1,10 +1,36 @@
 /* ---------- Патч (spec 21): the show's patch, RDM devices, and one confirmed readdress at a time ---------- */
+var rdmSearchUI = {preparing: false, socket: null, uncertainStart: false, baseline: null, error: ''};
 var patchState = {edit: false, cur: null, address: '', patch: true, physical: false, plan: null, result: null, rdm: null, uid: '', footprint: ''};
 
-function patchKey() { return JSON.stringify([patchState.edit, patchState.cur, patchState.plan && patchState.plan.token, patchState.result, patchState.rdm && patchState.rdm.t]); }
+function patchKey() { return JSON.stringify([patchState.edit, patchState.cur, patchState.plan && patchState.plan.token, patchState.result, patchState.rdm && patchState.rdm.t, state.rdmSearch, rdmSearchUI.preparing, rdmSearchUI.uncertainStart, rdmSearchUI.error]); }
 
 on('rdm', function (rdm) { patchState.rdm = rdm; render(); });
+on('status', function () {
+  var search = state.rdmSearch || {};
+  if (search.id && search.id !== rdmSearchUI.baseline) rdmSearchUI.uncertainStart = false;
+  if (!connected()) { rdmSearchUI.preparing = false; rdmSearchUI.socket = null; }
+  render();
+});
 on('ok', function (ok, m) {
+  if (m.search && /^rdm_/.test(m.a || '')) { state.rdmSearch = m.search; if (m.search.id !== rdmSearchUI.baseline || m.a === 'rdm_check' && m.search.off_state === 'confirmed') rdmSearchUI.uncertainStart = false; }
+  if (m.a === 'rdm_prepare') {
+    var fresh = rdmSearchUI.preparing && rdmSearchUI.socket === state.ws && connected();
+    rdmSearchUI.preparing = false; rdmSearchUI.socket = null;
+    if (!fresh) return;
+    if (!ok || !m.offer || !m.offer.token) { rdmSearchUI.error = m.err || 'Подготовка поиска не подтверждена'; render(); return; }
+    var universes = (m.offer.universes || []).join(', ');
+    if (confirm('Начать поиск RDM на 18 секунд? Вселенные, уже разрешённые в MA2: ' + universes + '. RDM вызывал мигание френеля. Запускайте только вне выступления. После поиска, остановки или ошибки панель выключит глобальный RDM и проверит Off; при обрыве выключение потребуется проверить на самой MA2. Найденные устройства не меняют патч, адреса и план.')) {
+      rdmSearchUI.baseline = (state.rdmSearch || {}).id || null;
+      rdmSearchUI.uncertainStart = true;
+      rdmSearchUI.error = '';
+      if (!send({a: 'rdm_start', token: m.offer.token})) { rdmSearchUI.uncertainStart = false; rdmSearchUI.error = 'Запуск не отправлен: проверьте соединение'; }
+    }
+    render();
+  }
+  if (m.a === 'rdm_start' || m.a === 'rdm_stop' || m.a === 'rdm_check') {
+    rdmSearchUI.error = ok ? '' : m.err || 'Результат операции RDM не подтверждён';
+    render();
+  }
   if (m.a === 'patch_plan') { patchState.plan = ok ? m.plan : null; if (ok) patchDialog(m.plan); else notice(m.err); }
   if (m.a === 'patch_apply') { patchState.result = m; patchState.plan = null; closeDialog(); render(); }
   if (m.a === 'rdm_list' && !ok) notice(m.err);
@@ -14,25 +40,60 @@ on('ok', function (ok, m) {
 function dmxText(a) { return Math.floor((a - 1) / 512) + 1 + '.' + String((a - 1) % 512 + 1).padStart(3, '0'); }
 function closeDialog() { var d = document.getElementById('dlg'); if (d.open) d.close(); }
 
+function rdmSearchPending() { return !!((state.rdmSearch || {}).pending || rdmSearchUI.uncertainStart); }
+function rdmSearchBusy() { return !!((state.rdmSearch || {}).active || rdmSearchPending() || rdmSearchUI.preparing); }
+function rdmSearchBegin() {
+  if (!connected() || !safe('allow_rdm') || rdmSearchBusy()) return;
+  rdmSearchUI.error = ''; rdmSearchUI.preparing = true; rdmSearchUI.socket = state.ws;
+  if (!send({a: 'rdm_prepare'})) { rdmSearchUI.preparing = false; rdmSearchUI.socket = null; }
+  render();
+}
+function rdmRecoveryText() {
+  return 'Выключение RDM не подтверждено. RDM может оставаться включённым и вызывать мигание. На MA2: Setup → Console → Global Settings → RDM (Enable RDM) → Off. Затем восстановите связь и нажмите «Проверить выключение». Проверка только читает состояние.';
+}
+function rdmSearchBanner() {
+  var search = state.rdmSearch || {};
+  if (!rdmSearchPending() || search.off_state === 'confirmed' && !rdmSearchUI.uncertainStart) return null;
+  return h('div', {class: 'banner ' + (search.active ? 'warn' : 'bad'), role: 'alert'},
+    search.active ? 'Выполняется поиск RDM. Он может вызывать мигание. После остановки необходимо подтверждённое выключение.' : rdmRecoveryText(),
+    search.active ? h('button', {class: 'btn small', type: 'button', disabled: !connected(), onclick: function () { send({a: 'rdm_stop'}); }}, 'Остановить поиск') :
+      h('button', {class: 'btn small', type: 'button', disabled: !connected() || !safe('allow_rdm'), onclick: function () { send({a: 'rdm_check'}); }}, 'Проверить выключение'));
+}
+function rdmResults() {
+  var search = state.rdmSearch;
+  return search && search.id ? {t: search.t || '', devices: search.devices || [], lines: search.lines || []} : patchState.rdm;
+}
 function rdmCard() {
-  var rdm = patchState.rdm;
-  var card = h('div', {class: 'card'}, h('b', {}, 'RDM-устройства'),
-    h('p', {class: 'note warn'}, 'Панель не включает RDM: на пульте Setup → Console Global Settings → Enable RDM, для вселенной — Setup → Patch → DMX List, ячейка RDM. ' +
-      'RDM у вас вызывал мигание френеля: после поиска и записи выключите его там же.'),
-    h('div', {class: 'row'},
-      h('button', {class: 'btn', type: 'button', disabled: !connected() || !safe('allow_rdm'), onclick: function (e) { send({a: 'rdm_list'}, e.currentTarget); }}, 'Найти (RdmList)'),
-      safe('allow_rdm') ? null : h('span', {class: 'note'}, 'RDM выключен в настройках (allow_rdm).')));
+  var search = state.rdmSearch || {}, rdm = rdmResults();
+  var phases = {preflight: 'Проверяю настройки MA2', enabling: 'Включаю и проверяю RDM', collecting: 'Собираю ответы RDM', disabling: 'Выключаю и проверяю RDM'};
+  var collections = {completed: 'Окно сбора завершено', stopped: 'Сбор остановлен', failed: 'Ошибка сбора', unknown: 'Результат сбора неизвестен'};
+  var card = h('div', {class: 'card'}, h('b', {}, 'Поиск приборов через RDM'),
+    h('p', {class: 'note warn'}, 'RDM вызывал мигание френеля. Поиск запускайте вне выступления. Он проверяет только уже разрешённые в MA2 вселенные; настройки вселенных не меняются. Найденные устройства не меняют патч, адреса и план.'),
+    h('div', {class: 'row wrap'},
+      h('button', {class: 'btn', type: 'button', disabled: !connected() || !safe('allow_rdm') || rdmSearchBusy(), onclick: rdmSearchBegin}, 'Поиск RDM'),
+      search.active ? h('button', {class: 'btn', type: 'button', disabled: !connected(), onclick: function () { send({a: 'rdm_stop'}); }}, 'Остановить поиск') : null,
+      !search.active && rdmSearchPending() ? h('button', {class: 'btn', type: 'button', disabled: !connected() || !safe('allow_rdm'), onclick: function () { send({a: 'rdm_check'}); }}, 'Проверить выключение') : null,
+      safe('allow_rdm') ? null : h('span', {class: 'note'}, 'RDM запрещён в настройках (allow_rdm).')),
+    rdmSearchUI.preparing ? h('p', {class: 'note', role: 'status'}, 'Проверяю состояние RDM до включения…') : null,
+    search.active ? h('p', {class: 'note', role: 'status', 'aria-live': 'polite'}, phases[search.phase] || 'Выполняется операция RDM') : null,
+    !search.active && search.collection && search.collection !== 'idle' ? h('p', {class: 'note'}, collections[search.collection] || 'Состояние сбора: ' + search.collection) : null,
+    search.off_state === 'confirmed' ? h('p', {class: 'note'}, 'RDM выключен: подтверждено чтением MA2.') : null,
+    !search.active && rdmSearchPending() ? h('p', {class: 'note warn', role: 'alert'}, rdmRecoveryText()) : null,
+    search.reason ? h('p', {class: 'note warn'}, search.reason) : null,
+    rdmSearchUI.error ? h('p', {class: 'note warn'}, rdmSearchUI.error) : null,
+    h('p', {class: 'note'}, 'Окно поиска — 18 секунд. Полнота обнаружения не гарантируется: нужны RDM-приборы и совместимый обратный тракт. Пустой или непроверенный список не доказывает отсутствие приборов. Данные MA2 могут включать ранее обнаруженные устройства и не подтверждают, что они сейчас онлайн.'));
   if (!rdm) return card;
-  add(card, h('span', {class: 'note'}, 'Прочитано в ' + rdm.t + ': устройств с UID ' + rdm.devices.length + '. Колонки ответа пульта не проверены, ниже строки как есть.'));
-  add(card, rdm.devices.map(function (d) {
+  add(card, h('span', {class: 'note'}, (rdm.t ? 'Прочитано в ' + rdm.t + '. ' : '') + 'Распознано UID: ' + rdm.devices.length + '. Формат колонок живого пульта не проверен; строки показаны как получены.'));
+  add(card, rdm.devices.slice(0, 400).map(function (d) {
     var linked = fixtures().filter(function (f) { return f.rdm && f.rdm.uid === d.uid; })[0];
-    return h('div', {class: 'grow-row wrap'}, h('div', {class: 'grow'}, h('b', {}, d.uid), h('span', {class: 'meta'}, d.line)),
+    return h('div', {class: 'grow-row wrap'}, h('div', {class: 'grow', style: {'overflow-wrap': 'anywhere'}}, h('b', {}, d.uid), h('span', {class: 'meta'}, d.line)),
       h('span', {class: 'note'}, linked ? 'связан с ' + linked.id : 'не связан'),
       h('span', {class: 'row'},
-        h('button', {class: 'btn small', type: 'button', disabled: !connected(), onclick: function (e) { send({a: 'rdm_identify', uid: d.uid, on: true}, e.currentTarget); }}, 'Identify'),
-        h('button', {class: 'btn small', type: 'button', disabled: !connected(), onclick: function (e) { send({a: 'rdm_identify', uid: d.uid, on: false}, e.currentTarget); }}, 'Выкл.')));
+        h('button', {class: 'btn small', type: 'button', disabled: !connected() || rdmSearchBusy(), onclick: function (e) { send({a: 'rdm_identify', uid: d.uid, on: true}, e.currentTarget); }}, 'Identify'),
+        h('button', {class: 'btn small', type: 'button', disabled: !connected() || rdmSearchBusy(), onclick: function (e) { send({a: 'rdm_identify', uid: d.uid, on: false}, e.currentTarget); }}, 'Выкл.')));
   }));
-  if (rdm.lines.length && !rdm.devices.length) add(card, h('pre', {class: 'note'}, rdm.lines.join('\n')));
+  if (rdm.devices.length) add(card, h('p', {class: 'note'}, 'Identify — отдельная ручная команда прибору; после поиска RDM выключен. Для неё требуется отдельно включить RDM на MA2 и затем выключить его.'));
+  if (rdm.lines.length) add(card, h('pre', {class: 'note', style: {'white-space': 'pre-wrap', 'overflow-wrap': 'anywhere'}}, rdm.lines.slice(0, 400).join('\n')));
   return card;
 }
 
@@ -63,7 +124,8 @@ function patchPick(id) {
 function patchEditor() {
   var f = fixture(patchState.cur);
   if (!f) return h('div', {class: 'card'}, h('p', {class: 'note'}, 'Нажмите строку таблицы, чтобы выбрать прибор.'));
-  var devices = (patchState.rdm && patchState.rdm.devices) || [];
+  var currentRdm = rdmResults();
+  var devices = (currentRdm && currentRdm.devices) || [];
   function check(key, label) {
     return h('label', {class: 'opt'}, h('input', {type: 'checkbox', checked: patchState[key], onchange: function (e) { patchState[key] = e.target.checked; }}), h('span', {class: 't'}, label));
   }

@@ -12,7 +12,7 @@ from bridge import PROMPT, MA2Link, clean, Throttle, create_app
 from mock import start_mock
 
 CONFIG = "tests/config.test.json"  # not the live config.json: the owner edits that one in the hall
-FULL = {"safety": {"mode": "full"}}
+FULL = {"safety": {"mode": "full"}, "poll_seconds": 0}
 
 
 def test_throttle_keeps_last():
@@ -105,12 +105,12 @@ def bridge_cfg(tmp_path):
     def start(edit=lambda cfg: None, settings=FULL):
         with open(CONFIG, encoding="utf-8") as f:
             cfg = json.load(f)
-        cfg["ma2"]["port"] = 0  # mock on a free port
+        cfg["ma2"]["port"] = 30000  # mock on a free port
         cfg["ma2"]["export_dir"] = str(tmp_path)
         edit(cfg)
         path = tmp_path / "config.json"
         path.write_text(json.dumps(cfg, ensure_ascii=False))
-        app = create_app(cfg, mock=True, config_path=str(path), settings=settings)
+        app = create_app(cfg, mock=True, config_path=str(path), settings={"poll_seconds": 0, **settings})
         with TestClient(app) as client, client.websocket_connect("/ws") as ws:
             ready(ws)
             yield ws, app.state.mock, path
@@ -144,7 +144,7 @@ def ask(ws, msg):
 def test_ws_config_hides_secrets(tmp_path):
     with open(CONFIG, encoding="utf-8") as f:
         cfg = json.load(f)
-    cfg["ma2"]["port"] = 0
+    cfg["ma2"]["port"] = 30000
     with TestClient(create_app(cfg, True, str(tmp_path / "c.json"), FULL)) as client, client.websocket_connect("/ws") as ws:
         conf = until(ws, lambda m: "config" in m)["config"]
     assert "pin" not in conf and "ma2" not in conf and conf["groups"] and conf["plan"]
@@ -200,7 +200,7 @@ def check_ws_import(bridge):
     saved = json.loads(path.read_text())
     assert conf["fixtures"] == saved["fixtures"]
     assert next(f for f in saved["fixtures"] if f["id"] == 99)["label"] == "New"
-    assert any(c.startswith(saved["ma2"]["export_cmd"][:-1] + "_") for c in mock.received)  # one-off file name per export
+    assert any(c.startswith(json.loads((path.parent / "settings.json").read_text())["ma2"]["export_cmd"][:-1] + "_") for c in mock.received)  # one-off file name per export
 
 
 def test_ws_import_bad_xml(bridge_cfg):
@@ -422,7 +422,7 @@ def test_ws_page(bridge):
 def test_journal(tmp_path):
     with open(CONFIG, encoding="utf-8") as f:
         cfg = json.load(f)
-    cfg["ma2"]["port"] = 0
+    cfg["ma2"]["port"] = 30000
     with TestClient(create_app(cfg, True, str(tmp_path / "c.json"), FULL)) as client, client.websocket_connect("/ws") as ws:
         until(ws, lambda m: m.get("status", {}).get("ma2") == "logged_in")
         ask(ws, {"a": "scene_go", "id": "pianist"})
@@ -463,8 +463,8 @@ def test_running_poll(bridge_cfg):
     with bridge_cfg(settings={**FULL, "poll_seconds": 0.3}) as (ws, mock, _):
         assert ask(ws, {"a": "scenes_import"})["ok"] is True
         ask(ws, {"a": "scene_go", "id": "pianist"})
-        m = until(ws, lambda m: "running" in m)
-        assert m["running"]["pianist"] is True and m["running"]["s1"] is False
+        m = until(ws, lambda m: m.get("running", {}).get("pianist") is True and m.get("running", {}).get("s1") is False)
+        assert m["running_meta"]["s1"]["source"] == "ma2"
 
 def test_probe_and_backup(tmp_path, monkeypatch):
     import bridge as b
@@ -638,7 +638,7 @@ def test_positions_forgotten_on_link_loss(bridge):
     messages = []
     while not (any("shown" in m for m in messages) and any(m.get("a") == "link_drop" and "ok" in m for m in messages)):
         messages.append(ws.receive_json())
-    assert next(m["shown"] for m in messages if "shown" in m)["12"] == {"zoom": 25}
+    assert next(m["shown"] for m in messages if "shown" in m) == {}
     assert ask(ws, {"a": "link_connect"})["ok"]
     until(ws, lambda m: m.get("status", {}).get("ma2") == "logged_in")
     assert not ask(ws, {"a": "move_start"})["ok"]
@@ -658,7 +658,7 @@ def test_color_all_none(bridge_cfg):
 
 def test_mapping_settings_config_guard_and_persistence(tmp_path):
     cfg = json.loads(open(CONFIG).read())
-    cfg["ma2"].update(port=0, export_dir=str(tmp_path))
+    cfg["ma2"].update(port=30000, export_dir=str(tmp_path))
     path = tmp_path / "config.json"
     path.write_text(json.dumps(cfg))
     settings = {"safety": {"allowed_fixtures": [12, 14]},
@@ -807,14 +807,157 @@ def test_scene_crossfade(bridge_cfg):
         check_scene_crossfade(b)
 
 
+@pytest.fixture
+def scene_clock(monkeypatch, tmp_path):
+    """Real bridge handlers, a gated fade clock and a recording transport; no desk."""
+    import bridge as module
+    captured = []
+    monkeypatch.setattr(module, "register_api", lambda app, context, loopback: captured.append(context))
+    cfg = json.loads(Path(CONFIG).read_text())
+    cfg["ma2"]["export_dir"] = str(tmp_path)
+    cfg["scenes"].append({"id": "choir", "exec": "1.102", "label": "Choir"})
+    module.create_app(cfg, mock=True, config_path=str(tmp_path / "config.json"), settings=FULL)
+    c = captured[0]
+    sent = []
+    original_sleep = asyncio.sleep
+
+    async def run(scenario):
+        awake, release = asyncio.Event(), asyncio.Event()
+
+        async def sleep(seconds):
+            if seconds == 7:
+                awake.set()
+                await release.wait()
+            else:
+                await original_sleep(seconds)
+
+        async def send(line, **kwargs):
+            sent.append(line)
+            return True, ""
+
+        monkeypatch.setattr(module.asyncio, "sleep", sleep)
+        monkeypatch.setattr(c.link, "send", send)
+        ws = object()
+        c.sessions[ws] = {"selection": [], "base": None}
+
+        async def act(a, **kwargs):
+            result = await c.handle(ws, json.dumps({"a": a, **kwargs}))
+            assert result["ok"], result
+
+        async def finish():
+            release.set()
+            await asyncio.gather(*list(c.bg))
+
+        try:
+            await act("scene_go", id="choir", fade=7, swap=["pianist"])
+            await awake.wait()
+            await scenario(c, sent, act, release, finish)
+        finally:
+            for task in list(c.bg):
+                task.cancel()
+            await asyncio.gather(*list(c.bg), return_exceptions=True)
+
+    return lambda scenario: asyncio.run(run(scenario))
+
+
+@pytest.mark.parametrize("later", ["scene_go", "scene_off", "off_restart", "blackout", "blackout_restart", "transition"])
+def test_scene_timer_respects_later_action(scene_clock, later):
+    async def scenario(c, sent, act, release, finish):
+        if later in ("scene_off", "off_restart"):
+            await act("scene_off", id="pianist")
+        if later in ("blackout", "blackout_restart"):
+            await act("blackout")
+        if later == "transition":
+            await act("scene_go", id="choir", fade=7, swap=["pianist"])
+            # The newer transition owns the one eventual Off.
+        elif later in ("scene_go", "off_restart", "blackout_restart"):
+            await act("scene_go", id="pianist")
+        before = sent.count("Off Executor 1.101")
+        await finish()
+        assert sent.count("Off Executor 1.101") == before + (later == "transition")
+    scene_clock(scenario)
+
+
+def test_scene_timer_survives_unrelated_fixture_action(scene_clock):
+    async def scenario(c, sent, act, release, finish):
+        assert await c.execute("dim", {"a": "dim", "v": 20}, {}, [12]) is None
+        await finish()
+        assert sent.count("Off Executor 1.101") == 1
+    scene_clock(scenario)
+
+
+def test_scene_timer_cannot_cross_show_with_same_scene_id(scene_clock, tmp_path):
+    async def scenario(c, sent, act, release, finish):
+        other = {**c.cfg, "show": "Other"}
+        other["scenes"] = [{"id": "pianist", "exec": "1.103", "label": "Other"}]
+        target = c.plan_path("Other")
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(json.dumps(other))
+        await act("show_open_plan", name="Other")
+        await finish()
+        assert not any(line.startswith("Off Executor") for line in sent)
+    scene_clock(scenario)
+
+
+def test_scene_timer_checks_after_waiting_for_action_lock(scene_clock):
+    async def scenario(c, sent, act, release, finish):
+        entered, complete = asyncio.Event(), asyncio.Event()
+        send = c.link.send
+
+        async def held_send(line, **kwargs):
+            if line == "Go Executor 1.101":
+                entered.set()
+                await complete.wait()
+            return await send(line, **kwargs)
+
+        c.link.send = held_send
+        newer = asyncio.create_task(act("scene_go", id="pianist"))
+        await entered.wait()  # newer action holds action_lock at the actual transport boundary
+        release.set()
+        await asyncio.sleep(0)  # timer wakes and queues behind that action
+        complete.set()
+        await newer
+        await finish()
+        assert "Off Executor 1.101" not in sent
+    scene_clock(scenario)
+
+
+def test_scene_timer_cancelled_on_shutdown(scene_clock):
+    async def scenario(c, sent, act, release, finish):
+        timers = [t for t in c.bg if t.get_coro().__name__ == "swap_off"]
+        assert len(timers) == 1
+        async with c.lifespan(c.app):
+            pass
+        assert timers[0].cancelled()
+        await finish()
+        assert "Off Executor 1.101" not in sent
+    scene_clock(scenario)
+
+
+def test_scene_timer_cannot_cross_reconnect_before_show_identification(scene_clock):
+    async def scenario(c, sent, act, release, finish):
+        # The timer wakes first, identify_show queues second, behind an in-flight action.
+        await c.action_lock.acquire()
+        release.set()
+        await asyncio.sleep(0)
+        c.link._gen += 1  # transport generation changes before READY schedules identify_show
+        identified = asyncio.create_task(c.identify_show(reply='SHOWFILE = "Other"'))
+        await asyncio.sleep(0)
+        c.action_lock.release()
+        await identified
+        await finish()
+        assert "Off Executor 1.101" not in sent
+    scene_clock(scenario)
+
+
 def check_scene_crossfade(bridge):
     ws, mock, _ = bridge
     assert ask(ws, {"a": "scene_go", "id": "pianist", "fade": 0.2, "swap": ["choir"]})["ok"] is True
     assert mock.received[-2:] == ["ClearAll", "Goto Cue 1 Executor 1.101 Fade 0.2"]
-    assert until(ws, lambda m: m.get("running"))["running"] == {"choir": False}
+    until(ws, lambda m: m.get("last", {}).get("cmd") == "Off Executor 1.102" and m["last"].get("status") == "sent")
     assert "Off Executor 1.102" in mock.received
     assert ask(ws, {"a": "scene_go", "id": "pianist", "swap": ["choir"]})["ok"] is True  # no fade: Off at once
-    assert until(ws, lambda m: m.get("running"))["running"] == {"choir": False}
+    assert mock.received.count("Off Executor 1.102") == 2
     assert ask(ws, {"a": "scene_go", "id": "pianist", "fade": 1, "swap": ["nope"]})["ok"] is False
     assert ask(ws, {"a": "scene_go", "id": "pianist", "fade": 1, "swap": "choir"})["ok"] is False
 
@@ -1004,7 +1147,7 @@ def test_dmx_read_back_lights_the_plan(bridge_cfg):
         cfg["dmx_map"] = {"Par": {"dim": 1, "r": 2, "g": 3, "b": 4}}
     with bridge_cfg(edit, settings={"safety": {"mode": "full", "allow_fixture_read": True}, "dmx_seconds": 0.05}) as (ws, mock, _):
         mock.dmx = {120: 255, 121: 255}
-        live = until(ws, lambda m: m.get("live"))["live"]
+        live = until(ws, lambda m: "12" in m.get("live", {}) and "14" in m.get("live", {}))["live"]
         assert live["12"] == {"dim": 100.0, "rgb": [100.0, 0.0, 0.0]} and live["14"]["dim"] == 0
         assert ask(ws, {"a": "dmx_map", "type": "Par", "map": {}})["ok"]
 
@@ -1023,7 +1166,7 @@ def test_dmx_read_back_takes_channels_from_the_fixture_type(bridge_cfg):
     with bridge_cfg(edit, settings={"safety": {"mode": "full", "allow_fixture_read": True}, "dmx_seconds": 0.05}) as (ws, mock, path):
         mock.fixture_types = {3: xml}
         mock.dmx = {121: 255, 123: 255}
-        live = until(ws, lambda m: m.get("live"))["live"]
+        live = until(ws, lambda m: "12" in m.get("live", {}))["live"]
         assert live["12"] == {"dim": 100.0, "rgb": [100.0, 0.0, 0.0]}
         assert json.loads(path.read_text())["dmx_map"] == {"3 Par": {"dim": 2, "r": 4, "g": 5, "b": 6, "has": []}}
         assert sum(line.startswith("Export FixtureType") for line in mock.received) == 1  # once, not every read
@@ -1068,7 +1211,7 @@ def test_capture_replies_at_start(tmp_path, monkeypatch):
     (tmp_path / "static").mkdir()
     with open(CONFIG, encoding="utf-8") as f:
         cfg = json.load(f)
-    cfg["ma2"]["port"] = 0
+    cfg["ma2"]["port"] = 30000
     app = create_app(cfg, True, str(tmp_path / "c.json"), FULL, capture=True)
 
     def text(want):
@@ -1091,7 +1234,7 @@ def test_capture_replies_at_start(tmp_path, monkeypatch):
 @pytest.fixture
 def simple_bridge(tmp_path):
     cfg = json.loads(Path(CONFIG).read_text())
-    cfg['ma2']['port'] = 0
+    cfg['ma2']['port'] = 30000
     cfg['ma2']['export_dir'] = str(tmp_path)
     app = create_app(cfg, True, str(tmp_path / 'simple-config.json'), FULL)
     app.mount('/simple-test', app.state.simple_app)
@@ -1172,16 +1315,16 @@ def test_simple_port_must_differ():
 def test_simple_running_shared_with_main(simple_bridge):
     ws, normal, _, _, _ = simple_bridge
     assert ask(normal, {"a": "scene_go", "id": "pianist"})["ok"]
-    assert until(ws, lambda m: m.get("running", {}).get("pianist") is True)["running"] == {"pianist": True}
+    assert until(ws, lambda m: "pianist" in m.get("running", {}))["running"]["pianist"] is None
     assert ask(normal, {"a": "blackout"})["ok"]
-    assert until(ws, lambda m: m.get("running", {}).get("pianist") is False)["running"]["pianist"] is False
+    assert until(ws, lambda m: "pianist" in m.get("running", {}))["running"]["pianist"] is None
 
 
 def test_simple_obeys_safety(tmp_path):
     cfg = json.loads(Path(CONFIG).read_text())
-    cfg["ma2"]["port"] = 0
+    cfg["ma2"]["port"] = 30000
     app = create_app(cfg, True, str(tmp_path / "c.json"),
-                     {"safety": {"mode": "test", "allowed_scenes": [], "allowed_fixtures": [12]}})
+                     {"safety": {"mode": "test", "allowed_scenes": [], "allowed_fixtures": [12]}, "poll_seconds": 0})
     app.mount("/simple-test", app.state.simple_app)
     app.router.routes.insert(0, app.router.routes.pop())
     with TestClient(app) as client, client.websocket_connect("/simple-test/ws") as ws:
@@ -1252,3 +1395,25 @@ def test_type_read_again_when_presence_unknown(bridge_cfg):
             time.sleep(0.1)
         assert json.loads(path.read_text())["dmx_map"]["3 Spot"]["has"] == ["strobe", "zoom"]
         assert (path.parent / "diag" / "fixture_type_3.xml").read_text(encoding="utf-8") == SPOT_TYPE  # kept for the hall check
+
+
+def test_update_gate_rechecks_a_line_waiting_for_transport():
+    async def go():
+        mock, link, task = await connect()
+        try:
+            await wait_state(link, 'logged_in', 2)
+            gate = {'open': True}
+            link.admission = lambda: gate['open']
+            await link._lock.acquire()
+            pending = asyncio.create_task(link.send('Go Executor 1.101'))
+            await asyncio.sleep(0)
+            gate['open'] = False
+            link._lock.release()
+            ok, reason = await pending
+            assert ok is False
+            assert 'обновлен' in reason
+            assert 'Go Executor 1.101' not in mock.received
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    asyncio.run(go())

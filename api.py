@@ -13,7 +13,11 @@ import subprocess
 import tempfile
 import time
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
+
+import diagnostic_upload
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
@@ -65,6 +69,22 @@ def register(app, c, is_loopback):
         except (ActionError, ValueError, OSError) as e:
             result = {"ok": False, "err": str(e)}
         record(request, json.dumps({"a": "fixtures_import_file"}), result)
+        return result
+
+    @app.post("/api/fixtures/import_confirm")
+    async def import_confirm(request: Request):
+        if not is_loopback(request):
+            return JSONResponse({"ok": False, "err": "импорт доступен только с самого ПК"}, status_code=403)
+        try:
+            action = await request.json()
+            if not isinstance(action, dict):
+                raise ValueError("нужен объект подтверждения")
+            async with action_lock:
+                result = c.confirm_import(action)
+            await broadcast(config_msg())
+        except (ActionError, ValueError, OSError) as e:
+            result = {"ok": False, "err": str(e)}
+        record(request, json.dumps({"a": "fixtures_import_confirm"}), result)
         return result
 
     @app.get("/api/idle")
@@ -171,6 +191,78 @@ def register(app, c, is_loopback):
                           "version": version.read_text(encoding="utf-8").strip() if version.exists() else "dev",
                           "mode": mode, "host": f'{ma2["host"]}:{ma2["port"]}', "user": ma2["user"], "export": export_report(), "link_attempts": list(link.attempts)[-10:], "link_test": state.get("link_test"),
                           "password_note": "пароль скрыт; короткий пароль скрывается только в строках входа и в secret.env"})
+
+    uploader = c.diagnostic_uploader
+    app.state.diagnostic_uploader = uploader
+
+    @app.get("/api/diag/upload")
+    def upload_status(request: Request):
+        if not is_loopback(request):
+            return JSONResponse({"ok": False, "err": "Отправка доступна только с самого ПК моста"}, status_code=403)
+        return uploader.status()
+
+    @app.post("/api/diag/send")
+    @app.post("/api/diag/queue")
+    async def upload_diagnostics(request: Request):
+        # A foreign web page cannot add this header without preflight; do not enable CORS here.
+        origin = request.headers.get("origin")
+        try:
+            host = urlsplit("http://" + request.headers.get("host", ""))
+            parsed = urlsplit(origin or "")
+            local_host = host.hostname in ("localhost", "127.0.0.1", "::1")
+            valid_origin = not origin or (parsed.scheme in ("http", "https") and parsed.netloc == host.netloc
+                                         and not (parsed.path or parsed.query or parsed.fragment or parsed.username))
+        except ValueError:
+            local_host = valid_origin = False
+        if (not is_loopback(request) or not local_host or not valid_origin
+                or request.headers.get("x-diag-upload") != "1"):
+            return JSONResponse({"ok": False, "err": "Откройте диагностику через localhost на самом ПК моста"}, status_code=403)
+        try:
+            raw = bytearray()
+            async for chunk in request.stream():
+                raw.extend(chunk)
+                if len(raw) > 8192:
+                    raise ValueError()
+            body = json.loads(raw)
+            if (not isinstance(body, dict) or "report_id" not in body or set(body) - {"report_id", "description"}
+                    or not isinstance(body.get("description", ""), str) or len(body.get("description", "")) > 1000):
+                raise ValueError()
+        except (ValueError, UnicodeError):
+            return JSONResponse({"ok": False, "err": "Нужен идентификатор и описание до 1000 символов (запрос до 8 КБ)"}, status_code=400)
+        # Snapshot is built on the event loop; network/filesystem work runs off it, without action_lock.
+        private = list(secrets | {link.password})
+        for source in (link.vars, ma2, cfg):
+            private.extend(str(source.get(k)) for k in ("USER", "USERPROFILE", "SHOWFILE", "PATH", "user", "host", "show")
+                           if source.get(k))
+        def private_names(value):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in ("label", "name", "type", "show") and isinstance(item, str):
+                        private.append(item)
+                    elif isinstance(item, (list, dict)):
+                        private_names(item)
+            elif isinstance(value, list):
+                for item in value:
+                    private_names(item)
+        private_names(cfg)
+        snapshot = diagnostics()
+        config_counts = {key: len(cfg.get(key, [])) for key in ("fixtures", "groups", "scenes")}
+        description = body.get("description", "").strip()
+        for value in sorted(set(private) - {""}, key=len, reverse=True):
+            description = description.replace(value, "[скрыто]")
+        captured_at = datetime.now(timezone.utc).isoformat()
+        # Only counts cross into the worker, not the mutable live config.
+        def collect():
+            report = diagnostic_upload.collect_report(snapshot, {}, private, mock=bool(c.mock), root=HERE)
+            report["counts"] = config_counts
+            report["description"] = description
+            report["captured_at"] = captured_at
+            return report
+        if request.url.path == "/api/diag/queue":
+            result = await asyncio.to_thread(uploader.enqueue, body["report_id"], collect)
+            uploader.wake()
+            return result
+        return await asyncio.to_thread(uploader.submit, body["report_id"], collect)
 
     @app.post("/api/diag/link_test")
     async def link_test(request: Request):

@@ -1,0 +1,6 @@
+{
+  "name": "ma2-browser-preflight",
+  "private": true,
+  "description": "Development-only Chromium/WebKit mock smoke",
+  "devDependencies": {"playwright": "1.62.1"}
+}

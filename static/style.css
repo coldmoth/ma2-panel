@@ -539,3 +539,14 @@ button.waiting { opacity: .65; }
 .pick .bd > button { white-space: normal; max-width: 100%; }
 .pick .ft .btn { min-width: 0; white-space: normal; line-height: 1.2; }
 .tile.run:enabled:hover { background: #243d2e; color: var(--ink); }
+
+/* Absolute positions share the movement card with the relative joystick. */
+.move-modes { display: flex; gap: 8px; margin-bottom: 12px; }
+.move-modes button { flex: 1; min-height: 48px; }
+.move-modes button[aria-pressed="true"] { background: var(--sel); color: var(--sel-ink); }
+.move-absolute { display: grid; gap: 16px; }
+.move-axis { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 4px 12px; font-weight: 600; }
+.move-axis output { text-align: right; color: var(--ink-2); font-size: 14px; font-weight: 400; }
+.move-axis input { grid-column: 1 / -1; width: 100%; min-height: 48px; touch-action: pan-y; }
+.move-absolute[hidden], .move-primary[hidden] { display: none; }
+.move-absolute p { margin: 0; }

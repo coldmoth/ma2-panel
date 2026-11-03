@@ -42,6 +42,8 @@ class MockMA2:
         # RDM (spec 21). ponytail: the RdmList line layout is invented here; the real one is unknown until the hall reads it.
         self.rdm_devices = [{"uid": "43500F019FCB", "address": 289, "footprint": 10, "label": "ARTIST FL 1000"}]
         self.rdm_error = False  # test knob: the device refuses RdmSetParameter
+        self.rdm_global = False  # Assign Root "Settings"."Global" /EnableRDM
+        self.rdm_universes = {1: True}  # universe RDM flags the state read reports
         self.presets = {4: {1: "Red"}, 2: {1: "Stage"}}
         self.running: set[str] = set()
         self.port = 0
@@ -141,6 +143,15 @@ class MockMA2:
                 write()
         if text.startswith("Lua") and self.lua_error:
             return "Error #72: COMMAND NOT EXECUTED\r\n[Channel]>"
+        if m := re.search(r"PANELRDM([0-9a-f]{32})", text):  # RDM state read-back: feedback rows like the real line would
+            nonce = m[1]
+            rows = [f"PANELRDM{nonce} GLOBAL {'On' if self.rdm_global else 'Off'}"]
+            rows += [f"PANELRDM{nonce} UNIVERSE {n} {'On' if on else 'Off'}" for n, on in self.rdm_universes.items()]
+            rows.append(f"PANELRDM{nonce} END {len(self.rdm_universes)}")
+            return f"Executing : {text}\r\n" + "".join(r + "\r\n" for r in rows) + "[Channel]>"
+        if m := re.fullmatch(r'Assign Root "Settings"\."Global" /EnableRDM=(On|Off)', text):
+            self.rdm_global = m[1] == "On"
+            return f"Executing : {text}\r\n[Channel]>"
         if "PANELLUA" in text:  # the read-back's canary line
             self.vars["PANELLUA"] = "1"
             return f"Executing : {text}\r\n[Channel]>"

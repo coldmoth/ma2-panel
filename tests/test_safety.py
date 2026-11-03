@@ -29,7 +29,7 @@ def tabs(tmp_path, settings, n=2, password=""):
     path = tmp_path / "config.json"
     cfg = cfg_for(tmp_path)
     path.write_text(json.dumps(cfg, ensure_ascii=False))
-    app = create_app(cfg, True, str(path), settings, password)
+    app = create_app(cfg, True, str(path), {"poll_seconds": 0, **settings}, password)
     with TestClient(app) as client:
         sockets = [client.websocket_connect("/ws").__enter__() for _ in range(n)]
         try:
@@ -170,7 +170,6 @@ def test_stop_endpoint_is_local_and_needs_header(tmp_path):
 def test_password_stays_out(tmp_path, caplog):
     caplog.set_level("DEBUG")
     cfg = cfg_for(tmp_path)
-    cfg["ma2"]["password"] = "oldSecretInConfig"
     path = tmp_path / "config.json"
     path.write_text(json.dumps(cfg))
     app = create_app(cfg, True, str(path), LIVE, password="s3cr3tPW")
@@ -190,10 +189,19 @@ def test_no_browser_storage_applied_to_console():
     for f in Path("static").glob("*"):
         if f.suffix in (".js", ".html"):
             text = f.read_text(encoding="utf-8")
-            assert "sessionStorage" not in text, f
-            # Only which section and which picker tab this device showed last, and grid snap; nothing that reaches the console.
-            assert set(re.findall(r"localStorage\.\w+\('([^']*)'", text)) <= {"ma2.sec", "ma2.pick", "ma2.snap"}, f
-            assert text.count("localStorage") == len(re.findall(r"localStorage\.\w+\('ma2\.(?:sec|pick|snap)'", text)), f
+            # File recovery stores only an opaque operation ID and GETs its status;
+            # show-files-ui.cjs verifies that restore cannot confirm/replay a command.
+            if f.name != 'show-files.js':
+                assert "sessionStorage" not in text, f
+            # UI preferences only. Diagnostic UUIDs are isolated from console actions.
+            keys = {"ma2.sec", "ma2.pick", "ma2.snap"}
+            if f.name == "diag-upload.js":
+                keys = {"ma2.diag-report-id"}
+                assert set(re.findall(r"fetch\('([^']*)'", text)) == {"/api/diag/upload", "/api/diag/queue"}
+                assert not re.search(r"\b(?:send|WebSocket|connect)\s*\(", text)
+            uses = re.findall(r"localStorage\.\w+\('([^']*)'", text)
+            assert set(uses) <= keys, f
+            assert text.count("localStorage") == len(uses), f
 
 
 FORBIDDEN = ["Store Group 101", "Store Preset 4.1", "StoreLook Executor 1.101 Cue 1", "Delete Group 101", "Delete Fixture 12",
@@ -336,3 +344,15 @@ def test_guard_allows_attribute_names_added_later():
     assert guard('Attribute "SHUTTER" At 50')
     names.add("SHUTTER")
     assert guard('Attribute "SHUTTER" At 50') is None
+
+
+def test_legacy_password_refused_before_backup(tmp_path):
+    cfg = cfg_for(tmp_path)
+    cfg["ma2"]["password"] = "legacy-secret-placeholder"
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg))
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="Пароль"):
+        create_app(cfg, True, str(path), LIVE)
+    assert path.read_bytes() == before
+    assert not (tmp_path / "backups").exists()

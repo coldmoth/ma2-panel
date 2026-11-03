@@ -10,15 +10,29 @@ import re
 import shutil
 import socket
 import sys
+import subprocess
 import tempfile
 from secrets import token_urlsafe
 import time
+import uuid
+from contextvars import ContextVar
 import xml.etree.ElementTree as ET
 from collections import deque
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import urlsplit
+
+# Run the stable recovery copy before importing any replaceable application module.
+if __name__ == '__main__':
+    recovery = Path(__file__).parent / '.updates/recovery.py'
+    if recovery.exists():
+        version_file = Path(__file__).parent / 'VERSION'
+        before_recovery = version_file.read_bytes() if version_file.exists() else b''
+        subprocess.run([sys.executable, str(recovery), '--recover', str(Path(__file__).parent)], check=True)
+        after_recovery = version_file.read_bytes() if version_file.exists() else b''
+        if before_recovery != after_recovery:
+            os.execv(sys.executable, [sys.executable, *sys.argv])
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -27,15 +41,20 @@ from fastapi.responses import FileResponse
 
 from commands import (FULL, PLAN_WRITES, SIMPLE, SLIDERS, ActionError, apply_move, build, can_move, check_jog, check_move, exec_page, find, exec_verdict,
                       head_lines, is_error_reply, load_config, movers, page_number, parse_executors, parse_label, parse_running,
-                      absolute, check_dmx_map, check_uid, parse_address, parse_rdm_list, parse_type_footprints, patch_plan, patch_rows, type_no, DMX_CANARY, dmx_lua, dmx_span, live_from_dmx, parse_dmx,
+                      absolute, check_dmx_map, check_uid, parse_address, parse_rdm_list, parse_type_footprints, patch_plan, patch_rows, type_no, DMX_CANARY, DMX_CHUNK, dmx_lua, dmx_span, dmx_intervals, live_from_dmx, parse_dmx,
                       parse_positions, parse_ma2_objects, group_slot_empty, mirrored, pan_flip, rel_lines, select_line, store_lines, targets, unrecognised_lines, validate_hall)
 from fixtures import merge_fixtures, parse_export, parse_group_export, save_config
+from migrations import SITE_KEYS, legacy_archive_path, migrate_config, merge_settings
+from show_plans import plan_path as show_plan_path
 from api import DIAG_HINTS, PROBE_COMMANDS, register as register_api  # noqa: F401 (PROBE_COMMANDS: tests)
 from link import HALTED, LOGIN_OK, NO_LINK, PROMPT, READY, STALE, UNKNOWN, VAR, MA2Link, Throttle, clean  # noqa: F401 (tests import several from here)
 from scenes import canonical_exec, ordered_scenes, merge_scenes, slot_candidates
+from status_evidence import Evidence
 from commands import nudge_step
 from mock import start_mock
 import exports
+import rdm_search
+import diagnostic_upload
 from types import SimpleNamespace
 from safety import validate_settings, without_passwords, DEFAULT_MA2, effective_safety, load_secret, load_settings, make_guard, redact
 
@@ -65,7 +84,12 @@ MISSING = object()
 
 
 def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = None, password: str = "",
-               settings_path: str | Path = HERE / "settings.json", capture: bool = False) -> FastAPI:
+               settings_path: str | Path | None = None, capture: bool = False) -> FastAPI:
+    settings_path = Path(settings_path) if settings_path is not None else Path(config_path).parent / "settings.json"
+    if Path(config_path).exists():
+        archive = legacy_archive_path(config_path, cfg)
+        cfg, migrated_settings = migrate_config(config_path, settings_path, archive_path=archive)
+        settings = merge_settings(migrated_settings, settings or {})
     settings = settings or {}
     cfg = {**cfg, "scenes": ordered_scenes(cfg.get("scenes", []), cfg.get("scene_order_version") == 1), "scene_order_version": 1}
     config_attrs = cfg.get("attrs", {})
@@ -90,7 +114,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     ma2["export_cmd"] = re.sub(r"\s+/o(verwrite)?\s*$", "", ma2["export_cmd"], flags=re.I)
     types_tried: set[str] = set()  # fixture types whose channel read was tried this run
     export_extra: set[str] = set()  # exact export lines of one diagnostics run, see /api/diag/export_probe
-    guard = make_guard(effective_safety(settings), attr_names, ma2["export_cmd"], export_extra)
+    guard = make_guard(effective_safety(settings), attr_names, ma2["export_cmd"], export_extra,
+                       rdm_extra=rdm_search.RDM_GLOBAL)
     try:
         empty_re = re.compile(ma2.get("exec_empty_regex", r"(?i)no objects? found|nothing found"))
     except (re.error, TypeError) as e:
@@ -101,18 +126,55 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     allowed_fixtures, allowed_scenes = set(safety["allowed_fixtures"]), {str(e) for e in safety["allowed_scenes"]}
     store_execs = {str(e) for e in safety["store_execs"]}
     rate_hz = min(10, max(1, settings.get("rate_hz", cfg.get("rate_hz", 5))))
-    poll_seconds = settings.get("poll_seconds", 0)
+    poll_seconds = settings.get("poll_seconds", 2)
     dmx_seconds = settings.get("dmx_seconds", 0 if mock else 2)  # read-back of the desk's output for the plan; 0 = off
-    export_dir = ma2["export_dir"]
+    export_dir = ma2.get("export_dir") or str(Path(config_path).parent / "importexport")
     if mock and not Path(export_dir).is_dir():
         export_dir = tempfile.mkdtemp()
-    scene_running: dict[str, bool] = {}
+    scene_evidence = Evidence()
+    value_evidence = Evidence()
+    sent_evidence = Evidence("panel")
+    poll_wake = asyncio.Event()
+    broadcast_lock = asyncio.Lock()
+    scene_revision: dict[str, int] = {}  # only actions involving this scene supersede its pending Off
     clients: set[WebSocket] = set()
     sessions: dict[WebSocket, dict] = {}  # per tab: selection and the pan/tilt the gesture started from
     state = {"values_revision": 0, "plan_epoch": 0, "master": None, "read_freshness": {"fixtures": False, "ma2": False, "scenes": False}, "shown": {}, "tracked": True, "page": None, "show": {"name": None, "source": "unknown"}, "export_file": None, "loading": None, "live": {}, "dmx": {}, "dmx_read": None, "type_reads": {}, "rdm": None, "export_trace": None, "export_probe": None,
              "show_load": {"state": "idle", "name": None, "reason": ""}, "shows": {},
              "sent": {}, "no_attr": {}}  # what the panels display, shared; sent: {fid: attrs the panel itself put into its programmer}
-    action_lock = asyncio.Lock()  # one action's lines go to MA2 together
+    active_operations = {}
+    operation = ContextVar("operation", default=None)
+    bridge_epoch = uuid.uuid4().hex
+    config_writes = {"layout_save", "hall_save", "fixture_flag", "group_save", "group_delete",
+                     "preset_save", "preset_delete", "beam_home", "beam_invert", "dmx_map", "rdm_link",
+                     "scene_create", "scene_rename", "scene_delete", "page_save", "scenes_import",
+                     "ma2_import", "fixtures_fetch", "import_confirm_merge", "plan_copy", "show_bind",
+                     "show_open_plan", "show_load", "patch_apply", "undo"}
+
+    def revision_token():
+        return f"{bridge_epoch}:{config_revision()}"
+
+    class ActionLock(asyncio.Lock):
+        async def __aenter__(self):
+            await super().__aenter__()
+            op = operation.get()
+            if op and op["a"] in config_writes and not op.get("revision_checked"):
+                if op["revision"] != revision_token():
+                    op["conflict"] = True
+                    self.release()
+                    raise ActionError("план изменён другим клиентом; обновите данные и повторите правку")
+                op["revision_checked"] = True
+            if op and op.get("revision_checked"):
+                op["lock_revision"] = revision_token()
+            return self
+
+        async def __aexit__(self, *exc):
+            if (op := operation.get()) and op.get("revision_checked"):
+                op["result_revision"] = revision_token()
+                op["local_changed"] = op.get("local_changed", False) or op["result_revision"] != op["lock_revision"]
+            return await super().__aexit__(*exc)
+
+    action_lock = ActionLock()  # validate the shared-plan revision inside the same critical section
     bg: set[asyncio.Task] = set()
     journal: deque[dict] = deque(maxlen=300)  # who pressed what; sliders are left out (10 per second)
     # «История»: the last 100 changes with what undoes them. ponytail: in memory, a restart forgets it.
@@ -132,29 +194,59 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             highlight.update(state="stuck", reason=str(e))
 
     def status_msg():
-        return {"status": {"read_freshness": dict(state["read_freshness"]), "show_load": state["show_load"], "highlight": highlight_status(), "show": state["show"], "features": features, "no_attr": state["no_attr"], "ma2": link.state, "login": {k: link.vars.get(k) for k in ("USER", "USERRIGHTS", "USERPROFILE", "VERSION")} if link.ready else None, "mock": mock, "halted": link.halted, "last": link.last, "manual": link.manual,
+        return {"status": {"show_file_active": bool(state.get("show_file_active")), "show_file": state.get("show_file"), "operations": [{"request_id": op["id"], "a": op["a"], "stage": op.get("stage", "running")} for op in active_operations.values()], "read_freshness": dict(state["read_freshness"]), "show_load": state["show_load"], "highlight": highlight_status(), "show": state["show"], "features": features, "no_attr": state["no_attr"], "ma2": link.state, "login": {k: link.vars.get(k) for k in ("USER", "USERRIGHTS", "USERPROFILE", "VERSION")} if link.ready else None, "mock": mock, "halted": link.halted, "last": link.last, "manual": link.manual,
+                           "rdm_search": rdm.snapshot(),
                            "safety": {"mode": mode, "fixtures": sorted(allowed_fixtures), "scenes": sorted(allowed_scenes),
                                       "store": sorted(store_execs), "master": safety["allow_master"] or mode == "full",
                                       "page": safety["allow_page_change"] or mode == "full",
                                       **{k: safety[k] for k in ("allow_fixture_read", "allow_highlight", "allow_show_load", "allow_show_save", "allow_group_store", "allow_patch", "allow_rdm")}}}}
 
+    def config_revision():
+        snapshot = json.dumps(cfg, sort_keys=True, ensure_ascii=False)
+        if snapshot != state.get("config_snapshot"):
+            state["config_snapshot"] = snapshot
+            state["config_revision"] = state.get("config_revision", 0) + 1
+        return state["config_revision"]
+
     def config_msg():
+        config_revision()
         plans = []
         for p in sorted((Path(config_path).parent / "shows").glob("*.json")):
             try:
-                name = json.loads(p.read_text(encoding="utf-8")).get("show")
+                name = json.loads(p.read_text(encoding="utf-8-sig")).get("show")
             except (OSError, ValueError, AttributeError):
                 continue
-            if isinstance(name, str) and name != cfg.get("show"):
+            if isinstance(name, str) and name != cfg.get("show") and name not in plans:
                 plans.append(name)
         return {"config": {**{k: cfg.get(k) for k in ("groups", "ma2groups", "ma2presets", "fixtures", "scenes", "plan", "hall", "presets", "attrs", "pages", "show", "fixtures_read", "dmx_map", "scene_order_version")},
-                           "plans": plans, "patch": patch_rows(cfg["fixtures"])}}
+                           "plans": plans, "revision": revision_token(), "patch": patch_rows(cfg["fixtures"])}}
+
+    def scenes_msg():
+        values, meta = scene_evidence.snapshot(sc["id"] for sc in cfg["scenes"])
+        return {"running": values, "running_meta": meta}
+
+    def values_meta():
+        return {"shown": sent_evidence.snapshot(["shown"])[1]["shown"],
+                "live": value_evidence.snapshot(["live"])[1]["live"]}
+
+    def invalidate_evidence():
+        had_evidence = bool(scene_evidence.records or value_evidence.records or sent_evidence.records
+                            or state["shown"] or state["live"] or state["dmx"] or state["master"] is not None)
+        scene_evidence.invalidate()
+        value_evidence.invalidate()
+        sent_evidence.invalidate()
+        state["shown"], state["sent"], state["live"], state["dmx"] = {}, {}, {}, {}
+        state["master"], state["tracked"] = None, False
+        for session in sessions.values():
+            session["base"] = None
+        if had_evidence:
+            spawn_broadcast({**scenes_msg(), **shown_msg(), "dmx": {}})
 
     def shown_msg():
         state["values_revision"] += 1
         # Only values the panel really sent: "shown" keeps dim 100 / white as defaults for its own replay, they were never sent.
         sent = {fid: {k: v for k, v in entry.items() if k in state["sent"].get(fid, ())} for fid, entry in state["shown"].items()}
-        return {"values_revision": state["values_revision"], "master": state["master"], "shown": {fid: entry for fid, entry in sent.items() if entry}, "tracked": state["tracked"], "page": state["page"], "live": state["live"]}
+        return {"values_revision": state["values_revision"], "master": state["master"], "shown": {fid: entry for fid, entry in sent.items() if entry}, "tracked": state["tracked"], "page": state["page"], "live": state["live"], "values_meta": values_meta()}
 
     def session_msg(ws, msg):
         if sessions.get(ws, {}).get("simple") and "config" in msg:
@@ -162,15 +254,20 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         return msg
 
     async def broadcast(msg, skip=None):
-        if "running" in msg:
-            scene_running.update(msg["running"])
-        for ws in list(clients):
-            if ws is skip:
-                continue
-            try:
-                await ws.send_json(session_msg(ws, msg))
-            except Exception:
-                clients.discard(ws)
+        # Preserve publication order across clients, including a disconnect's invalidation.
+        # A stalled browser is removed rather than holding up later snapshots indefinitely.
+        async with broadcast_lock:
+            for ws in list(clients):
+                if ws is skip:
+                    continue
+                try:
+                    await asyncio.wait_for(ws.send_json(session_msg(ws, msg)), timeout=.5)
+                except Exception:
+                    clients.discard(ws)
+                    try:
+                        await asyncio.wait_for(ws.close(code=1013), timeout=.5)
+                    except Exception:
+                        pass
 
     def spawn_broadcast(msg):
         task = asyncio.create_task(broadcast(msg))
@@ -310,6 +407,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     async def highlight_action(ws, action):
         a, s = action["a"], sessions[ws]
+        if rdm.active and a != "highlight_off":  # light must not queue behind the search's lock (spec «Изоляция RDM»)
+            raise ActionError("идёт поиск RDM; подсветка сейчас недоступна")
         await throttle.flush_all()
         async with action_lock:
             if state["loading"]:
@@ -394,11 +493,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         if state["show"].get("name") != show.get("name"):
             state["plan_epoch"] += 1
             invalidate_scene_offers()
-            had_master = state["master"] is not None
+            invalidate_evidence()
             state["master"] = None
             state["read_freshness"] = dict.fromkeys(("fixtures", "ma2", "scenes"), False)
-            if had_master:
-                spawn_broadcast(shown_msg())
         state["show"] = show
 
     async def identify_show(recover=False, reply=None):
@@ -413,6 +510,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 # in the programmer since (hall 2026-10-21). The operator removes it with the banner button.
                 highlight.update(state="stuck", reason="осталась после перезапуска или обрыва связи")
         await broadcast(status_msg())
+        poll_wake.set()
 
     # ---- raw replies for the hall (owner 2026-10-22): main() turns this on, tests and --mock do not ------------------
 
@@ -455,6 +553,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             bg.add(task)
             task.add_done_callback(bg.discard)
             return
+        invalidate_evidence()
         state["show"] = {"name": None, "source": "unknown"}
         state["master"] = None
         state["read_freshness"] = dict.fromkeys(("fixtures", "ma2", "scenes"), False)
@@ -472,6 +571,12 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     def blocked(a):
         """Reason an action is refused in the current mode, else None. link.guard repeats this for every line."""
+        if rdm.active and a not in ("rdm_stop", "rdm_check", "blackout"):
+            # The search owns the desk; light/patch/show operations must not queue behind its lock (spec «Изоляция RDM»).
+            # Blackout stays: it only sends Off lines and dimmer 0, an emergency action like halt.
+            return "идёт поиск RDM; свет, патч, Identify и файлы шоу сейчас недоступны (RDM)"
+        if a in ('show_load', 'show_save') and state.get('show_file_active'):
+            return 'выполняется операция файла шоу; дождитесь результата'
         if a == "store_scene":
             return "перезапись существующей сцены отключена: запишите новую сцену в пустой executor"
         feature = {"move_start": "move", "nudge": "move", "jog": "move", "aim": "move", "preset_go": "move", "preset_save": "move",
@@ -518,6 +623,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         return list(s["selection"])
 
     def remember(a, action, ids, values, s):
+        if a in HISTORY_LIGHT or values or a == "master":
+            sent_evidence.observe("shown", True)
         if a == "master":
             state["master"] = float(action["v"])
         elif a == "preset_go":
@@ -580,10 +687,11 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         if a == "aim":
             ids = heads(s, selected(s))
             check_ids(ids)
+            lines = build(action, cfg)
             values = {fid: {attr: (action[attr] - cfg["attrs"][attr]["min"]) * 100 /
-                           (cfg["attrs"][attr]["max"] - cfg["attrs"][attr]["min"]) for attr in ("pan", "tilt")} for fid in ids}
+                           (cfg["attrs"][attr]["max"] - cfg["attrs"][attr]["min"]) for attr in ("pan", "tilt") if attr in action} for fid in ids}
             s["base"] = None
-            return [select_line(ids)] + build(action, cfg), values
+            return [select_line(ids)] + lines, values
         if a == "color":
             check_ids(ids)
             spec = cfg["attrs"].get("color", {})
@@ -650,20 +758,32 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if not lines:
                 raise ActionError("нечего гасить: в плане нет сцен и приборов (или они не разрешены в settings.json)")
             return lines, {fid: {"dim": 0.0} for fid in dark}
-        return build(action, cfg), {}
+        return build(action, {**cfg, "master": settings.get("master", cfg.get("master", {"cmd": "Master 2.1 At {v}"}))}), {}
 
-    async def execute(a, action, s, ids, log_history=True):
+    async def execute(a, action, s, ids, log_history=True, scene_ticket=None):
         """Send the action's lines; None on success, else the error text."""
         before = {fid: dict(v) for fid, v in state["shown"].items()} if log_history and a in HISTORY_LIGHT else None
         async with action_lock:
             if state["loading"]:
                 return "идёт загрузка шоу"
+            if scene_ticket is not None:
+                sid = action["id"]
+                if scene_ticket != (state["plan_epoch"], scene_revision.get(sid, 0), link._gen):
+                    return "устаревший переход сцены"
             link.new_action()
             gen = link._gen  # a drop and reconnect in the middle must not let the second half of the lines through
             try:
                 lines, values = lines_for(a, action, s, ids)
             except ActionError as e:
                 return str(e)
+            # Invalidate before the first send: even a partially failed newer action owns the scene.
+            if a in ("scene_go", "scene_off", "blackout"):
+                touched = ({sc["id"] for sc in cfg["scenes"]} if a == "blackout" else
+                           {action["id"], *action.get("swap", [])})
+                for sid in touched:
+                    scene_revision[sid] = scene_revision.get(sid, 0) + 1
+                scene_evidence.invalidate(touched)
+                spawn_broadcast(scenes_msg())
             for line in lines:
                 ok, reply = await link.send(line, gen=gen)
                 if not ok:
@@ -671,6 +791,17 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                         return no_attribute(a, ids)
                     return reply.strip() or "ошибка пульта"
             remember(a, action, ids, values, s)
+            if a == "scene_go" and action.get("swap"):
+                # A reconnect may reach READY before identify_show has acquired this lock.
+                tickets = {sid: (state["plan_epoch"], scene_revision.get(sid, 0), gen)
+                           for sid in action["swap"] if sid != action["id"]}
+                if (op := operation.get()) and op["id"] is not None:
+                    op.update(retain=True, deferred=True, stage="transition")
+                task = asyncio.create_task(swap_off(tickets, action.get("fade") or 0, s))
+                bg.add(task)
+                task.add_done_callback(bg.discard)
+            if a in ("scene_go", "scene_off", "blackout"):
+                poll_wake.set()
         if before is not None:
             changed = light_diff(before)
             add_history(a, light_what(a, action, changed or values or ids), "light", changed, changed or values or ids)
@@ -689,22 +820,41 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         return (f"у выбранных приборов на пульте нет атрибута «{name[1] if name else a}» (MA2: Error #14). "
                 f"Имя атрибута меняется в настройках: attrs.{a}.cmd")
 
-    async def swap_off(old, keep, seconds, s):
+    async def swap_off(tickets, seconds, s):
         await asyncio.sleep(seconds)
-        gone = {}
-        for sid in old:
-            if sid != keep and not await execute("scene_off", {"a": "scene_off", "id": sid}, s, []):
-                gone[sid] = False
-        if gone:
-            await broadcast({"running": gone})
+        err = None
+        for sid, ticket in tickets.items():
+            err = await execute("scene_off", {"a": "scene_off", "id": sid}, s, [], scene_ticket=ticket)
+            if err:
+                break
+        if op := operation.get():
+            await finish_operation(op, {"ok": not bool(err), **({"err": err} if err else {})})
 
     async def throttled(key, intent):
         ws = intent["ws"]
-        if ws not in sessions:
+        op = intent.get("operation")
+        if ws not in sessions or (op and op.get("finished")):
+            if op:
+                active_operations.pop(op["key"], None)
             return
-        err = await execute(intent["a"], intent["action"], sessions[ws], intent["ids"])
-        if err and ws in clients:
-            await ws.send_json({"ok": False, "a": intent["a"], "err": err})
+        token = operation.set(op)
+        if op:
+            op["stage"] = "running"
+        try:
+            err = await execute(intent["a"], intent["action"], sessions[ws], intent["ids"])
+            reply = {"ok": not bool(err), "a": intent["a"], **({"err": err} if err else {})}
+            if op and (err or not op.get("deferred")):
+                if op["id"] is None and err and ws in clients:
+                    await ws.send_json(reply)
+                await finish_operation(op, reply)
+            elif err and ws in clients:
+                await ws.send_json(reply)
+        except asyncio.CancelledError:
+            if op:
+                op["evidence"].append("unknown")
+            raise
+        finally:
+            operation.reset(token)
 
     def fade_starts(a, ids):
         """[(start, ids)] for a fade the bridge plays itself, or None when a start is unknown (then the desk's Fade).
@@ -722,17 +872,28 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         target = action["v"] if a == "dim" else [action["r"], action["g"], action["b"]]
         steps = max(1, round(action["fade"] * rate_hz))
         plain = {k: v for k, v in action.items() if k != "fade"}
+        op = operation.get()
+        if op:
+            op.update(retain=True, deferred=True, stage="fade")
+        cancelled = True
         try:
             for i in range(1, steps + 1):
                 await asyncio.sleep(action["fade"] / steps)
+                if op and op.get("finished"):
+                    return
                 t = i / steps
                 for n, (start, ids) in enumerate(starts):
                     if a == "dim":
                         value = {"v": round(start + (target - start) * t, 1)}
                     else:
                         value = dict(zip("rgb", (round(s0 + (s1 - s0) * t, 1) for s0, s1 in zip(start, target))))
-                    throttle.put(f"{key}:{n}", {"ws": ws, "a": a, "action": {**plain, **value}, "ids": ids})
+                    throttle.put(f"{key}:{n}", {"ws": ws, "a": a, "action": {**plain, **value}, "ids": ids, "operation": op})
+            for n in range(len(starts)):
+                await throttle.flush(f"{key}:{n}")
+            cancelled = False
         finally:
+            if op and not op.get("finished"):
+                await finish_operation(op, {"ok": not cancelled, **({"err": "плавный переход прерван"} if cancelled else {})})
             if throttle.fades.get(key) is asyncio.current_task():
                 del throttle.fades[key]
 
@@ -840,31 +1001,66 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             exec_top[0] = lower[0]
 
     async def poll_running():
-        """Scene state and show name from the console, so a Go or a LoadShow from another tablet or the desk shows up.
-        Off unless poll_seconds is set."""
-        last = {}
+        """One shared reader. Exact configured addresses avoid guessed range boundaries."""
         while True:
-            await asyncio.sleep(poll_seconds)
-            if state["loading"] or not link.ready or action_lock.locked():
-                continue
-            running = {}
-            async with action_lock:
-                if state["loading"]:
+            try:
+                try:
+                    await asyncio.wait_for(poll_wake.wait(), timeout=poll_seconds)
+                except asyncio.TimeoutError:
+                    pass
+                poll_wake.clear()
+                if state["loading"] or not link.ready or action_lock.locked():
                     continue
-                ok, reply = await link.send("ListVar", quiet=True)
-                show = show_from(reply) if ok else state["show"]
-                changed = show["name"] and show != state["show"]
-                if changed:
-                    update_show(show)
-                for page in scene_pages():
-                    ok, reply = await list_execs(page, quiet=True)
-                    if ok:
-                        running.update(parse_running(reply))
-            if changed:
-                await broadcast(status_msg())
-            if running and running != last:
-                last = running
-                await broadcast({"running": {s["id"]: running[str(s["exec"])] for s in cfg["scenes"] if str(s["exec"]) in running}})
+                async with action_lock:
+                    epoch, gen = state["plan_epoch"], link._gen
+                    ok, reply = await link.send("ListVar", quiet=True)
+                    if gen != link._gen or epoch != state["plan_epoch"] or not link.ready:
+                        continue
+                    if not ok:
+                        continue
+                    update_show(show_from(reply))
+                    epoch = state["plan_epoch"]
+                    spawn_broadcast(status_msg())
+                    if cfg.get("show") and cfg["show"] != state["show"].get("name"):
+                        continue
+                    scenes = [(sc["id"], str(sc["exec"])) for sc in cfg["scenes"]]
+                for sid, ex in scenes:
+                    # Yield between reads: user actions acquire the same lock first.
+                    await asyncio.sleep(0)
+                    if action_lock.locked():
+                        break
+                    async with action_lock:
+                        if (epoch != state["plan_epoch"] or gen != link._gen
+                                or state["loading"] or not link.ready):
+                            break
+                        ok, reply = await link.send(f"List Executor {ex}", quiet=True)
+                        if epoch != state["plan_epoch"] or gen != link._gen or not link.ready:
+                            break
+                        parsed = parse_running(reply) if ok and not is_error_reply(reply) else {}
+                        if ex in parsed:
+                            scene_evidence.observe(sid, parsed[ex])
+                        else:
+                            scene_evidence.invalidate([sid])
+                        spawn_broadcast(scenes_msg())
+            except Exception:
+                log.exception("чтение статусов сцен не удалось")
+                await asyncio.sleep(poll_seconds)
+
+    async def expire_evidence():
+        last = (scenes_msg(), values_meta())
+        while True:
+            await asyncio.sleep(.5)
+            dmx_changed = expire_dmx()
+            scenes = scenes_msg()
+            meta = values_meta()
+            if meta["live"]["freshness"] != "fresh":
+                state["live"], state["dmx"] = {}, {}
+            signature = (scenes, meta)
+            if signature != last or dmx_changed:
+                last = signature
+                await broadcast({**scenes, **shown_msg(), "dmx": {} if not state["dmx"] else {
+                    f["id"]: [state["dmx"].get(a + i) for i in range(f.get("channels", 1))]
+                    for f in cfg["fixtures"] if (a := absolute(f.get("address")))}})
 
     async def poll_dmx():
         """What the desk outputs, read by a Lua line every dmx_seconds: the plan shows every lit fixture, not only the panel's.
@@ -881,43 +1077,95 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 log.warning("чтение DMX выключено до перезапуска: пульт ответил ошибкой (ответ в диагностике)")
                 return
 
+    dmx_cycle = {"key": None, "index": 0, "initial": True, "seen": {}}
+
+    def expire_dmx():
+        before = dict(state["dmx"])
+        key = (state["plan_epoch"], link._gen, tuple(dmx_intervals(cfg["fixtures"])))
+        if dmx_cycle["key"] != key:
+            dmx_cycle.update(key=key, index=0, initial=True, seen={})
+            state["dmx"] = {}
+        now = time.monotonic()
+        for a in list(state["dmx"]):
+            if now - dmx_cycle["seen"].get(a, 0) >= 6:
+                state["dmx"].pop(a, None)
+                dmx_cycle["seen"].pop(a, None)
+        changed = before != state["dmx"]
+        if changed:
+            state["live"] = live_from_dmx(cfg["fixtures"], state["dmx"], cfg.get("dmx_map", {}))
+        return changed
+
     async def read_dmx():
         """One read; returns the wait before the next one, None when the desk refused the line."""
-        span = dmx_span(cfg["fixtures"])
-        if not span or safety["allow_fixture_read"] is not True or state["loading"] or not link.ready or action_lock.locked():
+        if expire_dmx():
+            await broadcast(shown_msg())
+        intervals = dmx_intervals(cfg["fixtures"])
+        if not intervals or safety["allow_fixture_read"] is not True or state["loading"] or not link.ready or action_lock.locked():
             return dmx_seconds
+        epoch, gen = state["plan_epoch"], link._gen
         async with action_lock:
-            await read_types()
-        # Until the first values arrive, a one-call canary tells «Lua does not run over Telnet» from «getdmx line fails» in diagnostics.
-        lines = ([DMX_CANARY.format(a=span[0])] if not state["dmx"] else []) + dmx_lua(*span)
+            await read_types(max_types=1)
+        if epoch != state["plan_epoch"] or gen != link._gen or not link.ready:
+            return dmx_seconds
+        key = (epoch, gen, tuple(intervals))
+        if dmx_cycle["key"] != key:
+            dmx_cycle.update(key=key, index=0, initial=True, seen={})
+            # A new show (even with identical addresses) must not inherit old output.
+            state["dmx"] = {}
+            state["live"] = {}
+        chunks = [(a, min(DMX_CHUNK, start + count - a))
+                  for start, count in intervals for a in range(start, start + count, DMX_CHUNK)]
+        span = chunks[dmx_cycle["index"]]
+        lines = ([DMX_CANARY.format(a=span[0])] if dmx_cycle["initial"] else []) + dmx_lua(*span)
         export_extra.update(lines)
         replies, refused, dmx, listvar = [], False, {}, ""
         try:
             async with action_lock:
+                if epoch != state["plan_epoch"] or gen != link._gen or state["loading"] or not link.ready:
+                    return dmx_seconds
+                dmx_cycle["initial"] = False
+                dmx_cycle["index"] = (dmx_cycle["index"] + 1) % len(chunks)
                 for line in lines:
-                    ok, text = await link.send(line, quiet=True)
+                    ok, text = await link.send(line, quiet=True, gen=gen)
                     replies.append(" ".join(text.split())[-300:])
                     refused = refused or is_error_reply(text)
                     if not ok:
                         break
-                if not refused:
-                    await asyncio.sleep(.2)  # ponytail: MA2 may run the Lua line after replying; one short wait, not a poll
-                    ok, listvar = await link.send("ListVar", quiet=True)
-                    dmx = parse_dmx(listvar) if ok else {}
+            if not refused and ok:
+                # Lua can finish after Telnet's reply. Let manual actions use the link during that wait.
+                await asyncio.sleep(.2)
+                async with action_lock:
+                    if epoch != state["plan_epoch"] or gen != link._gen or state["loading"] or not link.ready:
+                        return dmx_seconds
+                    ok, listvar = await link.send("ListVar", quiet=True, gen=gen)
+                    # ListVar retains other chunks indefinitely; only this chunk is evidence for this poll.
+                    dmx = parse_dmx(listvar, span=span) if ok else {}
         finally:
             export_extra.difference_update(lines)
+        if epoch != state["plan_epoch"] or gen != link._gen or state["loading"] or not link.ready:
+            return dmx_seconds
         panel_vars = " | ".join(ln.strip()[:200] for ln in listvar.splitlines() if "$PANEL" in ln)
         state["dmx_read"] = {"t": time.strftime("%H:%M:%S"), "span": span, "values": len(dmx),
                              "reply": " || ".join(replies) + " || ListVar: " + (panel_vars or "нет $PANELDMX")}
         if refused:
             return None
+        # Missing/unreadable channels cease to be evidence. Other chunks age independently.
+        now = time.monotonic()
+        for a in list(state["dmx"]):
+            if span[0] <= a < span[0] + span[1] or now - dmx_cycle["seen"].get(a, 0) > 6:
+                state["dmx"].pop(a, None)
+                dmx_cycle["seen"].pop(a, None)
+        dmx_cycle["seen"].update({a: now for a in dmx})
+        state["dmx"].update(dmx)
         if not dmx:
+            state["live"] = live_from_dmx(cfg["fixtures"], state["dmx"], cfg.get("dmx_map", {}))
+            await broadcast({"live": state["live"], "values_meta": values_meta()})
             return 30
-        state["dmx"] = dmx
+        value_evidence.observe("live", True)
+        dmx = state["dmx"]
         live = live_from_dmx(cfg["fixtures"], dmx, cfg.get("dmx_map", {}))
-        if live != state["live"]:
-            state["live"] = live
-            await broadcast({"live": live})
+        state["live"] = live
+        await broadcast({"live": live, "values_meta": values_meta()})
         await broadcast({"dmx": {f["id"]: [dmx.get(a + i) for i in range(f.get("channels", 1))]
                                  for f in cfg["fixtures"] if (a := absolute(f.get("address")))}})
         return dmx_seconds
@@ -1172,9 +1420,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             raise ActionError("нужно имя шоу без кавычек и управляющих символов")
         return name
 
-    def plan_path(name):
-        safe = "".join(c if c.isalpha() or c.isdigit() or c in "-_ " else "_" for c in name)
-        return Path(config_path).parent / "shows" / (safe + ".json")
+    def plan_path(name, write=False):
+        return show_plan_path(Path(config_path).parent / "shows", name, write=write)
 
     def check_show():
         current, bound = state["show"]["name"], cfg.get("show")
@@ -1183,16 +1430,46 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         if current and bound and current != bound:
             raise ActionError("на пульте другое шоу, откройте его план")
 
+    def import_context():
+        return (state["plan_epoch"], state["show"]["name"], link._gen, config_revision())
+
     def import_xml(xml_text, source, file=None):
+        # Each prepare replaces the previous request, even when parsing fails.
+        state.pop("pending_import", None)
+        no_id = []
+        found = parse_export(xml_text, no_id)
         diag = Path(config_path).parent / "diag"
         diag.mkdir(exist_ok=True)
         (diag / "last_export.xml").write_text(xml_text, encoding="utf-8")
-        if file:
-            state["export_file"] = file
-        no_id = []
-        found = parse_export(xml_text, no_id)
         fixtures = merge_fixtures(cfg["fixtures"], found)
+        ambiguous = [{"new_id": f["id"], "label": f.get("label", f"#{f['id']}"), "candidates": f["ambiguous_candidates"]}
+                     for f in fixtures if "ambiguous_candidates" in f]
+        if ambiguous:
+            token = uuid.uuid4().hex
+            state["pending_import"] = {"source": source, "file": file, "found": found,
+                                       "no_id": no_id, "request_token": token, "context": import_context()}
+            return {"ok": False, "ambiguous": ambiguous, "request_token": token,
+                    "err": "Неоднозначная перепривязка: подтвердите выбор", "no_id": no_id[:50]}
+        return commit_import(fixtures, found, source, file, no_id)
+
+    def confirm_import(action):
+        # Caller holds action_lock. A request cannot cross plan/show/config changes.
+        pending = state.get("pending_import")
+        if not pending or action.get("request_token") != pending["request_token"]:
+            raise ActionError("импорт устарел: получите приборы заново")
+        if state["loading"] or pending["context"] != import_context():
+            state.pop("pending_import", None)
+            raise ActionError("план или шоу изменились: получите приборы заново")
+        check_show()
+        if "choices" not in action or action["choices"] is None:
+            raise ActionError("нужен явный выбор для каждого прибора")
+        fixtures = merge_fixtures(cfg["fixtures"], pending["found"], choices=action["choices"])
+        return commit_import(fixtures, pending["found"], pending["source"], pending["file"], pending["no_id"])
+
+    def commit_import(fixtures, found, source, file, no_id):
         moved = {f.pop("repatched_from"): f["id"] for f in fixtures if "repatched_from" in f}
+        for f in fixtures:
+            f.pop("ambiguous_candidates", None)  # clean up if any remain
         old_ids = {f["id"] for f in cfg["fixtures"]} | set(moved.values())  # a re-patched fixture is not new
         groups = [{**g, "fixtures": [moved.get(i, i) for i in g["fixtures"]]} if "n" not in g else g for g in cfg["groups"]]
         changes = {"fixtures": fixtures, "groups": groups, "fixtures_read": {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "source": source, "count": len(found)}}
@@ -1201,6 +1478,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             changes["show"] = state["show"]["name"]
         save_config(config_path, {**cfg, "attrs": original_attrs, **changes})
         cfg.update(changes)
+        state.pop("pending_import", None)
+        if file:
+            state["export_file"] = file
         state["read_freshness"]["fixtures"] = source == "ma2"
         spawn_broadcast(status_msg())
         return {"ok": True, "added": sum(f["id"] not in old_ids for f in fixtures),
@@ -1211,18 +1491,25 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         nonlocal original_attrs
         if highlight["state"] != "idle":  # no Off on a plan switch: it would wipe what the operator set on the desk
             highlight.update(state="stuck", reason="план переключён")
-        target = plan_path(name)
+        target = plan_path(name, write=False)
         if cfg.get("show"):
-            old = plan_path(cfg["show"])
+            old = plan_path(cfg["show"], write=True)
             old.parent.mkdir(exist_ok=True)
             save_config(str(old), {**cfg, "attrs": original_attrs})
         if target.exists():
-            loaded = json.loads(target.read_text(encoding="utf-8"))
+            target = plan_path(name)  # resolve again after saving this same show
+            loaded = json.loads(target.read_text(encoding="utf-8-sig"))
             if not isinstance(loaded, dict) or loaded.get("show") != name or any(not isinstance(loaded.get(k), list) for k in ("fixtures", "groups", "scenes", "presets")):
                 raise ActionError("неверный файл плана шоу")
         else:
             loaded = {**cfg, "attrs": original_attrs, "fixtures": [], "groups": [], "ma2groups": [], "ma2presets": {"colors": [], "positions": []},
                       "scenes": [], "presets": [], "pages": {}, "show": name}
+        version = loaded.get("version", 3)
+        if type(version) is not int or not 1 <= version <= 5:
+            raise ActionError("неподдерживаемая версия плана шоу")
+        # Site settings belong to this installation, never to an archived show.
+        loaded = {k: v for k, v in loaded.items() if k not in SITE_KEYS}
+        loaded["version"] = 5
         save_config(config_path, loaded)
         original_attrs = loaded.get("attrs", {})
         state["plan_epoch"] += 1
@@ -1240,8 +1527,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         state["read_freshness"] = dict.fromkeys(("fixtures", "ma2", "scenes"), False)
         state["shown"], state["sent"] = {}, {}
         state["tracked"], state["page"] = True, None
-        scene_running.clear()
-        await broadcast({"running": {sc["id"]: False for sc in cfg["scenes"]}})
+        invalidate_evidence()
+        await broadcast(scenes_msg())
 
     async def follow_desk_show():
         """Caller holds action_lock. A show made or loaded on the desk since: read its name now and move to its plan,
@@ -1262,7 +1549,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         path = plan_path(source)
         if source == cfg.get("show") or not path.exists():
             raise ActionError(f"нет плана шоу «{source}»")
-        other = json.loads(path.read_text(encoding="utf-8"))
+        other = json.loads(path.read_text(encoding="utf-8-sig"))
+        if other.get("show") != source:
+            raise ActionError("файл плана принадлежит другому шоу")
         ids = action.get("ids") or []
         if not isinstance(ids, list) or any(type(i) is not int for i in ids):
             raise ActionError("ids: список номеров приборов")
@@ -1288,31 +1577,47 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             raise ActionError(f"{NO_LINK}: проверьте вход на странице диагностики")
         check_show()
         result = await export_once(ma2["export_cmd"], "fixture", lambda text, file: import_xml(text, "ma2", file), "export_trace.json")
-        await read_types(force=True)
+        if result.get("ok"):
+            await read_types(force=True)
         return result
 
-    async def read_types(force=False):
+    async def read_types(force=False, max_types=None):
         """Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureType per type: the
         fixture export names no attributes. Caller holds action_lock. Best effort: a failure leaves the plan without colours
         and is logged; without force, each type is tried once per run."""
+        epoch, gen = state["plan_epoch"], link._gen
+        if state.get("types_context") != (epoch, gen):
+            types_tried.clear()
+            state["types_context"] = (epoch, gen)
         maps, changed = dict(cfg.get("dmx_map", {})), False
+        attempted = 0
         for kind in sorted({f.get("type") or "" for f in cfg["fixtures"] if not f.get("missing")}):
             m = re.match(r"(\d+) ", kind)
             if not m or (not force and ("has" in maps.get(kind, {}) or kind in types_tried)):
                 continue
-            types_tried.add(kind)
+            if max_types is not None and attempted >= max_types:
+                break
+            attempted += 1
             try:
                 spec = await export_type(int(m[1]))
             except (ActionError, OSError, ValueError, ET.ParseError) as e:
+                if epoch != state["plan_epoch"] or gen != link._gen:
+                    return
+                types_tried.add(kind)
                 log.warning("каналы типа «%s» не прочитаны: %s", kind, e)
                 break  # the same folder or refusal for the next type: each try holds the desk for up to export_wait
+            if epoch != state["plan_epoch"] or gen != link._gen:
+                return
+            types_tried.add(kind)
             if spec and maps.get(kind) != spec:
                 maps[kind], changed = spec, True
         add_strobe_attrs(maps)
         fixtures = cfg["fixtures"]
         if force or " list" not in types_tried and any(type_no(f.get("type")) and "footprint" not in f for f in fixtures if not f.get("missing")):
-            types_tried.add(" list")  # once per run, like the type exports
             ok, reply = await link.send("List FixtureType", quiet=True)
+            if epoch != state["plan_epoch"] or gen != link._gen:
+                return
+            types_tried.add(" list")  # once per run, like the type exports
             sizes = parse_type_footprints(reply) if ok else {}
             new = [{**f, "footprint": sizes[type_no(f.get("type"))]} if type_no(f.get("type")) in sizes else f for f in fixtures]
             if new != fixtures:
@@ -1428,7 +1733,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         state["shows"] = {"names": names, "raw_lines": reply.splitlines(), "t": time.time(), "local_names": local}
         return state["shows"]
 
-    async def load_show(action):
+    async def load_show(action, before=None, sent=None, verify=None, expected_gen=None):
         name = show_name(action)
         if len(name) > 100:
             raise ActionError("имя шоу: от 1 до 100 символов")
@@ -1441,6 +1746,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 raise ActionError("идёт загрузка шоу")
             if link.halted or not link.ready:
                 raise ActionError(HALTED if link.halted else NO_LINK)
+            if before:
+                await before()
             if name not in (await list_shows())["names"]:
                 raise ActionError("имя не найдено в свежем ListShows; загрузка отменена")
             state["plan_epoch"] += 1
@@ -1448,6 +1755,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             state["master"] = None
             state["read_freshness"] = dict.fromkeys(("fixtures", "ma2", "scenes"), False)
             state["loading"] = name
+            invalidate_evidence()
             state["show_load"] = {"state": "loading", "name": name, "reason": ""}
             throttle.clear()
             for session in sessions.values():
@@ -1463,7 +1771,11 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 if why := guard(cmd):
                     raise ActionError(why)
                 previous, gen0 = state["show"]["name"], link._gen
-                ok, reply = await link.send(cmd)
+                if verify:
+                    verify()
+                ok, reply = await link.send(cmd, gen=expected_gen)
+                if sent:
+                    sent(not (not ok and (is_error_reply(reply) or (link.last and link.last['status'] == 'not_sent'))))
                 if not ok and (is_error_reply(reply) or (link.last and link.last["cmd"] == cmd and link.last["status"] == "not_sent")):
                     raise ActionError(reply.strip() or "ошибка пульта")
             except (ActionError, ValueError, KeyError, IndexError, TypeError, OSError) as e:
@@ -1561,6 +1873,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return {"ok": True, "a": a, "show": state["show"], "show_load": state["show_load"]}
         if state["loading"]:
             return {"ok": False, "a": a, "err": "идёт загрузка шоу"}
+        if state.get('show_file_active'):
+            return {"ok": False, "a": a, "err": "выполняется операция файла шоу; управление временно недоступно"}
         if a == "mock_drop" and mock:
             app.state.mock.drop()
             return {"ok": True, "a": a}
@@ -1569,6 +1883,21 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 return await highlight_action(ws, action)
             except (ActionError, OSError, ValueError) as e:
                 return {"ok": False, "a": a, "err": str(e)}
+        if a in ("rdm_prepare", "rdm_start", "rdm_stop", "rdm_check"):
+            # One RDM coordinator for every client; the actions bypass the halted check on purpose:
+            # rdm_stop ends the window, rdm_check only reads (the coordinator itself refuses writes without a link).
+            if safety["allow_rdm"] is not True and a != "rdm_stop":
+                return {"ok": False, "a": a, "err": "заблокировано: allow_rdm в настройках"}
+            try:
+                if a == "rdm_prepare":
+                    return {"ok": True, "a": a, "offer": await rdm.prepare()}
+                if a == "rdm_start":
+                    return {**{"ok": True, "a": a}, "search": await rdm.start(action.get("token"))}
+                if a == "rdm_stop":
+                    return {**{"ok": True, "a": a}, "search": await rdm.stop()}
+                return {**{"ok": True, "a": a}, "search": await rdm.check()}
+            except ActionError as e:
+                return {"ok": False, "a": a, "err": str(e), **({"search": rdm.snapshot()} if a != "rdm_prepare" else {})}
         if a not in SIMPLE | FULL:
             return {"ok": False, "a": a, "err": "неизвестное действие"}
         if link.halted:
@@ -1640,6 +1969,11 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if a == "show_identify":
                 await identify_show()
                 return {"ok": True, "a": a}
+            if a == "import_confirm_merge":
+                async with action_lock:
+                    result = confirm_import(action)
+                await broadcast(config_msg())
+                return {**result, "a": a}
             if a in ("show_bind", "show_open_plan"):
                 name = show_name(action)
                 async with action_lock:
@@ -1659,7 +1993,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if a in PLAN_WRITES and state["show"]["name"] and cfg.get("show") and state["show"]["name"] != cfg["show"]:
                 raise ActionError("на пульте другое шоу: откройте его план (кнопка в баннере сверху)")
             if a in SLIDERS:
-                check_move(action) if a == "move" else build(action, cfg)  # reject bad values now, not on the tick
+                check_move(action) if a == "move" else build(action, {**cfg, "master": settings.get("master", cfg.get("master", {"cmd": "Master 2.1 At {v}"}))})  # reject bad values now, not on the tick
                 if a == "master":
                     ids = []
                 elif a == "move":
@@ -1674,16 +2008,28 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 if a in ("dim", "color"):
                     throttle.stop(key + ":fade")  # a new value of this tab ends its running fade
                     if action.get("fade") and (starts := fade_starts(a, ids)):
+                        if op := operation.get():
+                            op.update(retain=True, deferred=True, stage="fade")
                         throttle.fades[key + ":fade"] = asyncio.create_task(play_fade(key + ":fade", ws, a, action, starts))
                         return None
+                merged = False
                 prev = throttle.pending(key) if a == "jog" else None
                 total = {k: prev["action"][k] + action[k] for k in ("pan", "tilt")} if prev else {}
                 if prev and prev["ids"] == ids and prev["action"].get("mirror") == action.get("mirror") and all(abs(v) <= 45 for v in total.values()):
                     # Joystick steps are relative: those waiting for the tick add up, none is dropped.
                     action = {**action, **total}
+                    merged = True
                 elif prev:
                     await throttle.flush(key)  # selection or mirror changed, or the sum is too big: the waiting steps go out first
-                throttle.put(key, {"ws": ws, "a": a, "action": action, "ids": ids})
+                old = throttle.pending(key)
+                if old and (old_op := old.get("operation")):
+                    if merged and operation.get():
+                        operation.get().setdefault("coalesced", []).append(old_op)
+                    else:
+                        await finish_operation(old_op, {"ok": False, "err": "заменено более новым значением до отправки"})
+                if op := operation.get():
+                    op.update(retain=True, stage="queued")
+                throttle.put(key, {"ws": ws, "a": a, "action": action, "ids": ids, "operation": operation.get()})
                 return None
             if a in ("blackout", "scene_go", "scene_off"):  # a fade still running would light the fixtures again
                 for k in list(throttle.fades):
@@ -1754,7 +2100,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                             if not ok:
                                 raise ActionError(reply.strip() or "ошибка пульта")
                             deleted_scene = old
-                            await broadcast({"running": {old["id"]: False}})
+                            scene_evidence.invalidate([old["id"]])
+                            await broadcast(scenes_msg())
                         await store_checked(ex, action, gen=gen)
                         lines = store_lines(ex, label)
                         entry = {"id": old["id"] if old else new_id(scenes, "s"), "exec": ex, "label": label, "named": True}
@@ -1868,7 +2215,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             swap = []
             if a == "scene_go":  # crossfade: the scenes the operator sees running go Off when the fade ends
                 swap = action.get("swap", [])
-                if not isinstance(swap, list) or len(swap) > 16 or any(type(i) is not str for i in swap):
+                if (not isinstance(swap, list) or len(swap) > len(cfg["scenes"])
+                        or any(type(i) is not str for i in swap) or len(set(swap)) != len(swap)):
                     raise ActionError("swap: нужен список id сцен")
                 for sid in swap:
                     check_scene(find(cfg["scenes"], sid)["exec"])
@@ -1878,10 +2226,6 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 if exec_ not in captured["execs"]:
                     captured["execs"].add(exec_)
                     spawn_capture([f"List Executor {exec_}"], f"после Go сцены {exec_}")
-            if not err and swap:  # a scene replaces the rest: Off at once, or when the fade ends
-                task = asyncio.create_task(swap_off(swap, action["id"], action.get("fade") or 0, s))
-                bg.add(task)
-                task.add_done_callback(bg.discard)
         except (ActionError, ValueError) as e:
             err = str(e)
             if deleted_scene:
@@ -1902,53 +2246,76 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         return {"ok": True, "a": a}
 
     def on_result(entry):
+        if op := operation.get():
+            # Read replies do not establish that any mutation has succeeded.
+            if entry.get("status") == "unknown" or not re.match(r"^(?:List|Get|cd |CD )", entry.get("cmd", "")):
+                op["evidence"].append(entry["status"])
         app.state.last_send = time.monotonic()
+        if entry.get("status") == "unknown":
+            invalidate_evidence()
         spawn_broadcast({"last": entry})
 
     link = MA2Link(ma2["host"], ma2["port"], ma2["user"], password, on_state, guard, ma2["require_prompt"],
                    re.compile(ma2["prompt_regex"].encode()) if ma2.get("prompt_regex") else PROMPT,
                    re.compile(ma2["login_ok_regex"]) if ma2.get("login_ok_regex") else LOGIN_OK,
                    float(ma2.get("timeout", 2)), on_result)
-    throttle = Throttle(rate_hz, throttled)
+
+    # RDM discovery (spec, «Поиск RDM»): one coordinator owns the exact global On/Off lines and the state read.
+    # Journal next to config: survives reload/restart, so an unconfirmed Off stays visible to every client.
+    def rdm_busy():
+        # Queued/fade operations (retain) outlive their action: only running ones must block the search.
+        # The rdm_* action itself is running: it must not block its own prepare/start/check.
+        own = {id(op) for op in active_operations.values() if op.get("a", "").startswith("rdm_")}
+        return bool(state["loading"] or state.get("show_file_active")
+                    or any(id(op) not in own and not op.get("finished") and op.get("stage") != "queued"
+                           for op in active_operations.values()))
+
+    rdm = rdm_search.RDMSearch(link, action_lock, Path(config_path).parent / "rdm-search.json",
+                               allowed=lambda: safety["allow_rdm"] is True,
+                               context=lambda: (link._gen, link._stop_epoch, *offer_context()),
+                               notify=lambda: spawn_broadcast(status_msg()),
+                               busy=rdm_busy)
+    rdm_shutdown = rdm.shutdown  # lifespan's finally calls it: the window gets its bounded finishing attempt
+
+    class ProtocolThrottle(Throttle):
+        def clear(self):
+            pending = list(self._pending.values())
+            super().clear()
+            for intent in pending:
+                op = intent.get("operation")
+                if op and not op.get("deferred"):
+                    task = asyncio.create_task(finish_operation(op, {"ok": False, "err": "передача отменена до отправки"}))
+                    bg.add(task)
+                    task.add_done_callback(bg.discard)
+
+    throttle = ProtocolThrottle(rate_hz, throttled)
+    diagnostic_uploader = diagnostic_upload.Uploader(Path(config_path).parent / "diag" / "upload-state.json",
+                                                      settings_path.parent / "diagnostic-upload.json")
 
     @asynccontextmanager
     async def lifespan(app):
         log.addHandler(diag_handler)
         tasks = []
         try:
-            path = Path(config_path)
-            if path.exists():
-                legacy = load_config(config_path)
-                if legacy.get("version") != 4:
-                    folder = path.parent / "backups"
-                    folder.mkdir(exist_ok=True)
-                    backup = folder / f"config-v3-{time.strftime('%Y%m%d-%H%M%S')}.json"
-                    while backup.exists():
-                        backup = backup.with_stem(backup.stem + "-1")
-                    shutil.copy2(path, backup)
-                    name = legacy.get("show")
-                    target = plan_path(name if isinstance(name, str) and name.strip() else "без имени")
-                    target.parent.mkdir(exist_ok=True)
-                    if target.exists():  # an older plan of the same show is kept next to the config backup
-                        shutil.copy2(target, backup.with_stem(backup.stem + "-shows-" + target.stem))
-                    shutil.copy2(path, target)
-                    save_config(config_path, {**legacy, "version": 4})
-                    cfg["version"] = 4
             if mock:
                 app.state.mock = await start_mock(0, ma2["user"], export_dir)  # never the real console: a free local port
                 link.host, link.port = "127.0.0.1", app.state.mock.port
-            tasks = [asyncio.create_task(link.run()), asyncio.create_task(throttle.run()), asyncio.create_task(highlight_lease())]
+            tasks = [asyncio.create_task(browser_update.watch_orphan(app, HERE)), asyncio.create_task(link.run()), asyncio.create_task(throttle.run()), asyncio.create_task(highlight_lease()), asyncio.create_task(expire_evidence())]
+            tasks.append(asyncio.create_task(diagnostic_uploader.run()))
             if poll_seconds:
                 tasks.append(asyncio.create_task(poll_running()))
             if dmx_seconds:
                 tasks.append(asyncio.create_task(poll_dmx()))
             yield
         finally:
+            await rdm_shutdown()
             tasks.extend(bg)
             for t in tasks:
                 t.cancel()
             link.close()
             await asyncio.gather(*tasks, return_exceptions=True)
+            if workspace := getattr(app.state, 'show_files_workspace', None):
+                workspace.cleanup()
             log.removeHandler(diag_handler)
 
     secrets = {password, load_secret(settings_path.parent)} - {""}
@@ -1977,8 +2344,46 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     diag_handler = DiagnosticHandler(level=logging.WARNING)
     app = FastAPI(lifespan=lifespan)
+    app.state.updating = bool(os.environ.get('MA2_UPDATE_ID'))
+    app.state.update_hold = os.environ.get('MA2_UPDATE_ID')
+    app.state.active_actions = 0
+    app.state.active_http = 0
+    app.state.last_action = -1e9
+    app.state.instance = token_urlsafe(18)
 
-    async def handle_load(ws, text):
+    def updating():
+        if app.state.updating and app.state.update_hold:
+            import browser_update
+            current = browser_update.status(HERE)
+            if current.get('id') == app.state.update_hold and current['phase'] in browser_update.TERMINAL:
+                app.state.updating = False
+        return app.state.updating
+
+    link.admission = lambda: not updating()
+
+    def update_busy():
+        return (updating() or action_lock.locked() or link._lock.locked()
+                or app.state.active_actions or app.state.active_http or throttle._pending or throttle.fades
+                or any(not task.done() for task in bg) or state['loading']
+                or highlight['state'] != 'idle' or time.monotonic() - app.state.last_action < 10)
+
+    async def update_gate():
+        if update_busy():
+            return False
+        # No await between checking admitted work and closing the physical send gate.
+        app.state.updating = True
+        return True
+
+    def update_reopen():
+        app.state.updating = False
+        app.state.update_hold = None
+
+    def update_stop():
+        app.state.exit_code = 0  # code 3 would let start.bat race the external updater
+        app.state.server.should_exit = True
+
+
+    async def perform_action_inner(ws, text):
         try:
             a = json.loads(text).get("a")
         except (ValueError, AttributeError):
@@ -2001,16 +2406,99 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     add_history(a, what + (" (на пульте: панель не откатывает)" if a not in ("scene_go", "scene_off", "blackout", "page_go") else ""))
                 else:
                     add_history(a, what, "config", changed)
+        if op := operation.get():
+            if reply is None or op.get("deferred"):
+                # The throttle or delayed transition owns the terminal response, not this admission stage.
+                return
+            reply = operation_reply(op, reply)
+            if op["a"] in config_writes and ws in sessions and op.get("result_revision") and (reply.get("ok") or op.get("local_changed")):
+                # A refused desk write may still refresh this request's own read-back metadata.
+                # Never advance to a later revision published by another client during broadcast.
+                sessions[ws]["legacy_revision"] = op["result_revision"]
         record(ws, text, reply)
         try:
             if reply and ws in clients:
                 await ws.send_json(reply)
         except (WebSocketDisconnect, RuntimeError):
             pass
-        if reply and reply.get("ok") and a in ("scene_go", "scene_off", "blackout"):
-            running = ({sc["id"]: False for sc in cfg["scenes"]} if a == "blackout" else
-                       {json.loads(text)["id"]: a == "scene_go"})  # ok means handle found this id
-            await broadcast({"running": running}, skip=ws)  # the sender tracks its own taps; other tabs and the other port learn here
+    def operation_reply(op, reply):
+        if op["id"] is None:
+            return reply
+        evidence = op["evidence"]
+        outcome = ("unknown" if "unknown" in evidence or (op["a"] == "show_load" and state["show_load"].get("state") == "unknown") else
+                   "completed" if reply.get("ok") else
+                   "partial" if "sent" in evidence or op.get("local_changed") else "failed")
+        return {**reply, "a": op["a"], "request_id": op["id"], "outcome": outcome,
+                **({"config_revision": op["result_revision"]} if op.get("result_revision") else {}),
+                **({"conflict": True, "config_revision": revision_token()} if op.get("conflict") else {})}
+
+    async def finish_operation(op, reply):
+        if op.get("finished"):
+            return
+        op["finished"] = True
+        for previous in op.get("coalesced", []):
+            previous["evidence"].extend(op["evidence"])
+            await finish_operation(previous, reply)
+        active_operations.pop(op["key"], None)
+        if op["ws"] in clients and op["id"] is not None:
+            try:
+                await op["ws"].send_json(operation_reply(op, reply))
+            except (WebSocketDisconnect, RuntimeError):
+                pass
+        if op["id"] is not None:
+            await broadcast(status_msg())
+
+    async def perform_action(ws, text):
+        try:
+            action = json.loads(text)
+        except ValueError:
+            action = {}
+        if not isinstance(action, dict):
+            action = {}
+        action_name = action.get("a") if isinstance(action.get("a"), str) else None
+        rid = action.get("request_id")
+        if "request_id" in action and (not isinstance(rid, str) or not 1 <= len(rid) <= 100):
+            await ws.send_json({"ok": False, "a": action_name, "request_id": None,
+                                "outcome": "failed", "err": "request_id: нужна строка длиной 1–100"})
+            return
+        session = sessions.get(ws)
+        if session is None:
+            return
+        if rid is not None:
+            if rid in session["requests"]:
+                await ws.send_json({"ok": False, "a": action_name, "request_id": rid,
+                                    "outcome": "failed", "err": "request_id уже использован; повтор не отправлен"})
+                return
+            # Bound memory without forgetting old IDs and permitting duplicate execution.
+            if len(session["requests"]) >= 20000:
+                await ws.close(code=1008)
+                return
+            session["requests"].add(rid)
+        op = {"id": rid, "a": action_name, "evidence": [], "ws": ws, "key": uuid.uuid4().hex,
+              "revision": action.get("config_revision", session["legacy_revision"] if rid is None else None)}
+        token = operation.set(op)
+        active_operations[op["key"]] = op
+        if rid is not None:
+            await broadcast(status_msg())
+        try:
+            if updating():
+                await ws.send_json(operation_reply(op, {"ok": False, "err": "идёт обновление программы"}))
+            else:
+                await perform_action_inner(ws, text)
+        finally:
+            if not op.get("retain"):
+                active_operations.pop(op["key"], None)
+                if rid is not None:
+                    await broadcast(status_msg())
+            operation.reset(token)
+
+    async def handle_load(ws, text):
+        app.state.active_actions += 1
+        app.state.last_action = time.monotonic()
+        try:
+            await perform_action(ws, text)
+        finally:
+            app.state.active_actions -= 1
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
@@ -2026,7 +2514,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return
         await ws.accept()
         clients.add(ws)
-        sessions[ws] = {"selection": [], "base": None, "simple": simple}
+        sessions[ws] = {"selection": [], "base": None, "simple": simple, "requests": set(), "legacy_revision": revision_token()}
         queue = asyncio.Queue()
 
         async def worker():
@@ -2042,8 +2530,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         try:
             for msg in (status_msg(), config_msg()) if simple else (status_msg(), config_msg(), shown_msg(), history_msg()):
                 await ws.send_json(session_msg(ws, msg))
-            if simple:
-                await ws.send_json({"running": scene_running})
+            await ws.send_json(scenes_msg())
             while True:
                 text = await ws.receive_text()
                 try:
@@ -2061,6 +2548,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         finally:
             queue.put_nowait(None)
             clients.discard(ws)
+            for key, op in list(active_operations.items()):
+                if op["ws"] is ws and op.get("stage") == "queued":
+                    active_operations.pop(key, None)
             session = sessions.pop(ws, None)
             if session and (job := session.get("scene_search")):
                 job["cancelled"] = True
@@ -2075,11 +2565,27 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         files.export_folders, files.listing, files.save_diag_json, files.export_type, files.export_once, files.run_export_probe)
 
     register_api(app, SimpleNamespace(**locals(), HERE=HERE), lambda request: is_loopback(request))  # looked up per call: tests patch bridge.is_loopback
+    import show_transfer
+    show_transfer.register(app, SimpleNamespace(**locals()))
+    import onboarding
+    onboarding.register(app, {**(settings or {}), 'port': (settings or {}).get('port', cfg.get('port', 8080))},
+                        link, lambda request: is_loopback(request), lambda: local_addresses(), mock=mock)
 
     @app.middleware("http")
     async def no_cache(request, call_next):  # tablets revalidate, so a panel update shows on the next reload
-        response = await call_next(request)
-        response.headers["Cache-Control"] = "no-cache"
+        mutation = request.method not in ('GET', 'HEAD', 'OPTIONS') and not request.url.path.startswith('/api/update/')
+        if mutation and updating():
+            from fastapi.responses import JSONResponse
+            return JSONResponse({'ok': False, 'err': 'идёт обновление программы'}, status_code=409)
+        if mutation:
+            app.state.active_http += 1
+            app.state.last_action = time.monotonic()
+        try:
+            response = await call_next(request)
+        finally:
+            if mutation:
+                app.state.active_http -= 1
+        response.headers.setdefault("Cache-Control", "no-cache")
         return response
 
     simple_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -2097,6 +2603,18 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     async def simple_script():
         return FileResponse(HERE / "static" / "simple.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
+    @simple_app.get('/api/update/health')
+    def simple_health():
+        return update_health()
+
+    import browser_update
+    def update_health():
+        import update
+        return {'version': update.version(HERE), 'pid': os.getpid(), 'instance': app.state.instance,
+                'operation': os.environ.get('MA2_UPDATE_ID', '')}
+
+    browser_update.register(app, HERE, is_loopback, update_gate, update_reopen, update_stop,
+                            update_health, lambda: getattr(app.state, 'update_launch', None), update_busy)
     app.state.simple_app = simple_app
     app.mount("/", StaticFiles(directory=HERE / "static", html=True))
     return app
@@ -2175,6 +2693,19 @@ def stop_running(settings: dict, cfg: dict) -> None:
         print("Мост не отвечает (уже остановлен?). Если окно моста ещё открыто, закройте его.")
 
 
+async def open_start_page(server, port, opener=None):
+    """Open only after the listener is ready; failure does not stop the bridge."""
+    import webbrowser
+    while not server.started:
+        if server.should_exit:
+            return
+        await asyncio.sleep(0.1)
+    try:
+        await asyncio.to_thread(opener or webbrowser.open, f'http://127.0.0.1:{port}/setup.html')
+    except Exception:
+        log.warning('Не удалось открыть браузер. Откройте http://127.0.0.1:%s/setup.html', port)
+
+
 def main() -> None:
     for stream in (sys.stdout, sys.stderr):  # the Windows console may be cp1251/cp866: never die on Russian text
         if stream and hasattr(stream, "reconfigure"):
@@ -2189,7 +2720,10 @@ def main() -> None:
     p.add_argument("--check", action="store_true", help="print addresses and settings, test the Telnet port, send nothing")
     p.add_argument("--stop", action="store_true", help="ask a running bridge on this PC to stop")
     p.add_argument("--mock", action="store_true", help="fake MA2 on a free local port instead of the real console")
+    p.add_argument("--open-browser", action="store_true", help="open the local connection wizard after HTTP startup")
     args = p.parse_args()
+    import browser_update
+    browser_update.recover_pending(HERE)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
                         handlers=[RotatingFileHandler(HERE / "bridge.log", maxBytes=1_000_000, backupCount=3,
                                                       encoding="utf-8"), logging.StreamHandler()])
@@ -2204,6 +2738,11 @@ def main() -> None:
         return check(cfg, settings, password)
     if args.probe:
         return asyncio.run(probe(cfg, settings, password))
+    try:
+        archive = legacy_archive_path(args.config, cfg)
+        cfg, settings = migrate_config(args.config, args.settings, archive_path=archive)
+    except (ValueError, OSError) as e:
+        raise SystemExit(f"Миграция данных: {e}") from e
     port, bind = settings.get("port", cfg.get("port", 8080)), settings.get("bind", "127.0.0.1")
     simple_port = settings.get("simple_port", 8090)
     # Port 0 remains available for an ephemeral primary listener in local checks.
@@ -2231,6 +2770,7 @@ def main() -> None:
     app = create_app(cfg, args.mock, args.config, settings, password, settings_path=args.settings, capture=not args.mock)
     server = uvicorn.Server(uvicorn.Config(app, host=bind, port=port, log_level="info"))
     app.state.server = server
+    app.state.update_launch = {'args': [a for a in sys.argv[1:] if a != '--open-browser'], 'ports': [port] + ([simple_port] if simple_port is not None else [])}
     pid = HERE / "bridge.pid"
     pid.write_text(str(os.getpid()))
     try:
@@ -2246,12 +2786,18 @@ def main() -> None:
                     for other in servers:
                         other.should_exit = True
             tasks = [asyncio.create_task(run_server(current)) for current in servers]
+            browser_task = None
+            if args.open_browser and port and bind in ('127.0.0.1', '0.0.0.0', 'localhost'):
+                browser_task = asyncio.create_task(open_start_page(server, port))
             try:
                 await asyncio.gather(*tasks)
             finally:
                 for current in servers:
                     current.should_exit = True
                 await asyncio.gather(*tasks, return_exceptions=True)
+                if browser_task:
+                    browser_task.cancel()
+                    await asyncio.gather(browser_task, return_exceptions=True)
         asyncio.run(serve())
         sys.exit(getattr(app.state, "exit_code", 0))
     finally:

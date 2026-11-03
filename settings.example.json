@@ -2,12 +2,16 @@
   "bind": "127.0.0.1",
   "port": 8080,
   "rate_hz": 5,
-  "poll_seconds": 0,
+  "poll_seconds": 2,
   "ma2": {
     "host": "127.0.0.1",
     "port": 30000,
     "user": "Remote",
-    "require_prompt": true
+    "require_prompt": true,
+    "export_cmd": "Export Fixture 1 Thru 9999 \"panel_fixtures\""
+  },
+  "master": {
+    "cmd": "Master 2.1 At {v}"
   },
   "safety": {
     "mode": "test",

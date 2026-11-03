@@ -110,7 +110,8 @@ class MA2Link:
         self._stage, self._rx, self._end = "idle", 0, ""
         self.raw: deque[dict] = deque(maxlen=200)  # raw replies, password masked: diagnostics package
         self._targeted = False  # a Fixture line went out in this action: value lines are refused without one
-        self.halted = False  # "Остановить передачу": no line leaves the bridge until resume
+        self._halted = False  # "Остановить передачу": no line leaves the bridge until resume
+        self._stop_epoch = 0  # a stop/resume cycle cannot revive an already admitted line
         self.manual = False  # "Разорвать связь с MA2": only this bridge's Telnet session, no reconnect until link_connect
         self._wake = asyncio.Event()
         self._lock = asyncio.Lock()
@@ -124,6 +125,16 @@ class MA2Link:
     @property
     def ready(self) -> bool:
         return self.state in READY
+
+    @property
+    def halted(self) -> bool:
+        return self._halted
+
+    @halted.setter
+    def halted(self, value):
+        if value:
+            self._stop_epoch += 1
+        self._halted = value
 
     def mask(self, text: str) -> str:
         return redact(text, {self.password})
@@ -262,9 +273,10 @@ class MA2Link:
             log.error("ЗАБЛОКИРОВАНО защитой: %s (%s)", cmd, why)
             self._result(cmd, "not_sent", f"заблокировано защитой: {why}")
             return False, f"заблокировано защитой: {why}"
+        stop_epoch = self._stop_epoch
         gen = self._gen if gen is None else gen
         async with self._lock:
-            if self.halted:
+            if self.halted or stop_epoch != self._stop_epoch:
                 return False, HALTED
             if not self.ready or gen != self._gen or self._closed.is_set():
                 return False, NO_LINK
@@ -277,8 +289,15 @@ class MA2Link:
                     log.warning("-> %s | НЕ ОТПРАВЛЕНО: предыдущая команда так и осталась без ответа, соединение переоткрыто", cmd)
                     self._result(cmd, "not_sent", STALE)
                     return False, STALE
-                if self.halted:  # Stop pressed while the late reply was drained
+                if self.halted or stop_epoch != self._stop_epoch:  # stop/resume also invalidates this line
                     return False, HALTED
+                if not self.ready or gen != self._gen or self._closed.is_set():
+                    self._result(cmd, 'not_sent', NO_LINK)
+                    return False, NO_LINK
+                # Recheck after the transport lock and any late-reply drain.
+                # No await lies between this gate and the actual write in _exchange.
+                if not getattr(self, 'admission', lambda: True)():
+                    return False, 'идёт обновление программы'
                 reply, seen = await self._exchange(cmd, self.timeout)
             except OSError:
                 self._result(cmd, "unknown", "связь оборвалась во время команды: выполнилась ли она, неизвестно")

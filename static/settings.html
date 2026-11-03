@@ -5,15 +5,24 @@
   <title>Настройки · MA2</title><link rel="stylesheet" href="style.css">
 </head>
 <body><main class="sx">
-  <p class="toplinks"><a href="/">К панели</a> · <a href="diag.html">Диагностика</a></p>
+  <p class="toplinks"><a href="/">К панели</a> · <a href="setup.html">Мастер подключения</a> · <a href="diag.html">Диагностика</a></p>
   <h1>Настройки</h1><p class="muted">Сохранение ничего не отправляет на пульт.</p>
   <p id="status" role="status" aria-live="polite">Загрузка…</p><p class="muted" id="path"></p>
+  <fieldset class="importbox"><legend>Обновление программы</legend>
+    <p id="update-version" class="muted">Загрузка версии…</p>
+    <p id="update-state" role="status" aria-live="polite"></p>
+    <button id="update-check" class="btn" type="button">Проверить обновления</button>
+    <button id="update-start" class="btn primary" type="button" disabled>Обновить</button>
+    <p class="muted">Установка перезапустит панель. Конфиги и шоу сохраняются. USB и обновление по локальной сети доступны как прежде.</p>
+    <p class="muted">После изменения портов заново запустите firewall-open.bat от имени администратора на ПК зала.</p>
+  </fieldset>
   <form id="settings-form" hidden novalidate>
     <fieldset><legend>Подключение к пульту</legend><div class="grid">
       <label class="fld"><span class="lbl">Адрес пульта</span><input id="ma2-host" required><span class="err" id="err-ma2-host"></span></label>
       <label class="fld"><span class="lbl">Порт Telnet</span><input id="ma2-port" type="number" min="1" max="65535" required><span class="err" id="err-ma2-port"></span></label>
       <label class="fld"><span class="lbl">Пользователь</span><input id="ma2-user" required><span class="err" id="err-ma2-user"></span></label>
       <label class="fld"><span class="lbl">Новый пароль <span id="password-state" class="muted"></span></span><input id="password" type="password" autocomplete="new-password" placeholder="Пусто — оставить действующий"><span class="err" id="err-password"></span></label>
+      <label class="fld"><span class="lbl">Каталог файлов шоу MA2 (ma2.shows_dir)</span><input id="ma2-shows_dir" placeholder="C:\ProgramData\MA Lighting Technologies\grandma\gma2_V_…\shows"><span class="err" id="err-ma2-shows_dir"></span><span class="muted">Каталог shows действующей локальной onPC. Пусто — обмен файлами недоступен. Другую установленную версию автоматически не выбираем.</span></label>
       <label class="fld"><span class="lbl">Ожидание ответа, с <span class="muted">(ma2.timeout)</span></span><input id="ma2-timeout" type="number" min="0.001" step="any" required><span class="err" id="err-ma2-timeout"></span></label>
       <label class="fld"><span class="lbl">Приглашение <span class="muted">(prompt_regex)</span></span><input id="ma2-prompt_regex" placeholder="По умолчанию: ]> в конце ответа"><span class="err" id="err-ma2-prompt_regex"></span></label>
       <label class="fld"><span class="lbl">Подтверждение входа <span class="muted">(login_ok_regex)</span></span><input id="ma2-login_ok_regex" placeholder="По умолчанию: logged in"><span class="err" id="err-ma2-login_ok_regex"></span></label>
@@ -66,5 +75,5 @@
     <label class="fld"><span class="lbl">Файл XML</span><input id="fixture-file" type="file" accept=".xml,text/xml,application/xml"></label>
     <button id="import-file" class="btn" type="button">Импортировать файл</button>
   </fieldset>
-</main><script src="settings.js"></script></body>
+</main><script src="settings.js"></script><script src="update.js"></script></body>
 </html>

@@ -9,7 +9,8 @@ FULL = {"select_group", "select_fixtures", "dim", "color", "clear", "store_scene
         "group_save", "group_delete", "beam_home", "beam_invert", "scene_create", "scenes_import", "page_save",
         "scene_rename", "scene_delete", "hall_save", "fixture_flag", "ma2_read", "ma2_import",
         "ma2_group_go", "ma2_preset_go", "group_store_ma2", "plan_copy", "dmx_map", "undo",
-        "scene_slot_find", "scene_slot_cancel", "rdm_list", "rdm_link", "rdm_identify", "patch_plan", "patch_apply"}
+        "scene_slot_find", "scene_slot_cancel", "rdm_list", "rdm_link", "rdm_identify", "patch_plan", "patch_apply", "import_confirm_merge",
+        "rdm_prepare", "rdm_start", "rdm_stop", "rdm_check"}
 SLIDERS = {"master", "dim", "color", "move", "jog", "zoom", "focus", "strobe"}
 # Lines built from the plan's fixture and executor numbers: refused while the desk has another show open.
 # Blackout, Master, page change and Stop stay available.
@@ -308,7 +309,11 @@ def build(action: dict, cfg: dict) -> list[str]:
         return [template.format(sign="+" if direction == 1 else "-", v=f"{step:g}")]
     if a == "aim":
         lines = []
+        if not any(attr in action for attr in ("pan", "tilt")):
+            raise ActionError("aim: нужен pan или tilt")
         for attr in ("pan", "tilt"):
+            if attr not in action:
+                continue
             v, spec = action.get(attr), cfg["attrs"][attr]
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not spec["min"] <= v <= spec["max"]:
                 raise ActionError(f'{attr}: нужно число {spec["min"]:g}…{spec["max"]:g} градусов')
@@ -423,6 +428,20 @@ def absolute(address) -> int | None:
     return (int(m[1]) - 1) * 512 + int(m[2]) if m else None
 
 
+def dmx_intervals(fixtures: list[dict]) -> list[tuple[int, int]]:
+    """Sorted (start, count) ranges, without reading holes in a sparse patch."""
+    spans = sorted((a, a + f.get("channels", 1)) for f in fixtures
+                   if not f.get("missing") and (a := absolute(f.get("address")))
+                   and f.get("channels", 1) > 0)
+    merged = []
+    for start, end in spans:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return [(start, end - start) for start, end in merged]
+
+
 def dmx_span(fixtures: list[dict]) -> tuple[int, int] | None:
     """(first address, count) covering every patched fixture of the plan."""
     spans = [(a, a + f.get("channels", 1) - 1) for f in fixtures if not f.get("missing") and (a := absolute(f.get("address")))]
@@ -434,10 +453,13 @@ def dmx_lua(start: int, count: int) -> list[str]:
     return [DMX_LUA.format(a=a, n=min(DMX_CHUNK, start + count - a)) for a in range(start, start + count, DMX_CHUNK)]
 
 
-def parse_dmx(text: str) -> dict[int, float]:
+def parse_dmx(text: str, *, span: tuple[int, int] | None = None) -> dict[int, float]:
     """{absolute address: 0-255} from the Lua feedback or ListVar; -1 (unreadable) is left out."""
     out = {}
     for m in DMX_ROW.finditer(text):
+        if span is not None and (int(re.match(r"PANELDMX(\d+)", m[0])[1]) != span[0]
+                                 or int(m[2]) != span[0] or len(m[3].split(",")) != span[1]):
+            continue
         for i, v in enumerate(m[3].split(",")):
             if float(v) >= 0:
                 out[int(m[2]) + i] = float(v)

@@ -1,0 +1,14 @@
+.setup { max-width: 940px; }
+.setup-step { background: var(--s1, #191c1f); border-radius: 8px; padding: 22px; margin: 20px 0; }
+.setup-step h2 { font-size: 20px; margin-top: 0; }
+.setup-step li { margin: 12px 0; line-height: 1.6; }
+.setup-step details { margin: 20px 0; }
+.setup-step summary { min-height: 48px; cursor: pointer; padding: 12px 0; }
+.setup-option { min-height: 48px; margin-top: 16px; }
+.setup-addresses { display: flex; flex-wrap: wrap; gap: 24px; margin: 20px 0; }
+.setup-address { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 100%; }
+.setup-address a { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.setup-address img { width: 210px; height: 210px; background: white; max-width: 100%; }
+.setup .btn { min-height: 48px; }
+.setup [hidden] { display: none !important; }
+@media (max-width: 600px) { .setup-step { padding: 16px; } .setup-step .grid { grid-template-columns: 1fr; } }

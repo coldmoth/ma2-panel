@@ -4,7 +4,7 @@
 var JOY_SPEED = 90;   // °/с при полном отклонении
 var JOY_FINE = 0.15;  // доля скорости в режиме «Точно»
 var JOY_DEAD = 0.08;  // мёртвая зона у центра
-var moveState = {els: null, built: null, drag: null, fine: false, mirror: false, settingsOpen: false, presetsOpen: false, manage: false};
+var moveState = {els: null, built: null, drag: null, fine: false, mirror: false, settingsOpen: false, presetsOpen: false, manage: false, mode: 'joystick'};
 
 function moveHeads() {
   var byId = {};
@@ -49,7 +49,29 @@ function joyTick() {
   if (pan || tilt) send({a: 'jog', pan: pan, tilt: tilt, mirror: moveState.mirror});
 }
 
+// Separate channels prevent a quick Pan then Tilt change from dropping either target.
+function moveAxisCancel(axis) {
+  clearTimeout(axis.timer); axis.timer = null; axis.latest = null;
+}
+function moveAxisSend(axis, action) {
+  axis.latest = {action: action, ids: state.selection.join(','), config: state.config};
+  function flush() {
+    axis.timer = null;
+    var latest = axis.latest; axis.latest = null;
+    if (!latest || axis.blocked || axis.input.disabled || !connected() || featureReason('move') ||
+        moveState.mode !== 'absolute' || latest.ids !== state.selection.join(',') || latest.config !== state.config) return;
+    if (send(latest.action)) axis.sent = performance.now();
+  }
+  if (axis.timer !== null) return;
+  var wait = Math.max(0, 100 - (performance.now() - axis.sent));
+  if (!wait) flush(); else axis.timer = setTimeout(flush, Math.ceil(wait));
+}
+
 function moveStop() {
+  if (moveState.els && moveState.els.axes) Object.keys(moveState.els.axes).forEach(function (attr) {
+    var axis = moveState.els.axes[attr];
+    axis.blocked = true; axis.gesture = null; moveAxisCancel(axis);
+  });
   var drag = moveState.drag;
   moveState.drag = null;
   if (drag) {
@@ -63,6 +85,7 @@ function moveStop() {
 document.addEventListener('visibilitychange', function () { if (document.hidden) moveStop(); });
 
 function moveShell(el) {
+  if (moveState.els) moveStop();
   el.textContent = '';
   var els = {
     chips: moveEl('div', 'move-chips'),
@@ -114,7 +137,53 @@ function moveShell(el) {
     flips.appendChild(button);
   });
   [els.chips, els.hint].forEach(function (n) { el.appendChild(n); });
+  var modes = moveEl('div', 'move-modes');
+  els.modeJoystick = moveEl('button', '', 'Джойстик');
+  els.modeAbsolute = moveEl('button', '', 'Положение');
+  [[els.modeJoystick, 'joystick'], [els.modeAbsolute, 'absolute']].forEach(function (pair) {
+    pair[0].type = 'button';
+    pair[0].addEventListener('click', function () { moveStop(); moveState.mode = pair[1]; renderMove(el); });
+    modes.appendChild(pair[0]);
+  });
+  el.appendChild(modes);
   var primary = moveEl('div', 'move-primary'); primary.appendChild(els.padCol); el.appendChild(primary);
+  els.primary = primary;
+  els.absolute = moveEl('div', 'move-absolute'); els.axes = {};
+  ['pan', 'tilt'].forEach(function (attr) {
+    var label = moveEl('label', 'move-axis'), name = moveEl('span', '', attr === 'pan' ? 'Pan' : 'Tilt');
+    var output = moveEl('output'), input = moveEl('input');
+    input.type = 'range'; input.min = 0; input.max = 100; input.step = 0.1; input.dataset.feature = 'move';
+    input.setAttribute('aria-label', (attr === 'pan' ? 'Pan' : 'Tilt') + ' — абсолютное положение');
+    var axis = {input: input, output: output, blocked: false, gesture: null, timer: null, latest: null, sent: -Infinity};
+    els.axes[attr] = axis;
+    input.addEventListener('pointerdown', function (event) {
+      if (input.disabled || event.button !== 0) return;
+      axis.blocked = false;
+      axis.gesture = {pointer: event.pointerId, ids: state.selection.join(','), config: state.config};
+    });
+    input.addEventListener('keydown', function () { if (!input.disabled) axis.blocked = false; });
+    input.addEventListener('input', function () {
+      if (input.disabled || axis.blocked || !connected() || featureReason('move') || moveState.mode !== 'absolute') return;
+      if (axis.gesture && (axis.gesture.ids !== state.selection.join(',') || axis.gesture.config !== state.config)) {
+        axis.blocked = true; return;
+      }
+      var spec = state.config.attrs[attr], percent = moveClip(Number(input.value), 0, 100);
+      if (!Number.isFinite(percent) || !(spec.max > spec.min)) return;
+      var value = Math.round((spec.min + percent * (spec.max - spec.min) / 100) * 10) / 10;
+      value = moveClip(value, spec.min, spec.max);
+      var action = {a: 'aim'}; action[attr] = value;
+      moveAxisSend(axis, action);
+      setFill(input, percent); output.textContent = value + '° · отправляется';
+    });
+    input.addEventListener('pointerup', function () { axis.gesture = null; });
+    ['pointercancel', 'lostpointercapture'].forEach(function (type) {
+      input.addEventListener(type, function () { if (axis.gesture) { axis.blocked = true; axis.gesture = null; moveAxisCancel(axis); } });
+    });
+    label.appendChild(name); label.appendChild(output); label.appendChild(input); els.absolute.appendChild(label);
+  });
+  els.absolute.appendChild(moveEl('p', 'note', 'Абсолютные градусы. Зеркальность и «наоборот» действуют только на джойстик и шаги.'));
+  els.absolute.appendChild(moveEl('p', 'muted', 'Показано последнее отправленное панелью; изменения на пульте здесь не видны.'));
+  el.appendChild(els.absolute);
   var steps = moveEl('div', 'step-cross');
   steps.appendChild(moveEl('span', 'step-caption', 'Шаг 1°'));
   ['pan', 'tilt'].forEach(function (attr) {
@@ -202,6 +271,7 @@ function moveShell(el) {
 }
 
 function movePresets() {
+  var revision = state.config && state.config.revision;
   var box = moveState.els.presets;
   box.textContent = '';
   (state.config.presets || []).forEach(function (preset) {
@@ -217,7 +287,7 @@ function movePresets() {
       del.setAttribute('aria-label', 'Удалить пресет ' + preset.label);
       del.disabled = !connected();
       del.addEventListener('click', function () {
-        if (confirm('Удалить пресет «' + preset.label + '» из панели?')) send({a:'preset_delete',id:preset.id}, del);
+        if (confirm('Удалить пресет «' + preset.label + '» из панели?')) send({a:'preset_delete',id:preset.id,config_revision:revision}, del);
       });
       row.appendChild(del); box.appendChild(row); return;
     }
@@ -249,6 +319,27 @@ function renderMove(el) {
   var unknown = heads.some(function (f) { return moveValue(f.id, 'pan') === null || moveValue(f.id, 'tilt') === null; });
   var off = !ready || !heads.length || !!featureReason('move');
   var padOff = off;
+  var absolute = moveState.mode === 'absolute';
+  els.primary.hidden = absolute; els.absolute.hidden = !absolute;
+  els.modeJoystick.setAttribute('aria-pressed', String(!absolute));
+  els.modeAbsolute.setAttribute('aria-pressed', String(absolute));
+  Object.keys(els.axes).forEach(function (attr) {
+    var axis = els.axes[attr], spec = state.config.attrs[attr];
+    axis.input.disabled = off || !Number.isFinite(spec.min) || !Number.isFinite(spec.max) || spec.max <= spec.min;
+    if (axis.input.disabled || (axis.gesture && (axis.gesture.ids !== state.selection.join(',') || axis.gesture.config !== state.config)) ||
+        (axis.latest && (axis.latest.ids !== state.selection.join(',') || axis.latest.config !== state.config))) {
+      axis.blocked = true; axis.gesture = null; moveAxisCancel(axis);
+    }
+    var values = heads.map(function (f) { return moveValue(f.id, attr); });
+    var unknownAxis = !values.length || values.some(function (v) { return v === null; });
+    var mixed = !unknownAxis && values.some(function (v) { return Math.abs(v - values[0]) > 0.05; });
+    var percent = unknownAxis || mixed ? null : values[0];
+    if (!axis.gesture && !axis.latest) setFill(axis.input, percent);
+    axis.output.textContent = (unknownAxis ? 'неизвестно' : mixed ? 'Разные' :
+      Math.round((spec.min + percent * (spec.max - spec.min) / 100) * 10) / 10 + '°') +
+      ' · ' + spec.min + '…' + spec.max + '°';
+    axis.input.setAttribute('aria-valuetext', axis.output.textContent);
+  });
   if (padOff && moveState.drag) {  // link lost or selection gone mid-gesture: drop it so the next touch starts clean
     try { els.pad.releasePointerCapture(moveState.drag.pointer); } catch (error) {}
     clearInterval(moveState.drag.timer);
@@ -277,7 +368,7 @@ function renderMove(el) {
     'Движение выключено: ' + featureReason('move');
   els.msg.hidden = !padOff;
   els.pad.classList.toggle('dragging', !!moveState.drag);
-  els.save.disabled = padOff || unknown || !!(pending.preset_save || []).length;
+  els.save.disabled = padOff || unknown || busy('preset_save');
   els.saveHint.hidden = !unknown;
   Object.keys(els.sliders).forEach(function (attr) {
     var input = els.sliders[attr];

@@ -1,11 +1,35 @@
 /* Panel core: link to the bridge, shell (rail, top bar, banners) and the Площадка, Сцены, Шоу sections.
    light.js draws Свет, plan.js draws the hall plan and Зал, move.js the Pan/Tilt pad. */
 var state = {valuesRevision: -1, master: null, readFreshness: {}, ws: null, ma2: 'down', mock: false, last: null, manual: false, page: null, scenes: {}, config: null, configN: 0,
-  shown: {}, live: {}, dmx: {}, tracked: true, selection: [], group: null, halted: false, safety: null, features: {}, highlight: null,
+  shown: {}, live: {}, dmx: {}, sceneMeta: {}, valuesMeta: {}, tracked: true, selection: [], group: null, halted: false, safety: null, features: {}, highlight: null,
   showLoad: {state: 'idle'}, show: {name: null}, sec: 'start', blackoutArm: false,
   fetch: null, ma2read: null, showNames: null, showRaw: [], showLocal: [], showPick: null, saveReply: '', history: []};
+var evidenceReceipts = {scenes: {}, values: {}};
 var listeners = {};
 var pending = {};
+var configQueue = [];
+var configActive = null;
+var actionRevision;
+var CONFIG_WRITES = ['layout_save','hall_save','fixture_flag','group_save','group_delete','preset_save','preset_delete',
+  'beam_home','beam_invert','dmx_map','rdm_link','scene_create','scene_rename','scene_delete','page_save','scenes_import',
+  'ma2_import','fixtures_fetch','import_confirm_merge','plan_copy','show_bind','show_open_plan','show_load','patch_apply','undo'];
+function captureRevision(fn) {
+  var revision = state.config && state.config.revision;
+  return function () {
+    var before = actionRevision;
+    actionRevision = revision;
+    try { return fn.apply(this, arguments); } finally { actionRevision = before; }
+  };
+}
+function pumpConfigQueue() {
+  if (configActive || !configQueue.length || !bridgeUp()) return;
+  var entry = configQueue.shift();
+  configActive = entry.action.request_id;
+  try { state.ws.send(JSON.stringify(entry.action)); }
+  catch (error) { discardPending(); }
+}
+var requestSerial = 0;
+var requestPrefix = Date.now().toString(36) + Math.random().toString(36).slice(2);
 var sliderChannels = {};
 var SLIDER_ACTIONS = ['master', 'dim', 'color', 'move', 'jog', 'zoom', 'focus', 'strobe'];
 var sceneFade = 0;  // scene crossfade, seconds; the scenes running now always go Off (at once or when it ends)
@@ -29,7 +53,7 @@ function h(tag, attrs) {
     if (v === null || v === undefined || v === false) return;
     if (k === 'class') el.className = v;
     else if (k === 'text') el.textContent = v;
-    else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+    else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), captureRevision(v));
     else if (k === 'style') Object.keys(v).forEach(function (s) { el.style.setProperty(s, v[s]); });
     else if (k in el && typeof v !== 'string') el[k] = v;
     else el.setAttribute(k, v === true ? '' : v);
@@ -65,7 +89,7 @@ function pageOf(scene) { return parseInt(String(scene.exec).split('.')[0], 10) |
 function bridgeUp() { return !!state.ws && state.ws.readyState === WebSocket.OPEN; }
 // Commands go out only after the bridge confirmed the login (ListVar returned the configured user).
 function linkReady() { return state.ma2 === 'logged_in'; }
-function connected() { return bridgeUp() && linkReady() && !state.halted && !(state.showLoad && state.showLoad.state === 'loading'); }
+function connected() { return bridgeUp() && linkReady() && !state.halted && !state.showFileActive && !(state.showLoad && state.showLoad.state === 'loading'); }
 function fixtures() { return (state.config && state.config.fixtures) || []; }
 function fixture(id) { return fixtures().filter(function (f) { return f.id === id; })[0] || null; }
 // A head: marked by the operator (moves), or Pan/Tilt among the attribute names from MA2. Same rule as commands.can_move.
@@ -93,19 +117,31 @@ function send(action, button) {
   if (button && button.getAttribute('aria-busy') === 'true') return false;
   // Waiting slider values go out before any other action, so the bridge sees them in the user's order.
   if (SLIDER_ACTIONS.indexOf(action.a) < 0) flushSliders();
-  try { state.ws.send(JSON.stringify(action)); } catch (error) { return false; }
-  if (SLIDER_ACTIONS.indexOf(action.a) < 0) (pending[action.a] || (pending[action.a] = [])).push(button || null);
+  var revision = actionRevision === undefined ? state.config && state.config.revision : actionRevision;
+  if (state.sec === 'hall' && typeof planState !== 'undefined' && planState.editing) revision = planState.revision;
+  action = Object.assign({config_revision: revision}, action, {request_id: requestPrefix + ':' + (++requestSerial)});
+  pending[action.request_id] = {a: action.a, button: button || null, revision: action.config_revision};
+  if (CONFIG_WRITES.indexOf(action.a) >= 0) {
+    configQueue.push({action: action});
+    pumpConfigQueue();
+  } else {
+    try { state.ws.send(JSON.stringify(action)); } catch (error) { delete pending[action.request_id]; return false; }
+  }
   if (button) { button.setAttribute('aria-busy', 'true'); button.classList.add('waiting'); }
   return true;
 }
 function sendRaw(action) {  // halt / resume / link: work without a console link
-  if (bridgeUp()) state.ws.send(JSON.stringify(action));
+  if (bridgeUp()) {
+    action = Object.assign({}, action, {request_id: requestPrefix + ':' + (++requestSerial)});
+    state.ws.send(JSON.stringify(action));
+    pending[action.request_id] = {a: action.a, button: null};
+  }
 }
-function busy(a) { return !!(pending[a] || []).length; }
+function busy(a) { return Object.keys(pending).some(function (id) { return pending[id].a === a; }); }
 
 function feedback(button, ok, error) {
   if (button) { button.removeAttribute('aria-busy'); button.classList.remove('waiting'); }
-  notice(ok ? 'Действие выполнено' : (error || 'Ошибка команды'), ok ? 'success' : 'error', !ok);
+  notice(ok ? 'Команда отправлена' : (error || 'Ошибка команды'), ok ? 'success' : 'error', !ok);
 }
 function notice(text, kind, sticky) {
   var el = document.getElementById('notice');
@@ -180,6 +216,7 @@ function render() {
 function renderBanners() {
   var b = document.getElementById('banners');
   b.textContent = '';
+  if (typeof rdmSearchBanner === 'function') { var rdmBanner = rdmSearchBanner(); if (rdmBanner) b.appendChild(rdmBanner); }
   var hl = state.highlight || {};
   if (hl.state === 'stuck') b.appendChild(h('div', {class: 'banner bad', role: 'alert'}, icon('alert'),
     'Подсветка не снята' + (hl.reason ? ': ' + hl.reason : '') + '. Кнопка снимает её командой Off: у приборов зала пропадёт и то, что выставлено на пульте вручную. Сначала сохраните шоу или запишите сцену.',
@@ -204,8 +241,8 @@ function renderBanners() {
 function renderSection() {
   var el = document.getElementById('page');
   var hl = state.highlight || {};
-  var key = JSON.stringify([state.sec, state.configN, state.selection, state.ma2, state.halted, state.manual, state.showLoad, hl.state, hl.target,
-    state.show, state.scenes, state.safety, state.features, state.readFreshness, state.fetch, state.ma2read, state.showNames, state.showPick, state.saveReply, state.page, sceneFade,
+  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, state.configN, state.selection, state.ma2, state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
+    state.show, state.scenes, state.sceneMeta, state.safety, state.features, state.readFreshness, state.fetch, state.ma2read, state.showNames, state.showPick, state.saveReply, state.page, sceneFade,
     state.sec === 'start' ? state.last : null, // «Последняя команда» on Площадка; elsewhere a command must not redraw the sliders
     state.sec === 'history' ? state.history : null,
     typeof planKey === 'function' ? planKey() : '', state.sec === 'patch' && typeof patchKey === 'function' ? patchKey() : '', typeof lightKey === 'function' ? lightKey() : '']);
@@ -244,6 +281,47 @@ function renderSection() {
 
 /* ---------- Площадка ---------- */
 function readFromMa2() { return !!(state.config && state.config.fixtures_read); }
+function fixtureImportComplete(f) {
+  var choices = f.choices || {}, used = [];
+  return (f.items || []).length > 0 && f.items.every(function (item) {
+    if (!Object.prototype.hasOwnProperty.call(choices, item.new_id)) return false;
+    var old = choices[item.new_id];
+    if (old === null) return true;
+    if (used.indexOf(old) >= 0) return false;
+    used.push(old);
+    return item.candidates.some(function (candidate) { return candidate.old_id === old; });
+  });
+}
+function fixtureImportChoices(f) {
+  var choices = f.choices || (f.choices = {});
+  return h('div', {class: 'import-choices', style: {display: 'grid', gap: '12px'}},
+    h('p', {class: 'note warn', role: 'alert'}, 'Неоднозначная перепривязка. План пока не изменён. Выберите соответствие для каждого нового прибора или оставьте его новым.'),
+    f.err ? h('p', {class: 'bad', role: 'alert'}, f.err) : null,
+    (f.items || []).map(function (item) {
+      function choose(old) { choices[item.new_id] = old; render(); }
+      return h('div', {class: 'card'},
+        h('p', {}, h('strong', {}, 'Новый прибор #' + item.new_id + ': ' + item.label)),
+        h('div', {class: 'row'}, item.candidates.map(function (candidate) {
+          var selected = choices[item.new_id] === candidate.old_id;
+          var used = Object.keys(choices).some(function (key) { return key !== String(item.new_id) && choices[key] === candidate.old_id; });
+          return h('button', {class: 'btn' + (selected ? ' primary' : ''), type: 'button', disabled: used,
+            'aria-pressed': selected ? 'true' : 'false', onclick: function () { choose(candidate.old_id); }},
+            'Объединить с #' + candidate.old_id + ' (' + candidate.label + ')');
+        }), h('button', {class: 'btn' + (Object.prototype.hasOwnProperty.call(choices, item.new_id) && choices[item.new_id] === null ? ' primary' : ''),
+          type: 'button', 'aria-pressed': Object.prototype.hasOwnProperty.call(choices, item.new_id) && choices[item.new_id] === null ? 'true' : 'false',
+          onclick: function () { choose(null); }}, 'Оставить новый')));
+    }),
+    h('div', {class: 'row'},
+      h('button', {class: 'btn primary', type: 'button', disabled: !connected() || !fixtureImportComplete(f) || busy('import_confirm_merge'), onclick: function (event) {
+        if (!fixtureImportComplete(f) || busy('import_confirm_merge')) return;
+        state.fetch = {state: 'loading'};
+        if (!send({a: 'import_confirm_merge', request_token: f.request_token, choices: choices}, event.currentTarget)) {
+          f.err = 'Не удалось отправить выбор: проверьте соединение'; state.fetch = f;
+        }
+        render();
+      }}, 'Применить выбор'),
+      h('button', {class: 'btn', type: 'button', onclick: function () { state.fetch = null; notice('Импорт отменён, план не изменён', 'info'); render(); }}, 'Отменить импорт')));
+}
 SECTIONS.start = function (el) {
   var ready = connected();
   add(el, h('div', {class: 'ph'}, h('h1', {}, hasFixtures() ? 'Площадка' : 'Новая площадка')));
@@ -259,10 +337,11 @@ SECTIONS.start = function (el) {
     }}, icon('plug'), state.manual ? 'Подключиться' : 'Разорвать связь'),
     state.mock ? h('button', {class: 'btn small', type: 'button', disabled: !ready, onclick: function (e) { send({a: 'mock_drop'}, e.currentTarget); }}, 'Оборвать связь (имитация)') : null));
   add(conn, h('p', {class: 'note'}, safetyText()), h('p', {class: 'note'}, h('a', {href: 'diag.html'}, 'Диагностика'), ' · ', h('a', {href: 'settings.html'}, 'Настройки'), ' · ', h('a', {href: 'log.html'}, 'Журнал действий')));
+  add(conn, h('a', {class: 'btn small', href: 'diag.html#report'}, 'Отправить диагностику'));
   var last = state.last;
   if (last) add(conn, h('p', {class: 'note ' + (last.status === 'error' ? 'bad' : '')}, 'Последняя команда ' + last.t + ': ' + last.cmd + ' — ' + (RESULT_TEXT[last.status] || last.status)));
 
-  var canFetch = ready && safe('allow_fixture_read') && !busy('fixtures_fetch');
+  var canFetch = ready && safe('allow_fixture_read') && !busy('fixtures_fetch') && !busy('import_confirm_merge');
   var f = state.fetch;
   var eq = h('section', {class: 'card'}, h('h2', {}, 'Оборудование из MA2'),
     h('p', {class: 'note'}, 'Читаю приборы текущего патча: ID, имя, тип и параметры. Это не поиск RDM. Повторное чтение сохраняет расстановку, добавляет новые приборы и помечает пропавшие.'),
@@ -273,6 +352,7 @@ SECTIONS.start = function (el) {
     f && f.state === 'done' ? h('p', {class: 'ok'}, 'Получено из MA2: добавлено ' + f.added + ', пропало ' + f.missing + ', всего ' + f.total) : null,
     f && f.state === 'error' ? h('p', {class: 'bad', role: 'alert'}, 'Не получено из MA2: ' + f.err) : null,
     f && f.state === 'error' ? h('p', {class: 'note'}, h('a', {href: 'diag.html'}, 'Открыть диагностику')) : null,
+    f && f.state === 'ambiguous' ? fixtureImportChoices(f) : null,
     hasFixtures() && readFromMa2() ? h('p', {class: 'note'}, 'Последнее получение: ' + state.config.fixtures_read.t + (state.config.fixtures_read.source === 'ma2' ? ' (из MA2)' : ' (из файла XML)') + '.') : null,
     hasFixtures() && !readFromMa2() ? h('p', {class: 'note warn', role: 'status'}, 'Показан сохранённый план: приборы и расстановка из прошлой работы. Данные из MA2 ещё не получены, параметры не прочитаны.') : null);
   add(el, h('div', {class: 'grid2'}, conn, eq));
@@ -363,20 +443,20 @@ SECTIONS.scenes = function (el) {
   }
   var tiles = h('div', {class:'tiles'});
   scenes.forEach(function (scene, index) {
-    var run = !!state.scenes[scene.id];
-    var allowed = !state.safety || state.safety.mode === 'full' || (state.safety.scenes || []).indexOf(String(scene.exec)) >= 0;
+    var current = sceneEvidence(scene.id), run = current.value === true;
+    var allowed = sceneAllowed(scene);
     var label = scene.label || 'Без названия';
     var tile = h('button', {class:'tile' + (run ? ' run' : '') + (scene.write_error ? ' write-error' : ''), type:'button', 'data-scene':scene.id,
-      'aria-label': (index + 1) + '. ' + label + (run ? ', идёт' : ''),
+      'aria-label': (index + 1) + '. ' + label + ', ' + current.label.toLowerCase(),
       disabled: !ready || !allowed || !!featureReason('scenes') || !!scene.write_error, onclick:function() {
-        var action = {a:'scene_go',id:scene.id,swap:scenes.filter(function(o){return o.id !== scene.id && state.scenes[o.id];}).map(function(o){return o.id;})};
+        var action = {a:'scene_go',id:scene.id,swap:scenes.filter(function(o){return o.id !== scene.id && sceneAllowed(o) && sceneEvidence(o.id).value !== false;}).map(function(o){return o.id;})};
         if (sceneFade) action.fade = sceneFade;
         send(action,tile);
       }}, h('span',{class:'scene-number'},index + 1), h('span',{class:'scene-name'},label),
-      h('span',{class:'scene-state'},scene.write_error ? 'Запись не подтверждена' : run ? 'Идёт' : 'Запустить'));
+      h('span',{class:'scene-state'},scene.write_error ? 'Запись не подтверждена' : current.label));
     var controls = h('div',{class:'tile-controls'},h('button',{class:'btn small ghost',type:'button',disabled:!ready,
       onclick:function(){openSceneEdit(scene);}},'Изменить'));
-    if (run) add(controls,h('button',{class:'btn small off',type:'button','data-scene':scene.id,disabled:!ready,
+    if (current.value !== false) add(controls,h('button',{class:'btn small off',type:'button','data-scene':scene.id,disabled:!ready || !allowed || !!featureReason('scenes'),
       'aria-label':'Выключить сцену «' + label + '»',onclick:function(e){send({a:'scene_off',id:scene.id},e.currentTarget);}},'Выключить'));
     add(tiles,h('div',{class:'tile-wrap'},tile,controls));
   });
@@ -486,8 +566,6 @@ SECTIONS.history = function (el) {
 };
 
 /* ---------- Шоу ---------- */
-// The typed name only proves intent: a tablet keyboard capitalises the first letter and adds a space after a suggestion.
-function sameName(typed, name) { return typed.trim().replace(/\s+/g, ' ').toLowerCase() === name.toLowerCase(); }
 SECTIONS.shows = function (el) {
   var ready = connected();
   var name = state.show && state.show.name, bound = state.config && state.config.show;
@@ -527,18 +605,14 @@ SECTIONS.shows = function (el) {
   if (state.showLocal.length) add(list, h('p', {class: 'note'}, 'Файлы на этом ПК: ' + state.showLocal.join(', ') + '. Загрузка — только по имени из ответа MA2.'));
   if (state.showPick && state.showPick !== name && (state.showNames || []).indexOf(state.showPick) >= 0) {
     var pickName = state.showPick;
-    var ack = h('input', {type: 'checkbox'});
-    var conf = h('input', {id: 'load-confirm', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false'});
-    var load = h('button', {class: 'btn blackout', type: 'button', disabled: true, onclick: function () {
-      if (send({a: 'show_load', name: pickName, confirm_name: pickName, ack_unsaved: ack.checked}, load)) { state.showPick = null; }
+    var load = h('button', {class: 'btn blackout', type: 'button', disabled: !ready || !safe('allow_show_load') || busy('show_load'), onclick: function () {
+      if (!confirm('Загрузить шоу «' + pickName + '»? Несохранённые изменения текущего шоу пропадут.')) return;
+      if (send({a: 'show_load', name: pickName, confirm_name: pickName, ack_unsaved: true}, load)) { state.showPick = null; }
     }}, 'Загрузить «' + pickName + '»');
-    var check = function () { load.disabled = !(connected() && safe('allow_show_load') && ack.checked && sameName(conf.value, pickName)); };
-    ack.addEventListener('change', check); conf.addEventListener('input', check);
     add(list, h('div', {class: 'card', style: {background: 'var(--s2)'}}, h('h3', {style: {color: 'var(--ink)'}}, 'Загрузка «' + pickName + '» заменит всё на MA2'),
       h('p', {class: 'note warn'}, 'MA2 не сообщает о несохранённых изменениях текущего шоу. Если они нужны, сначала сохраните его.'),
       !safe('allow_show_load') ? h('p', {class: 'note warn'}, 'Загрузка выключена в настройках (allow_show_load).') : null,
-      h('label', {class: 'chk'}, ack, 'Несохранённые изменения текущего шоу пропадут'),
-      h('div', {class: 'field'}, h('label', {for: 'load-confirm'}, 'Введите имя загружаемого шоу'), conf), h('div', {}, load)));
+      h('div', {}, load)));
   }
   var plans = (state.config && state.config.plans) || [];
   var from = h('select', {}, plans.map(function (n) { return h('option', {value: n}, n); }));
@@ -549,28 +623,82 @@ SECTIONS.shows = function (el) {
     plans.length ? h('div', {class: 'row'}, from, h('button', {class: 'btn small', type: 'button', disabled: !bridgeUp() || busy('plan_copy'), onclick: function (e) {
       send({a: 'plan_copy', from: from.value, ids: state.selection.slice()}, e.currentTarget);
     }}, 'Перенести')) : h('p', {class: 'note'}, 'Других планов на этом ПК нет.'));
-  add(el, h('div', {class: 'shows'}, cur, list, copy));
+  add(el, h('div', {class: 'shows'}, typeof showFilesCard === 'function' ? showFilesCard() : null, cur, list, copy));
 };
 
 /* ---------- link ---------- */
 function discardPending() {
-  Object.keys(pending).forEach(function (a) { pending[a].forEach(function (b) { if (b) { b.removeAttribute('aria-busy'); b.classList.remove('waiting'); } }); });
+  var unfinished = Object.keys(pending).length;
+  Object.keys(pending).forEach(function (id) { var b = pending[id].button; if (b) { b.removeAttribute('aria-busy'); b.classList.remove('waiting'); } });
+  if (unfinished) notice('Связь прервана: результат незавершённых запросов неизвестен. Команды не повторены.', 'warning', true);
   pending = {};
+  configQueue = []; configActive = null;
   Object.keys(sliderChannels).forEach(cancelSlider);
 }
 
+function clearEvidence() {
+  state.scenes = {}; state.sceneMeta = {}; state.shown = {}; state.live = {}; state.dmx = {};
+  state.valuesMeta = {}; state.master = null;
+  evidenceReceipts = {scenes: {}, values: {}};
+}
+function sceneAllowed(scene) {
+  return !state.safety || state.safety.mode === 'full' || (state.safety.scenes || []).indexOf(String(scene.exec)) >= 0;
+}
+function sceneEvidence(id) {
+  var meta = state.sceneMeta[id], value = state.scenes[id];
+  if (!meta || meta.source !== 'ma2' || meta.freshness !== 'fresh') value = null;
+  if (value !== true && value !== false) value = null;
+  return {value: value, label: value === true ? 'Идёт · MA2' : value === false ? 'Остановлена · MA2' :
+    meta && meta.freshness === 'stale' ? 'Статус устарел' : 'Статус неизвестен'};
+}
+function valueFreshness(kind) {
+  return (state.valuesMeta[kind] || {}).freshness;
+}
+function sentSource() {
+  return 'последнее отправленное панелью' + (valueFreshness('shown') === 'stale' ? ' · устарело' : '');
+}
+function observeEvidence(meta, receipts) {
+  Object.keys(meta).forEach(function (id) {
+    var value = meta[id], old = receipts[id];
+    if (value.freshness !== 'fresh') { delete receipts[id]; return; }
+    if (!old || old.stamp !== value.updated_at) receipts[id] = {stamp: value.updated_at, at: Date.now()};
+    else if (Date.now() - old.at >= 6000) value.freshness = 'stale';
+  });
+}
+function expireEvidence() {
+  var changed = false;
+  [[state.sceneMeta, evidenceReceipts.scenes, true], [state.valuesMeta, evidenceReceipts.values, false]].forEach(function (group) {
+    Object.keys(group[1]).forEach(function (id) {
+      if (Date.now() - group[1][id].at < 6000) return;
+      if (group[0][id] && group[0][id].freshness === 'fresh') {
+        group[0][id] = Object.assign({}, group[0][id], {freshness: 'stale'});
+        if (group[2]) state.scenes[id] = null;
+        else if (id === 'live') { state.live = {}; state.dmx = {}; }
+        changed = true;
+      }
+    });
+  });
+  if (changed) render();
+}
+setInterval(expireEvidence, 500);
 function receive(message) {
   if ('values_revision' in message) {
     if (message.values_revision <= state.valuesRevision) return;
     state.valuesRevision = message.values_revision;
   }
   if (message.status) {
+    if ('rdm_search' in message.status) state.rdmSearch = message.status.rdm_search;
+    state.operations = message.status.operations || [];
+    state.showFileActive = !!message.status.show_file_active;
+    state.showFileOperation = message.status.show_file || null;
+    if (state.showFileActive) { Object.keys(sliderChannels).forEach(cancelSlider); if (typeof moveStop === 'function') moveStop(); }
     state.readFreshness = message.status.read_freshness || {};
     state.highlight = message.status.highlight || {state: 'idle', available: []};
     state.showLoad = message.status.show_load || {state: 'idle'};
-    if (state.showLoad.state === 'loading') { discardPending(); state.selection = []; state.group = null; state.scenes = {}; }
+    if (state.showLoad.state === 'loading') { Object.keys(sliderChannels).forEach(cancelSlider); state.selection = []; state.group = null; clearEvidence(); }
     state.show = message.status.show || {name: null, source: 'unknown'};
     state.ma2 = message.status.ma2; state.login = message.status.login;
+    if (!linkReady()) clearEvidence();
     state.mock = message.status.mock;
     state.halted = !!message.status.halted;
     state.safety = message.status.safety || null;
@@ -586,7 +714,7 @@ function receive(message) {
     if (state.config && state.config.show !== message.config.show) {
       if (storeUI) { cancelStore(); var sd = document.getElementById('dlg'); if (sd.open) sd.close(); }
       // Another show's plan: old selection and values never carry over.
-      state.master = null; state.selection = []; state.group = null; state.shown = {}; state.fetch = null; state.ma2read = null;
+      clearEvidence(); state.selection = []; state.group = null; state.fetch = null; state.ma2read = null;
       if (typeof planState !== 'undefined') planState.cur = 0;
       if (typeof planEndEdit === 'function' && state.sec === 'hall') planEndEdit();
     }
@@ -601,15 +729,50 @@ function receive(message) {
   if ('tracked' in message) state.tracked = message.tracked;
   if ('page' in message) state.page = message.page;
   if (message.running) Object.assign(state.scenes, message.running);
+  if (message.running_meta) { observeEvidence(message.running_meta, evidenceReceipts.scenes); Object.assign(state.sceneMeta, message.running_meta); }
+  if (message.values_meta) { observeEvidence(message.values_meta, evidenceReceipts.values); Object.assign(state.valuesMeta, message.values_meta); }
   if ('ok' in message) {
-    var queue = pending[message.a];
-    var button = queue && queue.shift();
-    if (button) feedback(button, message.ok, message.err || 'ошибка');
+    var request = pending[message.request_id];
+    if (message.request_id && !request) return;  // an old socket/reply cannot finish another action
+    var button = request && request.button;
+    delete pending[message.request_id];
+    if (configActive === message.request_id) {
+      configActive = null;
+      if (message.ok && message.config_revision && request) {
+        configQueue.forEach(function (entry) {
+          if (entry.action.config_revision === request.revision) {
+            entry.action.config_revision = message.config_revision;
+            pending[entry.action.request_id].revision = message.config_revision;
+          }
+        });
+        if (typeof planState !== 'undefined' && planState.revision === request.revision) planState.revision = message.config_revision;
+      } else if (!message.ok) {
+        configQueue.forEach(function (entry) {
+          var b = pending[entry.action.request_id] && pending[entry.action.request_id].button;
+          if (b) { b.removeAttribute('aria-busy'); b.classList.remove('waiting'); }
+          delete pending[entry.action.request_id];
+        });
+        configQueue = [];
+      }
+      pumpConfigQueue();
+    }
     var a = message.a;
+    if (message.conflict) notice('План изменён другим клиентом. Проверьте новые данные и повторите правку.', 'warning', true);
+    if (message.outcome === 'partial' || message.outcome === 'unknown') {
+      message.err = (message.outcome === 'partial' ? 'Выполнена только часть операции. ' : 'Результат неизвестен. ') + (message.err || '') + ' Автоматического повтора нет.';
+    }
+    if (a === 'fixtures_fetch' && !message.ok && message.ambiguous) {
+      if (button) { button.removeAttribute('aria-busy'); button.classList.remove('waiting'); }
+      state.fetch = {state: 'ambiguous', items: message.ambiguous, request_token: message.request_token, choices: {}};
+      render();
+      return;
+    }
+    if (button) feedback(button, message.ok, message.err || 'ошибка');
     if (message.ok && ['scene_create','scene_rename','scene_delete'].indexOf(a) >= 0) { var dialog = document.getElementById('dlg'); if (dialog.open) dialog.close(); }
-    if (message.ok && button && (a === 'scene_go' || a === 'scene_off')) state.scenes[button.dataset.scene] = a === 'scene_go';
-    if (message.ok && a === 'blackout') state.scenes = {};
     if (a === 'fixtures_fetch') state.fetch = message.ok ? {state: 'done', added: message.added, missing: message.missing, total: message.total} : {state: 'error', err: message.err || 'ошибка чтения'};
+    if (a === 'import_confirm_merge') {
+      state.fetch = message.ok ? {state: 'done', added: message.added, missing: message.missing, total: message.total} : {state: 'error', err: message.err || 'ошибка подтверждения'};
+    }
     if (a === 'ma2_read') state.ma2read = message;
     if (message.ok && a === 'ma2_import') state.ma2read = null;
     if (message.ok && a === 'ma2_import' && message.members_err) notice(message.members_err + '. Сырой ответ — в Диагностике.', 'warning');
@@ -619,7 +782,7 @@ function receive(message) {
     if (a === 'show_save') state.saveReply = (message.name ? 'Шоу «' + message.name + '»: ' : '') + (message.reply || message.err || '');
     if (a === 'plan_copy' && message.ok) notice('Перенесено приборов: ' + message.copied + ', групп: ' + message.groups +
       (message.skipped.length ? '. Нет в этом шоу: ' + message.skipped.join(', ') : ''), 'success');
-    if (a === 'fixtures_fetch' && message.ok && (message.switched || (message.no_id || []).length)) notice(
+    if ((a === 'fixtures_fetch' || a === 'import_confirm_merge') && message.ok && (message.switched || (message.no_id || []).length)) notice(
       (message.switched ? 'Открыт план шоу «' + message.switched + '», приборы получены в него. ' : '') +
       ((message.no_id || []).length ? 'Без Fixture ID, панель ими не управляет: ' + message.no_id.join(', ') + '. Дайте им Fixture ID в патче MA2.' : ''));
     if (!message.ok && button) notice(message.err || 'Ошибка команды', 'error', true);
@@ -638,7 +801,7 @@ function connect() {
   discardPending();
   if (typeof planEndEdit === 'function' && state.sec === 'hall') planEndEdit();
   if (state.ws) state.ws.close();
-  state.scenes = {}; state.selection = []; state.group = null; state.ma2 = 'down';
+  clearEvidence(); state.selection = []; state.group = null; state.ma2 = 'down';
   var ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   state.ws = ws;
   state.valuesRevision = -1;
@@ -653,7 +816,7 @@ function connect() {
     if (state.ws !== ws) return;
     if (typeof moveStop === 'function') moveStop();
     if (storeUI) { cancelStore(); var sd = document.getElementById('dlg'); if (sd.open) sd.close(); }
-    state.ma2 = 'down'; state.master = null; state.readFreshness = {};
+    state.ma2 = 'down'; clearEvidence(); state.readFreshness = {};
     discardPending();
     render();
     reconnectTimer = setTimeout(connect, 2000);

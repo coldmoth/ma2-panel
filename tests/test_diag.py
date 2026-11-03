@@ -47,7 +47,8 @@ def site(tmp_path, monkeypatch):
         config = tmp_path / 'config.json'
         config.write_text(json.dumps(cfg))
         path = tmp_path / 'settings.json'
-        path.write_text(json.dumps(settings or {'unknown': {'keep': [1, 2]}}))
+        settings = settings if settings is not None else {'unknown': {'keep': [1, 2]}}
+        path.write_text(json.dumps(settings))
         if password:
             (tmp_path / 'secret.env').write_text('MA2_PASSWORD=' + password + '\n')
         app = bridge.create_app(cfg, True, str(config), settings=settings, password=password, settings_path=path)
@@ -89,12 +90,13 @@ def test_settings_and_restart_forbidden_remotely(site):
 def test_invalid_settings_have_no_side_effects(site, settings):
     with site() as s:
         before = s.path.read_bytes(), list(s.mock.received)
+        backups = {p.name: p.read_bytes() for p in (s.folder / 'backups').glob('*.json')}
         r = s.client.post('/api/settings', json={'settings': settings, 'password': 'must-not-save'})
         assert r.status_code == 400, r.text
         assert r.json()['ok'] is False and r.json()['err']
         assert (s.path.read_bytes(), s.mock.received) == before
         assert not (s.folder / 'secret.env').exists()
-        assert not (s.folder / 'backups').exists()
+        assert {p.name: p.read_bytes() for p in (s.folder / 'backups').glob('*.json')} == backups
 
 
 def test_save_backup_unknown_keys_secret_and_no_console_traffic(site):
@@ -110,11 +112,13 @@ def test_save_backup_unknown_keys_secret_and_no_console_traffic(site):
                          'attrs': {'zoom': {'cmd': 'Attribute "Zoom" At {v}'}},
                          'features': {'color': 'Не проверено', 'zoom': True}})
         old = s.path.read_bytes()
+        backups = {p.name for p in (s.folder / 'backups').glob('*.json')}
         before = list(s.mock.received)
         assert s.client.post('/api/settings', json={'settings': proposed}).json() == {'ok': True, 'restart_needed': True}
         assert json.loads(s.path.read_text()) == proposed
         assert json.loads(s.path.read_text())['unknown'] == {'keep': [1, 2]}
-        assert next((s.folder / 'backups').glob('settings-*.json')).read_bytes() == old
+        added = [p for p in (s.folder / 'backups').glob('*.json') if p.name not in backups]
+        assert len(added) == 1 and added[0].read_bytes() == old
         assert not (s.folder / 'secret.env').exists()
         assert s.mock.received == before
         # The running bridge still has its original mode and host.
@@ -127,7 +131,7 @@ def test_save_backup_unknown_keys_secret_and_no_console_traffic(site):
         secret_bytes = (s.folder / 'secret.env').read_bytes()
         s.client.post('/api/settings', json={'settings': proposed})
         assert (s.folder / 'secret.env').read_bytes() == secret_bytes
-        assert len(list((s.folder / 'backups').glob('*.json'))) == 3
+        assert len({p.name for p in (s.folder / 'backups').glob('*.json')} - backups) == 3
         s.client.post('/api/settings', json={'settings': proposed, 'clear_password': True})
         assert (s.folder / 'secret.env').read_text() == 'MA2_PASSWORD=\n'
         assert s.client.get('/api/settings').json()['password_set'] is False
@@ -227,7 +231,8 @@ def test_zip_has_artifacts_but_no_passwords_or_secret_file(site):
             settings = json.loads(archive.read('settings.json'))
             assert settings == {'ma2': {}, 'nested': [{'keep': 3}]}
             assert json.loads(archive.read('diag.json'))['version'] == '1.2.3'
-            assert 'password' not in json.loads(archive.read('config.json'))['ma2']
+            config = json.loads(archive.read('config.json'))
+            assert config['version'] == 5 and 'ma2' not in config
 
 
 def test_pages_served(site):
@@ -240,10 +245,11 @@ def test_pages_served(site):
 def test_missing_settings_file_and_secret_are_empty(site):
     with site() as s:
         s.path.unlink()
+        backups = {p.name: p.read_bytes() for p in (s.folder / 'backups').glob('*.json')}
         data = s.client.get('/api/settings').json()
         assert data['settings'] == {} and data['password_set'] is False
         assert s.client.post('/api/settings', json={'settings': {}}).json()['ok']
-        assert not (s.folder / 'backups').exists()
+        assert {p.name: p.read_bytes() for p in (s.folder / 'backups').glob('*.json')} == backups
 
 
 def test_restart_refuses_in_progress_probe(site):

@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 import bridge
 from test_bridge import CONFIG, FULL, ask, bridge_cfg, until  # noqa: F401
 from test_safety import tabs
+from migrations import SITE_KEYS, legacy_archive_path
+from show_plans import plan_path
 
 HALL = {'w': 20, 'd': 9, 'stage': 'left', 'stageDepth': 3}
 
@@ -16,7 +18,6 @@ HALL = {'w': 20, 'd': 9, 'stage': 'left', 'stageDepth': 3}
 def test_hall_save_persists_and_broadcasts(tmp_path):
     with tabs(tmp_path, FULL) as ((a, b), mock, client, path):
         before = json.loads(path.read_text())
-        before['ma2'].pop('password', None)  # existing saves strip legacy credentials
         sent = list(mock.received)
         assert ask(a, {'a': 'hall_save', 'hall': HALL})['ok']
         assert until(b, lambda m: 'config' in m)['config']['hall'] == HALL
@@ -123,8 +124,8 @@ def test_model_changes_wait_for_action_lock(tmp_path, monkeypatch, action):
         assert path.read_bytes() != before
 
 
-@pytest.mark.parametrize('show,filename', [('Hall / test', 'Hall _ test.json'), (None, 'без имени.json'), ('', 'без имени.json')])
-def test_startup_migrates_without_clearing_or_repeating(tmp_path, show, filename):
+@pytest.mark.parametrize('show', ['Hall / test', None, ''])
+def test_startup_migrates_without_clearing_or_repeating(tmp_path, show):
     cfg = json.loads(open(CONFIG).read())
     cfg.pop('version', None)
     cfg['show'] = show
@@ -134,11 +135,16 @@ def test_startup_migrates_without_clearing_or_repeating(tmp_path, show, filename
     path = tmp_path / 'config.json'
     raw = json.dumps(cfg, ensure_ascii=False).encode()
     path.write_bytes(raw)
+    archive = legacy_archive_path(path, cfg)
     with TestClient(bridge.create_app(cfg, True, str(path), FULL)):
-        assert json.loads(path.read_text()) == {**json.loads(raw), 'version': 4}
-        assert (tmp_path / 'shows' / filename).read_bytes() == raw
+        assert json.loads(path.read_text()) == {**{k: v for k, v in json.loads(raw).items() if k not in SITE_KEYS}, 'version': 5}
+        assert archive.read_bytes() == raw
+        expected_settings = {k: v for k, v in json.loads(raw).items() if k in SITE_KEYS}
+        expected_settings['ma2'].pop('password', None)
+        assert json.loads((tmp_path / 'settings.json').read_text()) == expected_settings
         backups = list((tmp_path / 'backups').glob('*.json'))
-        assert len(backups) == 1 and backups[0].read_bytes() == raw
+        assert len(backups) == (1 if show else 2)
+        assert all(p.read_bytes() == raw for p in backups)
     snapshot = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob('*.json')}
     with TestClient(bridge.create_app(json.loads(path.read_text()), True, str(path), FULL)):
         assert {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob('*.json')} == snapshot
@@ -149,6 +155,9 @@ def test_empty_v4_workspace_starts(bridge_cfg):
         cfg.update(version=4, fixtures=[], groups=[], scenes=[], presets=[], pages={})
     with bridge_cfg(empty) as (ws, mock, path):
         assert json.loads(path.read_text())['fixtures'] == []
-        assert not (path.parent / 'backups').exists()
+        assert json.loads(path.read_text())['version'] == 5
+        backups = {p.name: p.read_bytes() for p in (path.parent / 'backups').glob('*.json')}
+        assert any(name.startswith('config-v4-') for name in backups)
         assert ask(ws, {'a': 'hall_save', 'hall': HALL})['ok']
         assert mock.received == ['login "panel" ""', 'ListVar']
+        assert {p.name: p.read_bytes() for p in (path.parent / 'backups').glob('*.json')} == backups

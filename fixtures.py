@@ -145,23 +145,55 @@ def parse_fixture_type(xml_text: str) -> dict:
     return spec
 
 
-def merge_fixtures(old: list[dict], found: list[dict]) -> list[dict]:
+def merge_fixtures(old: list[dict], found: list[dict], *, choices=None) -> list[dict]:
+    """Preserve placement; only a one-to-one name/type match can be automatic.
+
+    Ambiguous entries carry candidates until every choice is explicit. JSON keys
+    are strings; null means keep this fixture new. Never consume candidates while
+    deciding which groups are ambiguous: two new fixtures can share one old one.
+    """
     merged = {f["id"]: {**f, "missing": True} for f in old}
     found_ids = {f["id"] for f in found}
+    candidates, ambiguous = {}, {}
+    for f in found:
+        if f["id"] in merged or not f["name"]:
+            continue
+        gone = [o for o in old if o["id"] not in found_ids
+                and o.get("name") == f["name"] and o.get("type") == f["type"]]
+        candidates[f["id"]] = gone
+        peers = [n for n in found if n["id"] not in merged
+                 and n["name"] == f["name"] and n["type"] == f["type"]]
+        if gone and (len(gone) != 1 or len(peers) != 1):
+            ambiguous[str(f["id"])] = gone
+    if choices is not None:
+        if not isinstance(choices, dict) or set(choices) != set(ambiguous):
+            raise ValueError("нужен явный выбор для каждого неоднозначного прибора")
+        used = set()
+        for fid, selected in choices.items():
+            if selected is None:
+                continue
+            if type(selected) is not int or selected not in {o["id"] for o in ambiguous[fid]}:
+                raise ValueError("выбранный прибор не входит в список кандидатов")
+            if selected in used:
+                raise ValueError("старый прибор нельзя использовать дважды")
+            used.add(selected)
     for f in found:
         fid = f["id"]
-        # Re-patched on the desk under a new number: one vanished fixture with the same name and type hands over
-        # its place on the plan and the operator's marks, instead of leaving a dead entry and a blank new one.
-        gone = [o for o in old if o["id"] not in found_ids and o["id"] in merged and f["name"] and o.get("name") == f["name"] and o.get("type") == f["type"]]
-        if fid not in merged and len(gone) == 1:
-            merged[fid] = {**merged.pop(gone[0]["id"]), "id": fid, "repatched_from": gone[0]["id"]}  # caller remaps groups
+        key = str(fid)
+        gone = candidates.get(fid, [])
+        old_id = (choices[key] if choices is not None else None) if key in ambiguous else (gone[0]["id"] if gone else None)
+        if old_id is not None:
+            merged[fid] = {**merged.pop(old_id), "id": fid, "repatched_from": old_id}
         entry = merged.get(fid, {"id": fid, "label": f["name"] or f"#{fid}"})
         entry.update(type=f["type"], name=f["name"], params=f.get("params", []), address=f["address"])
         if "channels" in f:
             entry["channels"] = f["channels"]
         entry.pop("missing", None)
+        entry.pop("ambiguous_candidates", None)
         if "moves" not in entry and guess_head(f["type"]):
-            entry.update(moves=True, moves_auto=True)  # only until the operator presses «Голова»
+            entry.update(moves=True, moves_auto=True)
+        if key in ambiguous and choices is None:
+            entry["ambiguous_candidates"] = [{"old_id": o["id"], "label": o.get("label", f"#{o['id']}")} for o in ambiguous[key]]
         merged[fid] = entry
     return [merged[fid] for fid in sorted(merged)]
 

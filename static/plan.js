@@ -19,6 +19,7 @@ function planKey() {
 
 /* ---------- edit session ---------- */
 function planBeginEdit() {
+  planState.revision = state.config && state.config.revision;
   planState.editing = true;
   planState.tab = hallOf() ? 'place' : 'shape';
   stopPing();
@@ -60,6 +61,8 @@ function hallPlan(root, mode) {
   var hall = h('div', {class: 'hall', role: 'group', 'aria-label': 'Схема зала'});
   add(wrap, hall);
   add(root, wrap);
+  var outputSource = mode === 'control' ? h('p', {class: 'note'}) : null;
+  if (outputSource) add(root, outputSource);
   function size() {
     var W = wrap.clientWidth, H = wrap.clientHeight, ratio = hc.w / hc.d;
     if (!W || !H) return;
@@ -87,6 +90,10 @@ function hallPlan(root, mode) {
   if (mode === 'edit') { hint = h('div', {class: 'place-hint'}); add(hall, hint); }
   updaters.push(function () {
     size();
+    var liveMeta = state.valuesMeta.live;
+    var freshOutput = !liveMeta || liveMeta.source === 'ma2' && liveMeta.freshness === 'fresh';
+    if (outputSource) outputSource.textContent = valueFreshness('live') === 'stale' ? 'Чтение MA2 устарело · свет на плане неизвестен' :
+      freshOutput && Object.keys(state.live).length ? 'Выход прочитан с MA2' : 'Текущий выход MA2 неизвестен';
     var hl = state.highlight || {}, active = hl.state === 'active' && planState.ping !== null;
     var zone = hl.zone || hl.available || [];
     var cur = mode === 'edit' ? planCurrent() : null;
@@ -99,11 +106,10 @@ function hallPlan(root, mode) {
       if (mode === 'edit' && !picking && cur && cur.id === f.id) cls.push('cur');
       if (f.missing) cls.push('missing');
       if (f.service) cls.push('service');
-      // The desk's output when it is read back (every fixture, also lit from the desk); else only what the panel sent:
-      // a colour without a sent level is drawn at a middle level, a level without a colour in neutral white.
-      var live = state.live[id];
-      if (live) shown = live;
-      if (mode === 'control' && shown && (shown.rgb || shown.dim > 0) && shown.dim !== 0 && (live || state.tracked !== false)) {
+      // Only a fresh MA2 output read can light the plan; sent values remain history in the controls.
+      var live = freshOutput ? state.live[id] : null;
+      shown = live;
+      if (mode === 'control' && shown && (shown.rgb || shown.dim > 0) && shown.dim !== 0) {
         cls.push('lit');
         d.el.style.setProperty('--c', 'rgba(' + (shown.rgb || [92, 90, 86]).map(function (v) { return Math.round(v * 2.55); }).join(',') + ',' +
           (typeof shown.dim === 'number' ? Math.max(.25, shown.dim / 100) : .7) + ')');

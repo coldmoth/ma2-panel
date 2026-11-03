@@ -25,12 +25,12 @@ def ask(ws, msg):
 def start(tmp_path):
     with open(CONFIG, encoding="utf-8") as f:
         cfg = json.load(f)
-    cfg["ma2"]["port"] = 0
+    cfg["ma2"]["port"] = 30000
     cfg["ma2"]["export_dir"] = str(tmp_path)
     path = tmp_path / "config.json"
     if not path.exists():
         path.write_text(json.dumps(cfg, ensure_ascii=False))
-    return create_app(json.loads(path.read_text()), mock=True, config_path=str(path), settings=SETTINGS), path
+    return create_app(json.loads(path.read_text()), mock=True, config_path=str(path), settings={"poll_seconds": 0, **SETTINGS}), path
 
 
 def test_hall_scenario(tmp_path):

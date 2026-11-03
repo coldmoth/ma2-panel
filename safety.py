@@ -60,6 +60,9 @@ LIVE = [
 ]
 READ = [r"ListVar", r"ListShows", r"List Executor \d+\.\d+(?: Thru \d+\.\d+)?", r"List (?:Group|Sequence|Page|Layout|Macro|User|Fixture|FixtureType|Attribute)"]
 READ += [r"List Group \d+(?: Thru \d+)?", r"List Preset \d+\.\d+(?: Thru \d+\.\d+)?"]
+# The exact global RDM switch lines (forum-sourced, unverified on 3.9.60): only the search coordinator sends them,
+# only through rdm_extra admission, always subject to allow_rdm.
+RDM_GLOBAL = ('Assign Root "Settings"."Global" /EnableRDM=On', 'Assign Root "Settings"."Global" /EnableRDM=Off')
 SCENE = r"(Go|Off) Executor (\d+\.\d+)"
 SCENE_FADE = rf"Goto Cue 1 Executor (\d+\.\d+) Fade {NUM}"
 
@@ -84,7 +87,7 @@ def load_settings(path: Path) -> dict:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as e:
         raise SystemExit(f"Битый JSON в {path}: {e}")
-    if "password" in json.dumps(data.get("ma2", {})).lower():
+    if without_passwords(data) != data:
         raise SystemExit(f"Пароль нельзя хранить в {path}: положите его в secret.env (MA2_PASSWORD=...)")
     return data
 
@@ -114,12 +117,15 @@ def redact(text: str, secrets=()) -> str:
     return ENV_SECRET.sub(r"\1***", LOGIN_ECHO.sub(r'\1"***"', text))
 
 
-def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=()):
+def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=(), rdm_extra=()):
     """guard(line) -> None when the line may be sent, else the reason it is blocked.
 
     attr_names: a set the bridge may grow later with names read from fixture type exports (checked at call time).
-    export_extra: a set the bridge fills with the exact export lines of one diagnostics run (checked at call time)."""
+    export_extra: a set the bridge fills with the exact export lines of one diagnostics run (checked at call time).
+    rdm_extra: the exact global RDM On/Off lines of the search coordinator; nothing else admits them. A truthy value
+    also admits the coordinator's nonce-signed Lua state reads, but only while allow_rdm."""
     names = attr_names if attr_names is not None else ["ColorRGB1", "ColorRGB2", "ColorRGB3", "Pan", "Tilt", "Zoom", "Focus", "Strobe"]
+    rdm_extra = {str(x) for x in rdm_extra}
     if any(not isinstance(n, str) or not re.fullmatch(r"[A-Za-z0-9_]+", n) for n in names):
         raise SystemExit("имя атрибута должно содержать только A-Z, a-z, 0-9 и _")
     attribute = re.compile(rf'Attribute "([A-Za-z0-9_]+)" At (?:-?{NUM}|[+-] {NUM}){FADE}')
@@ -145,9 +151,15 @@ def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=()):
             return None if safety.get("allow_group_store") is True and valid else "запись группы заблокирована: allow_group_store и безопасная команда Store Group"
         if low.startswith("export"):
             return None if safety.get("allow_fixture_read") is True and (line == export_cmd or line in export_extra) else "экспорт заблокирован: allow_fixture_read и ma2.export_cmd"
-        if low.startswith("lua"):  # only the bridge's own read lines (DMX read-back), never a free Lua line
-            return None if safety.get("allow_fixture_read") is True and line in export_extra else "Lua заблокирован: только чтение DMX мостом при allow_fixture_read"
+        if low.startswith("lua"):  # only the bridge's own read lines (DMX read-back, RDM state), never a free Lua line
+            if rdm_extra:  # the coordinator's nonce-signed state reads; lazy import avoids a safety/rdm_search cycle
+                import rdm_search
+                if rdm_search.is_read_command(line):
+                    return None if safety.get("allow_rdm") is True else "RDM заблокирован: allow_rdm"
+            return None if safety.get("allow_fixture_read") is True and (line in export_extra or line in rdm_extra) else "Lua заблокирован: только чтение мостом при allow_fixture_read"
         if re.match(r"assign\b", low):  # patch: only the bridge's line for one confirmed plan, never in a free form
+            if line in RDM_GLOBAL:  # the two exact lines, and nothing like them; the coordinator passes its own set anyway
+                return None if safety.get("allow_rdm") is True and line in rdm_extra else "RDM: глобальный On/Off отправляет только координатор поиска"
             valid = re.fullmatch(r"Assign Fixture \d+ At Dmx \d+\.\d{3}", line) and line in export_extra
             return None if safety.get("allow_patch") is True and valid else "патч заблокирован: allow_patch и подтверждённый план"
         if low.startswith("rdm"):  # RdmList reads; RdmSetParameter only for a confirmed plan; Autopatch and the rest never
@@ -167,6 +179,8 @@ def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=()):
         if low.startswith("loadshow"):
             valid = re.fullmatch(r'LoadShow "[^"\x00-\x1f\x7f-\x9f]+"(?: /nosave)?', line)
             return None if safety.get("allow_show_load") is True and valid else "загрузка шоу заблокирована: allow_show_load"
+        if low.startswith("selectdrive"):
+            return None if line == "SelectDrive 1" and line in export_extra and (safety.get("allow_show_load") is True or safety.get("allow_show_save") is True) else "выбор диска: только подтверждённая операция файла шоу"
         if low.startswith("saveshow"):
             return None if safety.get("allow_show_save") is True and line == "SaveShow" else "сохранение шоу заблокировано: allow_show_save"
         if re.match(r"delete\s+executor\b", low):  # scene_delete with desk: only one executor, only where storing is allowed

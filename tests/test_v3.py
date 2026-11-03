@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import bridge
 from fixtures import parse_export, merge_fixtures
 from safety import effective_safety, make_guard
+from show_plans import plan_path
 from test_bridge import bridge_cfg, ask, until  # noqa: F401
 
 EXPORT = 'Export Fixture 1 Thru 9999 "panel_fixtures"'
@@ -104,7 +105,7 @@ def test_unknown_mismatch_and_binding(bridge_cfg):
         result = ask(ws, {'a': 'fixtures_fetch'})
         assert result['ok'] and result['switched'] == mock.show_name
         assert json.loads(path.read_text())['show'] == mock.show_name
-        assert json.loads((path.parent / 'shows/Other.json').read_text())['show'] == 'Other'
+        assert json.loads(plan_path(path.parent / 'shows', 'Other').read_text())['show'] == 'Other'
 
 
 def test_plans_and_selection_reset(bridge_cfg):
@@ -119,7 +120,7 @@ def test_plans_and_selection_reset(bridge_cfg):
         empty = json.loads(path.read_text())
         assert empty['show'] == 'B' and empty['fixtures'] == empty['groups'] == empty['scenes'] == empty['presets'] == []
         assert empty['pages'] == {} and empty['attrs'] == old['attrs']
-        assert json.loads((path.parent / 'shows/A_Б.json').read_text()) == old
+        assert json.loads(plan_path(path.parent / 'shows', 'A/Б').read_text()) == old
         assert ask(ws, {'a': 'show_open_plan', 'name': 'A/Б'})['ok']
         assert json.loads(path.read_text()) == old
         ws.send_json({'a': 'dim', 'v': 10})

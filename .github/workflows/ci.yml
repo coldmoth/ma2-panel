@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: uv sync --locked
+      - name: pytest
+        run: perl -e 'alarm 300; exec @ARGV' uv run --no-sync pytest -q -p no:cacheprovider --junitxml=test-results/pytest.xml
+      - name: Panel DOM tests
+        if: ${{ !cancelled() }}
+        run: node tests/panel-v4.cjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: pytest-results
+          path: test-results/pytest.xml
+          retention-days: 3
+          if-no-files-found: ignore
+
+  windows-mock:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: false
+      - run: uv sync --locked
+      - name: HTTP and WebSocket smoke (mock only)
+        timeout-minutes: 2
+        run: uv run --no-sync python scripts/ci_smoke.py --log test-results/windows-mock.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: windows-mock-log
+          path: test-results/windows-mock.log
+          retention-days: 3
+          if-no-files-found: ignore
+
+  browser-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: uv sync --locked
+      - run: npm ci --prefix scripts/browser_smoke --ignore-scripts
+      - run: node scripts/browser_smoke/node_modules/playwright/cli.js install --with-deps chromium webkit
+      - name: Chromium and WebKit, isolated mock
+        timeout-minutes: 4
+        run: uv run --no-sync python scripts/browser_smoke.py --output test-results/browser
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ !cancelled() }}
+        with:
+          name: browser-preflight
+          path: test-results/browser/
+          retention-days: 3
+          if-no-files-found: ignore

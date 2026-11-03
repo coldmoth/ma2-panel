@@ -1,12 +1,4 @@
 {
-  "port": 8080,
-  "ma2": {
-    "export_cmd": "Export Fixture 1 Thru 9999 \"panel_fixtures\""
-  },
-  "rate_hz": 10,
-  "master": {
-    "cmd": "Master 2.1 At {v}"
-  },
   "groups": [],
   "fixtures": [],
   "scenes": [],
@@ -45,6 +37,6 @@
     }
   },
   "presets": [],
-  "version": 4,
+  "version": 5,
   "pages": {}
 }

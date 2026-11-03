@@ -36,7 +36,7 @@ function split(p) {
 // What the panel knows: a number it sent, 'mixed', or null (never sent, or lost after a scene).
 function known(p) {
   var sel = split(p).yes;
-  if (!sel.length || state.tracked === false && (p === 'dim' || p === 'color')) return null;
+  if (!sel.length || valueFreshness('shown') === 'unknown' || state.tracked === false && (p === 'dim' || p === 'color')) return null;
   var vals = sel.map(function (f) {
     var s = state.shown[f.id] || state.shown[String(f.id)];
     if (!s) return null;
@@ -210,7 +210,7 @@ function sliderCard(p, title, unit, quick) {
     setFill(input, v);
     out.textContent = p === 'strobe' && v === 0 ? 'выкл' : knownText(v, unit);
     out.classList.toggle('unknown', v === null || v === 'mixed');
-    src.textContent = v === null ? 'MA2 не сообщает текущее значение' : v === 'mixed' ? 'у выбранных разные значения' : 'последнее, что отправила панель';
+    src.textContent = v === null ? 'MA2 не сообщает текущее значение' : v === 'mixed' ? 'у выбранных разные значения' : sentSource();
   });
   var card = h('div', {class: 'card c-' + p + (s.yes.length ? '' : ' dis')}, h('div', {class: 'vrow'}, h('h2', {}, title), out), input, src);
   if (quick) add(card, h('div', {class: 'quick', title: fadeSeconds ? 'Плавно за ' + fadeSeconds + ' с' : ''}, [0, 25, 50, 75, 100].map(function (v) {
@@ -328,7 +328,7 @@ function colorCard() {
     var busyNow = cp.drag !== null || !!(sliderChannels.color || {}).latest;
     now.textContent = busyNow ? 'Отправляется…' : v === null ? (state.tracked === false ? 'Неизвестен после сцены' : 'Текущий цвет неизвестен') :
       v === 'mixed' ? 'У выбранных разные цвета' : 'R ' + rgb[0] + ' · G ' + rgb[1] + ' · B ' + rgb[2];
-    nowSrc.textContent = busyNow ? '' : v === null ? 'MA2 не сообщает цвет. Выберите оттенок на круге или образец.' : v === 'mixed' ? 'Новый выбор задаст один цвет всем.' : 'последний, что отправила панель';
+    nowSrc.textContent = busyNow ? '' : v === null ? 'MA2 не сообщает цвет. Выберите оттенок на круге или образец.' : v === 'mixed' ? 'Новый выбор задаст один цвет всем.' : sentSource();
     swatches.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.rgb === v)); });
   }
   updaters.push(function () {

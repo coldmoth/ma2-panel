@@ -99,7 +99,8 @@ def test_owner_and_disconnect(tmp_path):
         assert not ask(b, {'a': 'highlight_off'})['ok']
         assert mock.received == before
         a.__exit__(None, None, None)
-        wait_for(lambda: mock.received[-2:] == OFF)
+        # The mock records Off before the bridge receives its reply and clears the journal.
+        wait_for(lambda: mock.received[-2:] == OFF and not (path.parent / 'highlight.json').exists())
         assert not (path.parent / 'highlight.json').exists()
 
 
@@ -111,7 +112,8 @@ def test_lease_and_ping(bridge_cfg):
             time.sleep(.15)
             assert ask(ws, {'a': 'highlight_ping'})['ok']
             assert (path.parent / 'highlight.json').exists()
-        wait_for(lambda: mock.received[-2:] == OFF)
+        # The mock records Off before the bridge receives its reply and clears the journal.
+        wait_for(lambda: mock.received[-2:] == OFF and not (path.parent / 'highlight.json').exists())
         assert not (path.parent / 'highlight.json').exists()
 
 

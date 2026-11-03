@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Подключение · MA2</title>
+  <link rel="stylesheet" href="style.css"><link rel="stylesheet" href="setup.css">
+</head>
+<body><main class="sx setup">
+  <nav class="toplinks"><a href="/">К панели</a> · <a href="settings.html">Настройки</a> · <a href="diag.html">Диагностика</a></nav>
+  <h1>Подключение MA2</h1>
+  <p class="muted">Первичная подготовка на основном компьютере. grandMA2 onPC нужно открыть самостоятельно.</p>
+  <p id="setup-status" role="status" aria-live="polite">Проверяю мост…</p>
+  <section class="setup-step" aria-labelledby="prepare-title">
+    <h2 id="prepare-title">1. Подготовьте grandMA2</h2>
+    <p>Для существующего шоу сохраните свою работу в MA2. Мастер не загружает другое шоу и не включает свет.</p>
+    <ol>
+      <li>Откройте <strong>Setup → User &amp; Profiles Setup</strong> под пользователем с правами администратора.</li>
+      <li>Если отдельной учётной записи панели ещё нет, создайте отдельный <strong>User Profile</strong>, затем <strong>User</strong> и назначьте ему этот профиль. Используйте то же имя пользователя и пароль в форме ниже. Для управления и записи нужен подходящий уровень прав, например <strong>Full</strong>.</li>
+      <li>Проверьте, что оператор onPC использует другой профиль: общий профиль может объединить выборку и Programmer.</li>
+      <li>В <strong>Setup → Console → Global Settings → Telnet</strong> установите <strong>Login Enabled</strong>.</li>
+    </ol>
+    <p class="muted">Если пользователь и Telnet уже настроены, используйте их. Достаточно выполнить подготовку один раз для нужного шоу; после смены шоу проверьте её снова.</p>
+    <details><summary>Официальная инструкция MA2</summary><p><a href="https://help.malighting.com/grandMA2/en/help/key_single_multi_systems_create.html" target="_blank" rel="noopener noreferrer">Пользователи и профили</a> · <a href="https://help.malighting.com/grandMA2/en/help/key_remote_control_telnet.html" target="_blank" rel="noopener noreferrer">Telnet</a>. Ссылки требуют интернета; шаги выше доступны без него.</p></details>
+  </section>
+  <section class="setup-step" aria-labelledby="connection-title">
+    <h2 id="connection-title">2. Подключите панель</h2>
+    <form id="setup-form" hidden>
+      <div class="grid">
+        <label class="fld"><span class="lbl">Адрес MA2</span><input id="setup-host" required autocomplete="off"><span class="muted">Для onPC на этом компьютере: 127.0.0.1</span></label>
+        <label class="fld"><span class="lbl">Порт Telnet</span><input id="setup-port" type="number" min="1" max="65535" required></label>
+        <label class="fld"><span class="lbl">Пользователь MA2</span><input id="setup-user" required autocomplete="off"></label>
+        <label class="fld"><span class="lbl">Пароль MA2</span><input id="setup-password" type="password" autocomplete="new-password" placeholder="Пусто — оставить прежний"><span id="setup-password-state" class="muted"></span></label>
+      </div>
+      <label class="opt setup-option"><input id="setup-lan" type="checkbox"><span>Разрешить подключение планшета по локальной сети</span></label>
+      <p class="muted">Используйте отдельный роутер света. Сохранение меняет только настройки панели; они применяются после перезапуска моста.</p>
+      <button id="setup-save" class="btn primary" type="submit" disabled>Сохранить настройки</button>
+    </form>
+    <p id="setup-saved" role="status" aria-live="polite"></p>
+    <button id="setup-restart" class="btn" type="button" hidden>Перезапустить мост</button>
+    <h3>Действующее подключение</h3>
+    <p id="setup-live" role="status" aria-live="polite">Проверяю…</p>
+    <p class="muted">Подтверждение входа не доказывает раздельность Programmer и правильность DMX. Доступные операции и режим защиты задаются в <a href="settings.html">настройках</a>.</p>
+  </section>
+  <section class="setup-step" aria-labelledby="tablet-title">
+    <h2 id="tablet-title">3. Откройте панель на планшете</h2>
+    <p>Подключите компьютер и планшет к одному роутеру света. Отсканируйте QR или введите адрес в браузере планшета. Интернет не нужен.</p>
+    <p id="setup-network" role="status" aria-live="polite"></p>
+    <div id="setup-addresses" class="setup-addresses"></div>
+    <details><summary>Если планшет не подключается</summary><p>Включите доступ по локальной сети выше и перезапустите мост. На Windows выберите для сети роутера профиль «Частная сеть». В папке <strong>program</strong> запустите <strong>firewall-open.bat</strong> от имени администратора. Роутер должен разрешать связь устройств между собой. При нескольких адресах попробуйте адрес Wi-Fi роутера света.</p></details>
+    <p class="muted">Адреса обновляются каждые 5 секунд. Если в шоу нет приборов и сцен, панель останется пустой: их нужно настроить в MA2, затем прочитать на «Площадке».</p>
+    <a class="btn primary" href="/">Открыть полный интерфейс</a>
+  </section>
+</main><script src="setup.js"></script></body>
+</html>

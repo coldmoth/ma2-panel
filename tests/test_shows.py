@@ -3,6 +3,7 @@ import json
 import time
 
 import pytest
+from show_plans import plan_path
 
 from mock import MockMA2
 from test_bridge import ask, bridge_cfg, until  # noqa: F401
@@ -66,7 +67,7 @@ def test_load_reconnect_plan_highlight_and_fixture_read(bridge_cfg):
         new = json.loads(path.read_text())
         assert new['show'] == 'Demo' and new['scenes'] == [] and new['groups'] == []
         assert new['fixtures']  # auto-fetch into the new plan
-        assert json.loads((path.parent / 'shows/Mock show.json').read_text()) == old
+        assert json.loads(plan_path(path.parent / 'shows', 'Mock show').read_text()) == old
         assert mock.show_name == 'Demo'
         load = mock.received.index('LoadShow "Demo" /nosave')
         assert any(line.startswith('Off Fixture ') for line in mock.received[:load])

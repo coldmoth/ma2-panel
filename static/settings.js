@@ -73,7 +73,7 @@ el('settings-form').addEventListener('submit', async event => {
     // Clone every existing key, including nested fields the form does not edit.
     const settings = structuredClone(original);
     settings.ma2 = {...settings.ma2}; settings.safety = {...settings.safety}; settings.features = {...settings.features};
-    ['host', 'user', 'prompt_regex', 'login_ok_regex', 'exec_empty_regex'].forEach(key => { settings.ma2[key] = el('ma2-' + key).value; });
+    ['host', 'user', 'shows_dir', 'prompt_regex', 'login_ok_regex', 'exec_empty_regex'].forEach(key => { settings.ma2[key] = el('ma2-' + key).value; });
     ['port', 'timeout'].forEach(key => { settings.ma2[key] = Number(el('ma2-' + key).value); });
     settings.ma2.require_prompt = el('ma2-require_prompt').checked;
     settings.bind = el('bind').value.trim();
@@ -122,15 +122,105 @@ el('restart').addEventListener('click', async () => {
 });
 load();
 
+let manualImport = null;
+let manualImportBusy = false;
+let importChoicesPanel = null;
+function importElement(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+function importComplete() {
+  if (!manualImport) return false;
+  const used = [];
+  return manualImport.ambiguous.length > 0 && manualImport.ambiguous.every(item => {
+    if (!Object.prototype.hasOwnProperty.call(manualImport.choices, item.new_id)) return false;
+    const old = manualImport.choices[item.new_id];
+    if (old === null) return true;
+    if (used.includes(old) || !item.candidates.some(c => c.old_id === old)) return false;
+    used.push(old);
+    return true;
+  });
+}
+function renderImportChoices() {
+  if (!importChoicesPanel) {
+    importChoicesPanel = importElement('div');
+    el('import-file').parentNode.appendChild(importChoicesPanel);
+  }
+  importChoicesPanel.textContent = '';
+  if (!manualImport) return;
+  importChoicesPanel.appendChild(importElement('p', 'Неоднозначная перепривязка. План пока не изменён. Выберите соответствие для каждого прибора или оставьте его новым.', 'warnbox'));
+  const choices = manualImport.choices;
+  manualImport.ambiguous.forEach(item => {
+    const card = importElement('div', undefined, 'importbox');
+    card.appendChild(importElement('p', `Новый прибор #${item.new_id}: ${item.label}`));
+    const row = importElement('div', undefined, 'opts');
+    function button(text, old, disabled) {
+      const selected = Object.prototype.hasOwnProperty.call(choices, item.new_id) && choices[item.new_id] === old;
+      const node = importElement('button', text, 'btn' + (selected ? ' primary' : ''));
+      node.type = 'button'; node.disabled = disabled || manualImportBusy;
+      node.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      node.addEventListener('click', () => { choices[item.new_id] = old; renderImportChoices(); });
+      row.appendChild(node);
+    }
+    item.candidates.forEach(candidate => button(`Объединить с #${candidate.old_id} (${candidate.label})`, candidate.old_id,
+      Object.keys(choices).some(key => key !== String(item.new_id) && choices[key] === candidate.old_id)));
+    button('Оставить новый', null, false);
+    card.appendChild(row); importChoicesPanel.appendChild(card);
+  });
+  const apply = importElement('button', 'Применить выбор', 'btn primary');
+  apply.type = 'button'; apply.disabled = !importComplete() || manualImportBusy;
+  apply.addEventListener('click', async () => {
+    if (manualImportBusy || !importComplete()) return;
+    const body = {request_token: manualImport.request_token, choices: manualImport.choices};
+    manualImportBusy = true;
+    renderImportChoices();
+    status('Применяю выбранные соответствия…');
+    try {
+      const response = await fetch('/api/fixtures/import_confirm', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.err || 'Импорт не подтверждён');
+      importResult(result);
+    } catch (error) { status('Не удалось подтвердить импорт: ' + error.message + '. Проверьте план перед повторным импортом.', true); }
+    finally {
+      manualImport = null; manualImportBusy = false;
+      el('import-file').disabled = false; renderImportChoices();
+    }
+  });
+  importChoicesPanel.appendChild(apply);
+  const cancel = importElement('button', 'Отменить импорт', 'btn');
+  cancel.type = 'button'; cancel.disabled = manualImportBusy;
+  cancel.addEventListener('click', () => {
+    manualImport = null; el('import-file').disabled = false;
+    renderImportChoices(); status('Импорт отменён, план не изменён');
+  });
+  importChoicesPanel.appendChild(cancel);
+}
+function importResult(result) {
+  status(`Добавлено ${result.added}, пропало ${result.missing}, всего ${result.total}` +
+    ((result.no_id || []).length ? '. Без Fixture ID: ' + result.no_id.join(', ') : ''));
+}
 el('import-file').addEventListener('click', async () => {
+  if (manualImportBusy || manualImport) return;
   const file = el('fixture-file').files[0];
   if (!file) { status('Выберите XML-файл', true); return; }
+  manualImportBusy = true;
   el('import-file').disabled = true;
   try {
     const response = await fetch('/api/fixtures/import_file', {method: 'POST', body: await file.text()});
     const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.err || 'Импорт не удался');
-    status(`Добавлено ${result.added}, пропало ${result.missing}, всего ${result.total}`);
+    if (Array.isArray(result.ambiguous) && result.ambiguous.length && result.request_token) {
+      manualImport = {ambiguous: result.ambiguous, request_token: result.request_token, choices: {}};
+      status('Импорт ожидает вашего выбора; план пока не изменён');
+    } else {
+      if (!response.ok || !result.ok) throw new Error(result.err || 'Импорт не удался');
+      importResult(result);
+    }
   } catch (error) { status(error.message, true); }
-  finally { el('import-file').disabled = false; }
+  finally {
+    manualImportBusy = false;
+    el('import-file').disabled = !!manualImport;
+    renderImportChoices();
+  }
 });
