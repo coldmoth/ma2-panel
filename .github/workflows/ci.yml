@@ -106,7 +106,8 @@ jobs:
       - run: uv sync --locked
       - name: Windows update, recovery, BAT and journal regression tests
         timeout-minutes: 5
-        run: uv run --no-sync pytest tests/test_release.py tests/test_update.py tests/test_browser_update.py tests/test_selfcheck.py tests/test_rdm_search.py -o addopts=--tb=short -o faulthandler_timeout=60 -vv --junitxml=test-results/windows.xml
+        # Direct interpreter keeps the watchdog outside pytest and uv process trees.
+        run: .venv\Scripts\python.exe -u scripts/ci_windows_tests.py
       - name: Build delivered Windows x64 and USB bundles
         run: uv run --no-sync python scripts/build_windows.py --verify-reproducible
       - name: Delivered embedded Python, BAT and update rollback
@@ -128,7 +129,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: failure()
+        if: always()
         with:
           name: windows-mock-log
           path: test-results/
