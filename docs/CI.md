@@ -9,7 +9,7 @@ Workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
   Node 24 и `node tests/panel-v4.cjs`.
 - Браузеры Ubuntu: pinned dev-only Playwright, Chromium/WebKit, mock обоих портов1024×768; [повторяемый запуск и ограничения](browser-preflight.md).
 - Windows: Python 3.12, тот же lockfile, `scripts/ci_smoke.py` (шаг до двух минут).
-  Это проверка исходников на стандартном runner, а не embeddable Python из ZIP.
+  Дополнительно собирается доставляемый ZIP и запускается его embedded Python.
 
 Smoke копирует корневые Python-модули, `static/` и публичные шаблоны во временную
 папку. Локальные config/settings, пароли, шоу и диагностика не читаются.
@@ -54,3 +54,34 @@ uv run --no-sync python scripts/ci_smoke.py --log /tmp/ma2-ci-mock.log
 Успешный smoke исходников не подтверждает ZIP, настоящий MA2 или планшеты.
 
 Отсутствующий `ma2.export_dir` обработан в блокеВ: по умолчанию используется `importexport` рядом с config. Smoke всё равно задаёт свой временный export_dir для изоляции; он не заменяет Windows-приёмку чистой установки.
+
+
+## Поставка и ограничения (2026-11-04)
+
+`CI` запускает Python/Node при push в main и для PR. Push в рабочую ветку
+проверяется через PR, без второго запуска того же набора. Ручной запуск включает
+все jobs. Windows и Chromium/WebKit выполняются для PR и вручную, не на каждый push.
+Зависимости uv кешируются; устаревший запуск ветки отменяется. Артефакты — 7 дней.
+
+Windows-2022 x64: адресные pytest release/update/browser_update/selfcheck/RDM;
+`scripts/build_windows.py` собирает полный, USB и общий update ZIP.
+Python 3.12.10 закреплён SHA256, Windows wheels — lockfile hashes, без сборки sdist.
+ZIP имеет нормализованные порядок/время/атрибуты; равенство обещается при одинаковых
+inputs и версии компрессора. `scripts/build_win.sh` вызывает тот же упаковщик.
+`scripts/windows_delivered.py` распаковывает ZIP во временный путь с пробелами и
+кириллицей: SHA256, native imports embedded Python, совпадение payload, реальный
+install/rollback и сохранность пользовательских файлов и pending/target журнала,
+BAT --help и отрицательный selfcheck exit code. HTTP/WS smoke запускается embedded
+Python с --mock на двух свободных нестандартных портах. Отдельные pytest проверяют
+сбои/восстановление; их интерпретатор — runner Python, не embedded Python.
+
+UAC/firewall, ACL/locked files, физическое отключение питания и чистая VM без
+предустановленного developer runtime остаются ручной приёмкой. MA2 не подключается.
+DEL-004 нельзя закрывать без успешного фактического Windows run.
+
+Ручной workflow input `draft_tag` (например, v3.1.0-test.REVISION) после успеха
+всех трёх jobs создаёт только draft prerelease из проверенных Windows-артефактов.
+Пустой input выполняет только проверки. Существующий tag не переиспользуется.
+Публикация prerelease и stable — отдельное решение владельца; автоматической
+публикации нет. Stable-updater не видит draft/prerelease. Hardware acceptance
+не завершена, комплект нельзя считать готовым для концертной эксплуатации.

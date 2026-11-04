@@ -2,8 +2,14 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      draft_tag:
+        description: 'Optional NEW test tag for a draft prerelease (empty = tests only)'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -25,12 +31,14 @@ jobs:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
-          enable-cache: false
+          enable-cache: true
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
           package-manager-cache: false
       - run: uv sync --locked
+      - name: Import runtime dependencies
+        run: uv run --no-sync python -c "import bridge, fastapi, uvicorn, websockets, segno, pydantic_core"
       - name: pytest
         run: perl -e 'alarm 300; exec @ARGV' uv run --no-sync pytest -q -p no:cacheprovider --junitxml=test-results/pytest.xml
       - name: Panel DOM tests
@@ -41,12 +49,39 @@ jobs:
         with:
           name: pytest-results
           path: test-results/pytest.xml
-          retention-days: 3
+          retention-days: 7
           if-no-files-found: ignore
 
+  draft-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.draft_tag != ''
+    needs: [tests, windows-mock, browser-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      DRAFT_TAG: ${{ inputs.draft_tag }}
+    steps:
+      - name: Validate test tag
+        run: |
+          [[ "$DRAFT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(rc|test)\.[a-zA-Z0-9.-]+$ ]] || exit 1
+          if gh api "repos/$GH_REPO/git/ref/tags/$DRAFT_TAG" >/dev/null 2>&1; then
+            echo 'Refusing to reuse an existing tag'; exit 1
+          fi
+      - name: Download tested Windows assets
+        run: gh run download "$GITHUB_RUN_ID" --name windows-release-candidate --dir release-assets
+      - name: Prepare draft only
+        run: |
+          printf 'TEST BUILD. Hardware acceptance grandMA2 is incomplete.\nCommit: %s\nWindows x64, embedded Python 3.12.10. Update requires matching runtime lock.\nCI: https://github.com/%s/actions/runs/%s\nSHA256 files accompany each ZIP. HTTPS/GitHub ownership is the trust boundary; SHA256 is integrity, not an independent signature.\n' "$GITHUB_SHA" "$GH_REPO" "$GITHUB_RUN_ID" > release-notes.txt
+          gh release create "$DRAFT_TAG" release-assets/* --target "$GITHUB_SHA" --draft --prerelease --title "Test $DRAFT_TAG" --notes-file release-notes.txt
+
   windows-mock:
-    runs-on: windows-latest
-    timeout-minutes: 10
+    if: github.event_name != 'push'
+    runs-on: windows-2022
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -56,20 +91,39 @@ jobs:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
-          enable-cache: false
+          enable-cache: true
       - run: uv sync --locked
-      - name: HTTP and WebSocket smoke (mock only)
+      - name: Windows update, recovery, BAT and journal regression tests
+        run: uv run --no-sync pytest tests/test_release.py tests/test_update.py tests/test_browser_update.py tests/test_selfcheck.py tests/test_rdm_search.py -q --junitxml=test-results/windows.xml
+      - name: Build delivered Windows x64 and USB bundles
+        run: uv run --no-sync python scripts/build_windows.py
+      - name: Delivered embedded Python, BAT and update rollback
+        run: uv run --no-sync python scripts/windows_delivered.py
+      - name: HTTP and WebSocket from delivered runtime (mock only)
         timeout-minutes: 2
-        run: uv run --no-sync python scripts/ci_smoke.py --log test-results/windows-mock.log
+        run: uv run --no-sync python scripts/ci_smoke.py --bundle dist/ma2-panel-win/ma2-panel/program --log test-results/windows-mock.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-release-candidate
+          path: |
+            dist/ma2-panel-win.zip
+            dist/ma2-panel-win.zip.sha256
+            dist/ma2-panel-update-usb.zip
+            dist/ma2-panel-update-usb.zip.sha256
+            dist/update/ma2-panel-update.zip
+            dist/update/ma2-panel-update.zip.sha256
+          retention-days: 7
+          if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
           name: windows-mock-log
-          path: test-results/windows-mock.log
-          retention-days: 3
+          path: test-results/
+          retention-days: 7
           if-no-files-found: ignore
 
   browser-preflight:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -81,7 +135,7 @@ jobs:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
-          enable-cache: false
+          enable-cache: true
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
@@ -97,5 +151,5 @@ jobs:
         with:
           name: browser-preflight
           path: test-results/browser/
-          retention-days: 3
+          retention-days: 7
           if-no-files-found: ignore

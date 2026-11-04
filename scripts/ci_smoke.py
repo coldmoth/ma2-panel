@@ -42,14 +42,20 @@ async def check_websocket(port):
         assert reply["ok"] is False and reply.get("err"), reply
 
 
-def smoke(log_path):
+def smoke(log_path, bundle=None):
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="ma2-ci-") as temp:
-        app = Path(temp)
+        app = Path(temp) / 'panel space зал'
+        app.mkdir()
+        executable = sys.executable
         # Explicit inputs only: never copy local credentials, config, or show data.
-        for source in ROOT.glob("*.py"):
-            shutil.copy2(source, app / source.name)
-        shutil.copytree(ROOT / "static", app / "static")
+        if bundle:
+            shutil.copytree(Path(bundle), app, dirs_exist_ok=True)
+            executable = str(app / 'python/python.exe')
+        else:
+            for source in ROOT.glob("*.py"):
+                shutil.copy2(source, app / source.name)
+            shutil.copytree(ROOT / "static", app / "static")
         shutil.copy2(ROOT / "config.example.json", app / "config.json")
         settings = json.loads((ROOT / "settings.example.json").read_text(encoding="utf-8"))
         # The export location is installation-specific; keep mock exports here.
@@ -66,7 +72,7 @@ def smoke(log_path):
         env["PYTHONUTF8"] = "1"
         with log_path.open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
-                [sys.executable, str(app / "bridge.py"), "--mock",
+                [executable, str(app / "bridge.py"), "--mock",
                  "--config", str(app / "config.json"), "--settings", str(app / "settings.json")],
                 cwd=app, env=env, stdout=log, stderr=subprocess.STDOUT,
             )
@@ -111,5 +117,6 @@ def smoke(log_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--log", type=Path, default=Path("test-results/mock.log"))
+    parser.add_argument("--bundle", type=Path, help="Extracted delivered program/; run its embedded Python")
     args = parser.parse_args()
-    smoke(args.log.resolve())
+    smoke(args.log.resolve(), args.bundle)
