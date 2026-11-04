@@ -422,7 +422,8 @@ def test_rdm_journal_survives_backup_transfer_update_rollback(tmp_path, monkeypa
         asyncio.run(check_pending(folder))
 
 
-def test_external_usb_isolated_python_uses_staged_release(tmp_path):
+@pytest.mark.parametrize('output_encoding', [None, 'cp1252'])
+def test_external_usb_isolated_python_uses_staged_release(tmp_path, output_encoding):
     import subprocess
     import sys
     from pathlib import Path
@@ -437,10 +438,19 @@ def test_external_usb_isolated_python_uses_staged_release(tmp_path):
         "def check(*args):\n    raise ValueError('staged release reached')\n")
     (root / 'release.py').write_bytes(b'old release')
     package = archive(stage / 'ma2-panel-update.zip', {'program-manifest.json': '{}'})
-    result = subprocess.run([sys.executable, '-I', str(stage / 'update.py'),
-                             '--root', str(root), str(package)],
-                            cwd=root, capture_output=True, text=True, timeout=10)
+    command = [sys.executable, '-I', str(stage / 'update.py'),
+               '--root', str(root), str(package)]
+    if output_encoding:
+        # -I ignores PYTHONIOENCODING: force the actual stream, as on CI.
+        command = [sys.executable, '-I', '-c',
+                   'import runpy,sys; sys.stdout.reconfigure(encoding="cp1252"); '
+                   'sys.stderr.reconfigure(encoding="cp1252"); '
+                   'sys.argv=sys.argv[1:]; runpy.run_path(sys.argv[0],run_name="__main__")',
+                   *command[2:]]
+    result = subprocess.run(command, cwd=root, capture_output=True,
+                            text=True, encoding='utf-8', timeout=10)
     assert result.returncode == 1
-    assert 'staged release reached' in result.stdout, result.stdout + result.stderr
+    assert 'Обновление не выполнено: staged release reached' in result.stdout, result.stdout + result.stderr
+    assert 'UnicodeEncodeError' not in result.stderr
     assert (root / 'release.py').read_bytes() == b'old release'
     assert not (root / 'previous').exists()

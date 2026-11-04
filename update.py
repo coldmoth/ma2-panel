@@ -545,6 +545,11 @@ def run(root, url=None, confirm=input):
 
 
 def main():
+    # Pipes/BAT and isolated embedded Python may default to cp1252 on Windows.
+    # Keep Russian diagnostics intact and tolerate unpaired filesystem surrogates.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='backslashreplace')
     try:
         if sys.argv[1:2] == ['--recover'] and len(sys.argv) == 3:
             recover(Path(sys.argv[2]))
