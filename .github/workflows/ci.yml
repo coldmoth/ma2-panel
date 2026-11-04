@@ -101,7 +101,8 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - name: Windows update, recovery, BAT and journal regression tests
-        run: uv run --no-sync pytest tests/test_release.py tests/test_update.py tests/test_browser_update.py tests/test_selfcheck.py tests/test_rdm_search.py -q --junitxml=test-results/windows.xml
+        timeout-minutes: 5
+        run: uv run --no-sync pytest tests/test_release.py tests/test_update.py tests/test_browser_update.py tests/test_selfcheck.py tests/test_rdm_search.py -o addopts=--tb=short -o faulthandler_timeout=60 -vv --junitxml=test-results/windows.xml
       - name: Build delivered Windows x64 and USB bundles
         run: uv run --no-sync python scripts/build_windows.py --verify-reproducible
       - name: Delivered embedded Python, BAT and update rollback
