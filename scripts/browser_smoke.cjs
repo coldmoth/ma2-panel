@@ -300,6 +300,28 @@ async function checkEngine(name) {
     await wizard.close();
     results.push({engine: name, mode: 'setup', result: 'PASS'});
     console.log(`PASS ${name}/setup: desktop, phone, saved vs active, offline/reconnect`);
+    const updates = await context.newPage();
+    updates.__smokeName = name + '-updates';
+    updates.on('pageerror', error => errors.push(error.message));
+    await updates.route('**/api/update/status', route => route.fulfill({json: {ok:true,current:'3.1.0+test',phase:'idle'}}));
+    await updates.route('**/api/update/check', route => route.fulfill({json: {
+      ok:true,current:'3.1.0+test',compatible_installation:true,
+      available:{version:'v3.2.0',notes:'<script>throw Error("must stay text")</script>\nMock release notes'}
+    }}));
+    await updates.goto(fullURL + '/settings.html');
+    await updates.locator('#update-check').click();
+    await updates.waitForFunction(() => !document.getElementById('update-start').disabled);
+    assert.match(await updates.locator('#update-notes').textContent(), /<script>/);
+    assert.equal(await updates.locator('#update-notes script').count(), 0);
+    await noOverflow(updates, name + ' updates');
+    await screenshot(updates, name + '-update-notes');
+    await updates.route('**/api/update/check', route => route.fulfill({json: {ok:true,current:'3.2.0+test',available:null,compatible_installation:true}}));
+    await updates.locator('#update-check').click();
+    await updates.waitForFunction(() => document.getElementById('update-state').textContent.includes('нет'));
+    assert(await updates.locator('#update-start').isDisabled());
+    await updates.close();
+    assert.deepEqual(errors, [], 'No uncaught update JavaScript errors');
+    results.push({engine:name,mode:'updates',result:'PASS'});
   } catch (error) {
     for (const page of context.pages()) await screenshot(page, page.__smokeName + '-failure').catch(() => {});
     throw error;

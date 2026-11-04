@@ -171,43 +171,50 @@
 - 3106 `main`
 
 ## browser_update.py
-- 27 `download`
-- 38 `fetch_json`
-- 54 `latest`
-- 69 `status`
-- 82 `progress`
-- 90 `release_lock`
-- 94 `prepare`
-- 119 `launch`
-- 130 `stop_child`
-- 141 `health`
-- 157 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
-  - 159 `__init__`
-  - 164 `start`
-    - 168 `Handler`
-      - 169 `log_message`
-      - 172 `do_GET`
-  - 206 `stop`
-- 214 `apply`
-- 267 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
-  - 288 `wait`
-- 300 `worker`
-- 319 `Updater`
-  - 320 `__init__`
-  - 324 `begin`
-  - 333 `_run`
-- 372 `recover_pending`
-- 392 `watch_orphan`
-- 415 `orphan_worker`
-- 445 `register`
-  - 451 `local`
-  - 462 `denied`
-  - 466 `update_health`
-  - 470 `update_status`
-  - 476 `check_update`
-  - 487 `updater_idle`
-  - 493 `quiesce`
-  - 502 `start_update`
+- 29 `trusted_url`
+- 36 `GitHubRedirect`
+  - 37 `redirect_request`
+- 42 `_open`
+- 47 `supported_platform`
+- 51 `version_key`
+- 59 `newer`
+- 63 `download`
+- 77 `fetch_json`
+- 99 `latest`
+- 126 `status`
+- 139 `progress`
+- 147 `release_lock`
+- 151 `prepare`
+- 185 `launch`
+- 196 `stop_child`
+- 207 `health`
+- 223 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
+  - 225 `__init__`
+  - 230 `start`
+    - 234 `Handler`
+      - 235 `log_message`
+      - 238 `do_GET`
+  - 272 `stop`
+- 280 `apply`
+- 333 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
+  - 354 `wait`
+- 366 `worker`
+- 385 `Updater`
+  - 386 `__init__`
+  - 390 `begin`
+  - 399 `_run`
+- 440 `recover_pending`
+- 460 `watch_orphan`
+- 483 `orphan_worker`
+- 513 `register`
+  - 519 `local`
+  - 530 `denied`
+  - 534 `update_health`
+  - 538 `update_status`
+  - 544 `check_update`
+  - 556 `updater_idle`
+  - 562 `quiesce`
+  - 571 `start_update`
 
 ## commands.py
 - 22 `ActionError`

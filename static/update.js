@@ -10,10 +10,10 @@
     failed: 'Обновление не выполнено.', idle: 'Обновления устанавливаются только по вашему нажатию.'
   };
   const terminal = phase => ['idle', 'completed', 'rolled_back', 'failed'].includes(phase);
-  let busy = false, available = false, posting = false;
+  let busy = false, available = false, posting = false, selectedVersion = null;
   const buttons = () => { check.disabled = busy || posting; start.disabled = busy || posting || !available; };
-  async function request(url, post = false) {
-    const response = await fetch(url, post ? {method: 'POST', headers: {'X-Update': '1'}} : {});
+  async function request(url, post = false, body = undefined) {
+    const response = await fetch(url, post ? {method: 'POST', headers: {'X-Update': '1', 'Content-Type': 'application/json'}, body: body === undefined ? undefined : JSON.stringify(body)} : {});
     const data = await response.json();
     if (!response.ok || data.ok === false) throw Error(data.err || 'Ошибка обновления');
     return data;
@@ -40,6 +40,14 @@
     posting = true; buttons();
     try {
       const data = await request('/api/update/check', true);
+      selectedVersion = data.available?.version || null;
+      el('update-notes').textContent = data.available?.notes || '';
+      if (!data.available) {
+        el('update-version').textContent = 'Установлено: ' + data.current;
+        available = false;
+        message.textContent = 'Новых стабильных обновлений нет.';
+        return;
+      }
       el('update-version').textContent = 'Установлено: ' + data.current + ' · Доступно: ' + data.available.version;
       available = data.compatible_installation && data.available.version !== data.current;
       message.textContent = data.compatible_installation
@@ -51,7 +59,7 @@
   start.addEventListener('click', async () => {
     if (busy || posting || !available) return;
     posting = true; busy = true; buttons();
-    try { show(await request('/api/update/start', true)); }
+    try { show(await request('/api/update/start', true, {version: selectedVersion})); }
     catch (error) {
       message.textContent = 'Ответ не получен. Проверяем сохранённую операцию…';
       setTimeout(poll, 1500);

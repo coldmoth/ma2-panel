@@ -39,6 +39,7 @@ def install_runtime(root):
 
 
 def test_prepare_checks_runtime_before_any_install(tmp_path, monkeypatch):
+    monkeypatch.setattr(bu, 'supported_platform', lambda: True)
     archive, runtime = package(tmp_path)
     root = tmp_path / 'app'
     root.mkdir()
@@ -55,6 +56,7 @@ def test_prepare_checks_runtime_before_any_install(tmp_path, monkeypatch):
 
 
 def test_bad_checksum_leaves_program_running(tmp_path, monkeypatch):
+    monkeypatch.setattr(bu, 'supported_platform', lambda: True)
     archive, runtime = package(tmp_path)
     install_runtime(tmp_path)
     (tmp_path / 'runtime.json').write_text(json.dumps(runtime))
@@ -89,7 +91,7 @@ def test_failed_health_restores_old_program_and_preserves_data(tmp_path, monkeyp
 def test_begin_is_idempotent_and_busy_does_not_stop(tmp_path, monkeypatch):
     async def go():
         manager = bu.Updater(tmp_path)
-        monkeypatch.setattr(bu, 'latest', lambda: {'version': 'v2', 'url': 'x', 'checksum_url': 'y'})
+        monkeypatch.setattr(bu, 'latest', lambda: {'version': 'v3.2.0', 'url': 'x', 'checksum_url': 'y'})
         monkeypatch.setattr(bu, 'prepare', lambda *args: (_ for _ in ()).throw(update.UpdateError('network down')))
         async def gate():
             pytest.fail('gate must not close before successful verification')
@@ -109,12 +111,13 @@ def test_update_api_is_local_and_protected(tmp_path, monkeypatch):
     cfg['ma2']['export_dir'] = str(tmp_path)
     monkeypatch.setattr(bridge, 'HERE', tmp_path)
     (tmp_path / 'static').mkdir()
-    monkeypatch.setattr(bu, 'latest', lambda: {'version': 'v2', 'url': 'x', 'checksum_url': 'y'})
+    (tmp_path / 'VERSION').write_text('3.1.0')
+    monkeypatch.setattr(bu, 'latest', lambda: {'version': 'v3.2.0', 'url': 'x', 'checksum_url': 'y'})
     app = bridge.create_app(cfg, True, str(tmp_path / 'config.json'), settings={'poll_seconds': 0})
     with TestClient(app, base_url='http://localhost', client=('127.0.0.1', 123)) as client:
         assert client.post('/api/update/check').status_code == 403
         assert client.post('/api/update/check', headers={'X-Update': '1', 'Origin': 'https://foreign.invalid'}).status_code == 403
-        assert client.post('/api/update/check', headers={'X-Update': '1'}).json()['available']['version'] == 'v2'
+        assert client.post('/api/update/check', headers={'X-Update': '1'}).json()['available']['version'] == 'v3.2.0'
         app.state.updating = True
         assert client.post('/api/settings', json={}).status_code == 409
         with client.websocket_connect('/ws') as ws:
@@ -159,7 +162,7 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
     source = Path(__file__).resolve().parents[1]
     root = tmp_path / 'panel space зал'
     root.mkdir()
-    release.write_tree(release.build(source, version='smoke-v1'), root)
+    release.write_tree(release.build(source, version='3.1.0+smoke1'), root)
     install_runtime(root)
     (root / 'runtime.json').write_text(json.dumps(release.runtime(source)))
     cfg = json.loads((source / 'tests/config.test.json').read_text())
@@ -174,7 +177,7 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
     settings = {'bind': '127.0.0.1', 'port': ports[0], 'simple_port': ports[1], 'poll_seconds': 0}
     (root / 'settings.json').write_text(json.dumps(settings))
     bundle = tmp_path / 'bundle.zip'
-    release.write_zip(release.build(source, version='smoke-v2'), bundle)
+    release.write_zip(release.build(source, version='3.2.0+smoke2'), bundle)
     payload = bundle.read_bytes()
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -188,9 +191,9 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     url = f'http://127.0.0.1:{httpd.server_port}/update.zip'
-    info = {'version': 'smoke-v2', 'url': url, 'checksum_url': url + '.sha256'}
+    info = {'version': 'v3.2.0', 'url': url, 'checksum_url': url + '.sha256'}
     args = ['--mock', '--config', str(root / 'config.json'), '--settings', str(root / 'settings.json')]
-    code = f'import sys;sys.path.insert(0,{str(root)!r});import bridge,browser_update;browser_update.latest=lambda:{info!r};sys.argv=[{str(root / "bridge.py")!r},*{args!r}];bridge.main()'
+    code = f'import sys;sys.path.insert(0,{str(root)!r});import bridge,browser_update;browser_update.latest=lambda:{info!r};browser_update.supported_platform=lambda:True;browser_update._open=lambda req,timeout:__import__("urllib.request",fromlist=["urlopen"]).urlopen(req,timeout=timeout);sys.argv=[{str(root / "bridge.py")!r},*{args!r}];bridge.main()'
     log = (tmp_path / 'bridge-output.log').open('wb')
     parent = subprocess.Popen([sys.executable, '-c', code], cwd=root, stdout=log, stderr=log)
     new_pid = None
@@ -211,7 +214,7 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
         # Migration belongs to startup; updates must preserve the resulting site settings.
         settings = json.loads((root / 'settings.json').read_text())
         time.sleep(0.3)
-        with urlopen(Request(base + '/api/update/start', data=b'', headers={'X-Update': '1'}, method='POST'), timeout=3) as response:
+        with urlopen(Request(base + '/api/update/start', data=json.dumps({'version':'v3.2.0'}).encode(), headers={'X-Update': '1'}, method='POST'), timeout=3) as response:
             operation = json.load(response)['id']
         deadline = time.monotonic() + 30
         current = {}
@@ -228,7 +231,7 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
         for port in ports:
             result = get('/api/update/health', port)
             new_pid = result['pid']
-            assert result['version'] == 'smoke-v2'
+            assert result['version'] == '3.2.0+smoke2'
             assert result['operation'] == operation
             assert result['pid'] != parent.pid
         assert json.loads((root / 'settings.json').read_text()) == settings
@@ -248,7 +251,7 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
         for port in ports:
             result = get('/api/update/health', port)
             new_pid = result['pid']
-            assert result['version'] == 'smoke-v1'
+            assert result['version'] == '3.1.0+smoke1'
     finally:
         try:
             with urlopen(Request(base + '/api/stop', data=b'', headers={'X-Stop': '1'}, method='POST'), timeout=2):

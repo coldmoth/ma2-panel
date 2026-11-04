@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import shutil
@@ -22,14 +23,52 @@ import update
 REPO = 'coldmoth/ma2-panel'
 API = f'https://api.github.com/repos/{REPO}/releases/latest'
 TERMINAL = {'idle', 'completed', 'rolled_back', 'failed'}
+TRUSTED_HOSTS = {'api.github.com', 'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'}
+
+
+def trusted_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    if (parsed.scheme != 'https' or parsed.netloc not in TRUSTED_HOSTS
+            or parsed.username or parsed.fragment):
+        raise update.UpdateError('Недопустимый HTTPS-источник обновления')
+
+
+class GitHubRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        trusted_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _open(request, timeout):
+    trusted_url(request.full_url)
+    return urllib.request.build_opener(GitHubRedirect()).open(request, timeout=timeout)
+
+
+def supported_platform():
+    return sys.platform == 'win32' and platform.machine().lower() in ('amd64', 'x86_64') and sys.maxsize > 2**32
+
+
+def version_key(value):
+    # Existing Python project versions plus SemVer build identity; no lexical comparison.
+    match = re.fullmatch(r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:(rc[0-9]+)|(-[0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?', value)
+    if not match:
+        raise update.UpdateError('Неизвестный формат версии; нужна проверка полного комплекта')
+    return (*map(int, match.group(1, 2, 3)), 0 if match.group(4) or match.group(5) else 1)
+
+
+def newer(candidate, current):
+    return version_key(candidate) > version_key(current)
 
 
 def download(url, path, limit):
     request = urllib.request.Request(url, headers={'User-Agent': 'ma2-panel-updater', 'Accept': 'application/octet-stream'})
-    with urllib.request.urlopen(request, timeout=20) as response, Path(path).open('wb') as stream:
+    deadline = time.monotonic() + 120
+    with _open(request, timeout=20) as response, Path(path).open('wb') as stream:
         total = 0
-        while chunk := response.read(65536):
+        while chunk := response.read1(65536):
             total += len(chunk)
+            if time.monotonic() > deadline:
+                raise update.UpdateError('Истекло время скачивания обновления')
             if total > limit:
                 raise update.UpdateError('Файл обновления слишком большой')
             stream.write(chunk)
@@ -38,11 +77,17 @@ def download(url, path, limit):
 def fetch_json(url):
     request = urllib.request.Request(url, headers={'User-Agent': 'ma2-panel-updater', 'Accept': 'application/vnd.github+json'})
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            raw = response.read(2 * 1024 * 1024 + 1)
-        if len(raw) > 2 * 1024 * 1024:
-            raise update.UpdateError('Слишком большой ответ GitHub')
-        return json.loads(raw)
+        deadline = time.monotonic() + 30
+        with _open(request, timeout=15) as response:
+            parts, size = [], 0
+            while chunk := response.read1(65536):
+                size += len(chunk)
+                if size > 2 * 1024 * 1024:
+                    raise update.UpdateError('Слишком большой ответ GitHub')
+                if time.monotonic() > deadline:
+                    raise update.UpdateError('Истекло время проверки GitHub')
+                parts.append(chunk)
+        return json.loads(b''.join(parts))
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             raise update.UpdateError('Опубликованных релизов пока нет') from exc
@@ -53,17 +98,29 @@ def fetch_json(url):
 
 def latest():
     data = fetch_json(API)
-    if not isinstance(data, dict) or data.get('draft') or data.get('prerelease'):
+    if not isinstance(data, dict) or data.get('draft') is not False or data.get('prerelease') is not False:
         raise update.UpdateError('Нет стабильного релиза')
-    assets = {a['name']: a['browser_download_url'] for a in data.get('assets', [])}
+    tag = data.get('tag_name')
+    if not isinstance(tag, str) or not re.fullmatch(r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag):
+        raise update.UpdateError('Недопустимая стабильная версия релиза')
+    records = data.get('assets')
+    if not isinstance(records, list) or any(not isinstance(a, dict) or not isinstance(a.get('name'), str)
+                                             or not isinstance(a.get('browser_download_url'), str) for a in records):
+        raise update.UpdateError('Неверные метаданные GitHub-релиза')
+    assets = {a['name']: a['browser_download_url'] for a in records}
+    if len(assets) != len(records):
+        raise update.UpdateError('Повторные файлы релиза')
     names = ('ma2-panel-update.zip', 'ma2-panel-update.zip.sha256')
     if not all(name in assets for name in names):
         raise update.UpdateError('В релизе нет комплекта обновления и SHA256')
     for name in names:
         parsed = urllib.parse.urlsplit(assets[name])
-        if parsed.scheme != 'https' or parsed.netloc != 'github.com' or not parsed.path.startswith(f'/{REPO}/releases/download/') or parsed.query or parsed.fragment:
+        if parsed.scheme != 'https' or parsed.netloc != 'github.com' or parsed.path != f'/{REPO}/releases/download/{tag}/{name}' or parsed.query or parsed.fragment:
             raise update.UpdateError('Недопустимый источник обновления')
-    return {'version': str(data.get('tag_name', '')), 'url': assets[names[0]], 'checksum_url': assets[names[1]]}
+    notes = data.get('body') or ''
+    if not isinstance(notes, str):
+        raise update.UpdateError('Неверное описание релиза')
+    return {'version': tag, 'url': assets[names[0]], 'checksum_url': assets[names[1]], 'notes': notes[:8000]}
 
 
 def status(root):
@@ -93,11 +150,17 @@ def release_lock(root):
 
 def prepare(root, ident, info):
     root = Path(root)
+    if not supported_platform():
+        raise update.UpdateError('Онлайн-установка поддерживается только в Windows x64')
     try:
         installed = json.loads((root / 'runtime.json').read_text(encoding='utf-8'))
         release.verify_runtime(root)
     except (OSError, ValueError) as exc:
         raise update.UpdateError('Нет сведений о Python/lib. Сначала установите полный Windows-комплект блока Б') from exc
+    # Reserve space before network writes, while the bridge remains running.
+    need = sum(p.stat().st_size for p in root.rglob('*') if p.is_file() and not p.is_symlink() and '.updates' not in p.relative_to(root).parts)
+    if shutil.disk_usage(root).free < need * 3 + release.MAX_TOTAL * 4 + 16 * 1024 * 1024:
+        raise update.UpdateError('Недостаточно свободного места для обновления и копий')
     folder = update.transaction(root) / ('browser-' + ident)
     folder.mkdir()
     archive, checksum = folder / 'update.zip', folder / 'checksum.txt'
@@ -107,6 +170,9 @@ def prepare(root, ident, info):
     if not tokens or not re.fullmatch('[0-9a-fA-F]{64}', tokens[0]) or hashlib.sha256(archive.read_bytes()).hexdigest() != tokens[0].lower():
         raise update.UpdateError('Контрольная сумма SHA256 не совпадает')
     manifest = release.check(archive, installed)
+    if info.get('version') and (version_key(manifest['version']) != version_key(info['version'])
+                               or not newer(info['version'], update.version(root))):
+        raise update.UpdateError('Версия пакета не соответствует новому стабильному релизу')
     # Room for stage, original program, new rollback copy and user backup.
     need = sum(p.stat().st_size for p in root.rglob('*') if p.is_file() and not p.is_symlink() and '.updates' not in p.relative_to(root).parts)
     if shutil.disk_usage(root).free < need * 3 + archive.stat().st_size * 4 + 16 * 1024 * 1024:
@@ -321,20 +387,22 @@ class Updater:
         self.root = Path(root)
         self.task = None
 
-    def begin(self, gate, stop, launch_spec):
+    def begin(self, gate, stop, launch_spec, expected_version=None):
         work = update.transaction(self.root)
         ident = uuid.uuid4().hex
         if not update.acquire_lock(self.root, ident):
             return status(self.root)
         progress(self.root, ident, 'downloading', owner=os.getpid(), error='')
-        self.task = asyncio.create_task(self._run(ident, gate, stop, launch_spec))
+        self.task = asyncio.create_task(self._run(ident, gate, stop, launch_spec, expected_version))
         return status(self.root)
 
-    async def _run(self, ident, gate, stop, launch_spec):
+    async def _run(self, ident, gate, stop, launch_spec, expected_version):
         closed = False
         child = None
         try:
             info = await asyncio.to_thread(latest)
+            if expected_version is not None and info['version'] != expected_version:
+                raise update.UpdateError('Релиз изменился. Повторите проверку и подтвердите новую версию')
             archive, manifest = await asyncio.to_thread(prepare, self.root, ident, info)
             progress(self.root, ident, 'validated', version=manifest['version'])
             if not await gate():
@@ -478,8 +546,9 @@ def register(app, root, is_loopback, gate, reopen, stop, health_info, launch_spe
             return denied()
         try:
             info = await asyncio.to_thread(latest)
-            return {'ok': True, 'current': update.version(root), 'available': info,
-                    'compatible_installation': (Path(root) / 'runtime.json').is_file()}
+            current = update.version(root)
+            return {'ok': True, 'current': current, 'available': info if newer(info['version'], current) else None,
+                    'compatible_installation': supported_platform() and (Path(root) / 'runtime.json').is_file()}
         except Exception as exc:
             return JSONResponse({'ok': False, 'err': str(exc)}, status_code=502)
 
@@ -502,10 +571,18 @@ def register(app, root, is_loopback, gate, reopen, stop, health_info, launch_spe
     async def start_update(request: Request):
         if not local(request, True):
             return denied()
+        try:
+            chosen = (await request.json())['version']
+            if not isinstance(chosen, str) or not newer(chosen, update.version(root)):
+                raise ValueError()
+        except (ValueError, KeyError, TypeError, update.UpdateError):
+            return JSONResponse({'ok': False, 'err': 'Сначала проверьте и выберите новую версию'}, status_code=400)
+        if not supported_platform():
+            return JSONResponse({'ok': False, 'err': 'Нужен Windows x64'}, status_code=409)
         spec = launch_spec()
         if not spec:
             return JSONResponse({'ok': False, 'err': 'Обновление доступно в обычном запуске моста'}, status_code=409)
-        return {'ok': True, **manager.begin(gate, stop, {**spec, 'reopen': reopen})}
+        return {'ok': True, **manager.begin(gate, stop, {**spec, 'reopen': reopen}, chosen)}
 
 
 if __name__ == '__main__':
