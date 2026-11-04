@@ -38,17 +38,6 @@ def run(command, output, timeout=240):
             if child.poll() is None:
                 state['reason'] = 'watchdog_timeout'
                 record()
-                with (output / 'processes.log').open('wb') as snapshot:
-                    if os.name == 'nt':
-                        # Names/PIDs only: do not collect other processes' command-line secrets.
-                        inspect = ['powershell', '-NoProfile', '-Command',
-                                   'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | Format-Table -AutoSize']
-                    else:
-                        inspect = ['ps', '-eo', 'pid,ppid,pgid,comm']
-                    try:
-                        subprocess.run(inspect, stdout=snapshot, stderr=subprocess.STDOUT, timeout=10)
-                    except (OSError, subprocess.TimeoutExpired) as error:
-                        snapshot.write(str(error).encode('utf-8'))
                 returncode = 124
             else:
                 state['reason'] = 'exit'
@@ -71,8 +60,25 @@ def run(command, output, timeout=240):
                         child.wait(timeout=5)
                 if state['reason'] == 'running':
                     state['reason'] = 'interrupted'
-            state.update(returncode=child.returncode, elapsed_seconds=round(time.monotonic() - started, 2))
+            state.update(returncode=child.returncode,
+                         stopped_elapsed_seconds=round(time.monotonic() - started, 2))
             record()
+        # Optional post-stop diagnostics have their own budget. They must never
+        # delay termination of pytest or its descendants.
+        if state['reason'] == 'watchdog_timeout':
+            with (output / 'processes.log').open('wb') as snapshot:
+                if os.name == 'nt':
+                    # Names/PIDs only: do not collect other processes' command-line secrets.
+                    inspect = ['powershell', '-NoProfile', '-Command',
+                               'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | Format-Table -AutoSize']
+                else:
+                    inspect = ['ps', '-eo', 'pid,ppid,pgid,comm']
+                try:
+                    subprocess.run(inspect, stdout=snapshot, stderr=subprocess.STDOUT, timeout=1)
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    snapshot.write(str(error).encode('utf-8'))
+        state['elapsed_seconds'] = round(time.monotonic() - started, 2)
+        record()
     return returncode
 
 

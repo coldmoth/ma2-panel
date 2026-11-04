@@ -6,6 +6,33 @@ import time
 from scripts import ci_windows_tests
 
 
+def assert_process_stopped(pid):
+    import os
+    if os.name == 'nt':
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x100000, False, pid)
+        if handle:
+            try:
+                assert kernel.WaitForSingleObject(handle, 0) == 0, f'process {pid} still running'
+            finally:
+                kernel.CloseHandle(handle)
+        else:
+            assert ctypes.get_last_error() == 87, f'cannot verify process {pid}'
+    else:
+        # An exited orphan can briefly remain a zombie; it cannot run any code.
+        import subprocess
+        with subprocess.Popen(['ps', '-o', 'stat=', '-p', str(pid)], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True) as probe:
+            result, _ = probe.communicate(timeout=2)
+        assert not result.strip() or result.strip().startswith('Z'), f'process {pid} still running'
+
+
 def test_watchdog_preserves_output_and_failure(tmp_path):
     result = ci_windows_tests.run([sys.executable, '-u', '-c',
                            'import sys; print("current test", flush=True); sys.exit(7)'],
@@ -22,15 +49,34 @@ def test_watchdog_allows_success_to_reach_next_step(tmp_path):
     assert json.loads((tmp_path / 'result.json').read_text())['returncode'] == 0
 
 
-def test_watchdog_bounds_hang_and_kills_descendants(tmp_path):
+def test_watchdog_bounds_hang_and_kills_descendants(tmp_path, monkeypatch):
     marker = tmp_path / 'leaked-child'
     child = f'import time; from pathlib import Path; time.sleep(3); Path({str(marker)!r}).touch()'
-    parent = f'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",{child!r}]); print("stalled test",flush=True); time.sleep(60)'
+    pids = tmp_path / 'pids.json'
+    parent = f'import subprocess,sys,time,os,json; from pathlib import Path; p=subprocess.Popen([sys.executable,"-c",{child!r}]); Path({str(pids)!r}).write_text(json.dumps([os.getpid(),p.pid])); print("stalled test",flush=True); time.sleep(60)'
+    original_run = ci_windows_tests.subprocess.run
+    diagnostic_checks = []
+
+    def slow_snapshot(command, **kwargs):
+        if command[0] in ('ps', 'powershell'):
+            # A real slow diagnostic must only start after the child tree is dead.
+            for pid in json.loads(pids.read_text()):
+                assert_process_stopped(pid)
+            diagnostic_checks.append(True)
+            time.sleep(3)
+            raise ci_windows_tests.subprocess.TimeoutExpired(command, kwargs['timeout'])
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(ci_windows_tests.subprocess, 'run', slow_snapshot)
     start = time.monotonic()
     assert ci_windows_tests.run([sys.executable, '-u', '-c', parent], tmp_path, timeout=1) == 124
     assert time.monotonic() - start < 15
     state = json.loads((tmp_path / 'result.json').read_text())
     assert state['reason'] == 'watchdog_timeout'
+    assert diagnostic_checks == [True]
+    for pid in json.loads(pids.read_text()):
+        assert_process_stopped(pid)
+    assert state['stopped_elapsed_seconds'] < 3
     assert (tmp_path / 'processes.log').is_file()
     assert 'stalled test' in (tmp_path / 'pytest.log').read_text()
     time.sleep(2.5)
