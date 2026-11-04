@@ -188,33 +188,34 @@
 - 185 `launch`
 - 196 `stop_child`
 - 207 `health`
-- 223 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
-  - 225 `__init__`
-  - 230 `start`
-    - 234 `Handler`
-      - 235 `log_message`
-      - 238 `do_GET`
-  - 272 `stop`
-- 280 `apply`
-- 333 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
-  - 354 `wait`
-- 366 `worker`
-- 385 `Updater`
-  - 386 `__init__`
-  - 390 `begin`
-  - 399 `_run`
-- 440 `recover_pending`
-- 460 `watch_orphan`
-- 483 `orphan_worker`
-- 513 `register`
-  - 519 `local`
-  - 530 `denied`
-  - 534 `update_health`
-  - 538 `update_status`
-  - 544 `check_update`
-  - 556 `updater_idle`
-  - 562 `quiesce`
-  - 571 `start_update`
+  - 211 `record`
+- 244 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
+  - 246 `__init__`
+  - 251 `start`
+    - 255 `Handler`
+      - 256 `log_message`
+      - 259 `do_GET`
+  - 293 `stop`
+- 301 `apply`
+- 354 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
+  - 375 `wait`
+- 387 `worker`
+- 406 `Updater`
+  - 407 `__init__`
+  - 411 `begin`
+  - 420 `_run`
+- 461 `recover_pending`
+- 481 `watch_orphan`
+- 504 `orphan_worker`
+- 534 `register`
+  - 540 `local`
+  - 551 `denied`
+  - 555 `update_health`
+  - 559 `update_status`
+  - 565 `check_update`
+  - 577 `updater_idle`
+  - 583 `quiesce`
+  - 592 `start_update`
 
 ## commands.py
 - 22 `ActionError`

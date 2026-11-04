@@ -206,16 +206,37 @@ def stop_child(child):
 
 def health(spec, version):
     deadline = time.monotonic() + 35
+    last_report = None
+
+    def record(observed):
+        nonlocal last_report
+        report = {'expected': {'version': version, 'operation': spec['id'],
+                               'pid': spec.get('child_pid')},
+                  'ports': spec['ports'], 'worker_pid': os.getpid(), 'observed': observed}
+        if report != last_report:
+            try:
+                update.atomic_json(Path(spec['root']) / '.updates/health.json', report)
+                last_report = report
+            except OSError:
+                pass  # Optional diagnostics cannot decide health or block recovery.
+
     while time.monotonic() < deadline:
+        observed = []
         try:
             for port in spec['ports']:
+                entry = {'port': port}
+                observed.append(entry)
                 with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/update/health', timeout=2) as response:
                     result = json.load(response)
+                entry['result'] = {key: result.get(key) for key in ('version', 'operation', 'pid', 'instance')}
                 if (result.get('version') != version or result.get('operation') != spec['id']
                         or (spec.get('child_pid') and result.get('pid') != spec['child_pid'])):
                     raise ValueError('wrong instance')
+            record(observed)
             return
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            entry['error'] = type(exc).__name__
+            record(observed)
             time.sleep(0.25)
     raise update.UpdateError('Новая версия не подтвердила запуск на всех портах')
 

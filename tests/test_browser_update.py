@@ -22,6 +22,41 @@ def package(tmp_path):
     return archive, runtime
 
 
+
+@pytest.mark.parametrize('field', ['version', 'operation', 'pid', 'unreachable'])
+def test_health_rejection_records_expected_and_observed(tmp_path, monkeypatch, field):
+    from contextlib import contextmanager
+    expected = {'version': 'v2', 'operation': 'a' * 32, 'pid': 123}
+    observed = {**expected, 'unrelated_secret': 'must not be recorded'}
+    if field != 'unreachable':
+        observed[field] = 'wrong'
+
+    @contextmanager
+    def response(*args, **kwargs):
+        import io
+        if field == 'unreachable':
+            raise OSError('unreachable')
+        yield io.StringIO(json.dumps(observed))
+
+    ticks = iter([0, 0, 36])
+    monkeypatch.setattr(bu.time, 'monotonic', lambda: next(ticks))
+    monkeypatch.setattr(bu.time, 'sleep', lambda _: None)
+    monkeypatch.setattr(bu.urllib.request, 'urlopen', response)
+    (tmp_path / '.updates').mkdir()
+    spec = {'root': str(tmp_path), 'id': expected['operation'], 'child_pid': 123, 'ports': [8080, 8090]}
+    with pytest.raises(update.UpdateError, match='всех портах'):
+        bu.health(spec, 'v2')
+    diagnostic = json.loads((tmp_path / '.updates/health.json').read_text())
+    assert diagnostic['expected'] == expected
+    assert diagnostic['ports'] == [8080, 8090]
+    assert diagnostic['observed'][0]['port'] == 8080
+    if field == 'unreachable':
+        assert diagnostic['observed'][0]['error'] == 'OSError'
+    else:
+        assert diagnostic['observed'][0]['result'][field] == 'wrong'
+    assert 'must not be recorded' not in json.dumps(diagnostic)
+
+
 def test_release_selection_rejects_foreign_assets(monkeypatch):
     monkeypatch.setattr(bu, 'fetch_json', lambda _: {'tag_name': 'v2', 'draft': False, 'prerelease': False, 'assets': [
         {'name': 'ma2-panel-update.zip', 'browser_download_url': 'https://evil.invalid/a.zip'},
@@ -227,6 +262,20 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
             except OSError:
                 pass
             time.sleep(0.1)
+        if current.get('phase') != 'completed':
+            # Observe both ports independently; HTTP 200 alone proves no identity.
+            diagnostic = {'state': current, 'parent_pid': parent.pid,
+                          'parent_returncode': parent.poll(), 'ports': {}}
+            owner = current.get('owner')
+            diagnostic['worker_alive'] = update.process_alive(owner) if owner else None
+            for port in ports:
+                try:
+                    observed = get('/api/update/health', port)
+                    diagnostic['ports'][str(port)] = {k: observed.get(k) for k in
+                                                      ('version', 'operation', 'pid', 'instance')}
+                except (OSError, ValueError) as exc:
+                    diagnostic['ports'][str(port)] = {'error': type(exc).__name__}
+            (tmp_path / 'worker-failure.json').write_text(json.dumps(diagnostic, indent=2), encoding='utf-8')
         assert current.get('phase') == 'completed', (current, (root / '.updates/startup.log').read_text() if (root / '.updates/startup.log').exists() else '')
         for port in ports:
             result = get('/api/update/health', port)
