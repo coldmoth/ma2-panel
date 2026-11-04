@@ -15,7 +15,7 @@
 
 ## Windows
 
-Windows-2022 x64 сначала выполняет адресные pytest release/update/browser_update/
+Windows-latest x64 сначала выполняет адресные pytest release/update/browser_update/
 selfcheck/RDM. Это runner Python. Затем `scripts/build_windows.py --verify-reproducible`
 собирает полный, USB и общий update ZIP дважды: в dist и независимом временном каталоге.
 Сравниваются все три ZIP побайтно. Python 3.12.10 закреплён SHA256, Windows wheels —
