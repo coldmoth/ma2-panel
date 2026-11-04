@@ -78,8 +78,12 @@ jobs:
         run: gh run download "$GITHUB_RUN_ID" --name windows-release-candidate --dir release-assets
       - name: Prepare draft only
         run: |
+          while IFS= read -r -d '' checksum; do
+            (cd "$(dirname "$checksum")" && sha256sum --check "$(basename "$checksum")")
+          done < <(find release-assets -name '*.sha256' -type f -print0)
+          mapfile -d '' assets < <(find release-assets -type f -print0)
           printf 'TEST BUILD. Hardware acceptance grandMA2 is incomplete.\nCommit: %s\nWindows x64, embedded Python 3.12.10. Update requires matching runtime lock.\nCI: https://github.com/%s/actions/runs/%s\nSHA256 files accompany each ZIP. HTTPS/GitHub ownership is the trust boundary; SHA256 is integrity, not an independent signature.\n' "$GITHUB_SHA" "$GH_REPO" "$GITHUB_RUN_ID" > release-notes.txt
-          gh release create "$DRAFT_TAG" release-assets/* --target "$GITHUB_SHA" --draft --prerelease --title "Test $DRAFT_TAG" --notes-file release-notes.txt
+          gh release create "$DRAFT_TAG" "${assets[@]}" --target "$GITHUB_SHA" --draft --prerelease --title "Test $DRAFT_TAG" --notes-file release-notes.txt
 
   windows-mock:
     if: github.event_name != 'push'
