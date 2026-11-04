@@ -18,8 +18,9 @@ env:
   PYTHONUTF8: '1'
 
 concurrency:
-  group: ci-release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A routine push must not cancel a manually requested delivery validation.
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   tests:
@@ -60,6 +61,9 @@ jobs:
     needs: [tests, windows-mock, browser-preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: draft-release-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: write
       actions: read
