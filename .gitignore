@@ -30,6 +30,7 @@ previous/
 *.sha256
 .DS_Store
 .pytest_cache/
+test-results/
 .coverage
 htmlcov/
 .claude/

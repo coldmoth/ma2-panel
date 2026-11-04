@@ -1,12 +1,16 @@
 """Build the delivered Windows x64 bundle on Windows, Linux or macOS."""
 import hashlib
+import argparse
+import json
 from pathlib import Path
 import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import urllib.request
 import zipfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -33,8 +37,8 @@ def write_bundle(tree, archive):
     Path(str(archive) + '.sha256').write_text(f'{digest}  {Path(archive).name}\n', encoding='ascii')
 
 
-def main():
-    cache = ROOT / 'dist/cache'
+def build(output):
+    cache = output / 'cache'
     cache.mkdir(parents=True, exist_ok=True)
     embedded = cache / f'python-{PYTHON}-embed-amd64.zip'
     if not embedded.exists():
@@ -45,7 +49,7 @@ def main():
         embedded.write_bytes(data)
     if hashlib.sha256(embedded.read_bytes()).hexdigest() != PYTHON_SHA256:
         raise ValueError('cached embedded Python SHA256 mismatch; remove invalid cache entry')
-    tree = ROOT / 'dist/ma2-panel-win'
+    tree = output / 'ma2-panel-win'
     shutil.rmtree(tree, ignore_errors=True)
     bundle = tree / 'ma2-panel'
     program = bundle / 'program'
@@ -59,7 +63,8 @@ def main():
                     '--python-version', '3.12', '--only-binary', ':all:', '--no-deps', '--require-hashes',
                     '--requirement', str(requirements)], cwd=ROOT, check=True)
     shutil.rmtree(program / 'lib/bin', ignore_errors=True)
-    subprocess.run([sys.executable, str(ROOT / 'scripts/package_release.py'), '--tree', str(program)], cwd=ROOT, check=True)
+    subprocess.run([sys.executable, str(ROOT / 'scripts/package_release.py'), '--tree', str(program),
+                    '--archive', str(output / 'update/ma2-panel-update.zip')], cwd=ROOT, check=True)
     shutil.copy2(ROOT / 'secret.env.example', program)
     for name in ('config', 'settings'):
         shutil.copy2(ROOT / f'{name}.example.json', program / f'{name}.json')
@@ -67,16 +72,39 @@ def main():
     for path in program.rglob('__pycache__'):
         shutil.rmtree(path)
     release.record_runtime(program)
-    write_bundle(tree, ROOT / 'dist/ma2-panel-win.zip')
-    usb = ROOT / 'dist/usb'
+    write_bundle(tree, output / 'ma2-panel-win.zip')
+    usb = output / 'usb'
     shutil.rmtree(usb, ignore_errors=True)
     folder = usb / 'ma2-panel-update'
     folder.mkdir(parents=True)
-    for source in ('dist/update/ma2-panel-update.zip', 'dist/update/ma2-panel-update.zip.sha256',
-                   'update.py', 'release.py', 'win/update-usb.bat', 'docs/update-usb.txt'):
-        shutil.copy2(ROOT / source, folder / Path(source).name)
-    write_bundle(usb, ROOT / 'dist/ma2-panel-update-usb.zip')
+    for source in (output / 'update/ma2-panel-update.zip', output / 'update/ma2-panel-update.zip.sha256',
+                   *(ROOT / name for name in ('update.py', 'release.py', 'win/update-usb.bat', 'docs/update-usb.txt'))):
+        shutil.copy2(source, folder / source.name)
+    write_bundle(usb, output / 'ma2-panel-update-usb.zip')
+    inputs = {'schema': 1, 'version': release.identity(ROOT), 'runtime': release.runtime(ROOT),
+              'embedded_python_sha256': PYTHON_SHA256, 'python': sys.version,
+              'zlib': zlib.ZLIB_RUNTIME_VERSION,
+              'uv': subprocess.check_output(['uv', '--version'], text=True).strip(),
+              'commit': subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()}
+    (output / 'build-inputs.json').write_text(json.dumps(inputs, indent=2) + '\n', encoding='utf-8')
     print('Built Windows x64 and USB ZIPs with SHA256 sidecars')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--verify-reproducible', action='store_true')
+    args = parser.parse_args()
+    output = ROOT / 'dist'
+    build(output)
+    if args.verify_reproducible:
+        names = ('ma2-panel-win.zip', 'ma2-panel-update-usb.zip', 'update/ma2-panel-update.zip')
+        with tempfile.TemporaryDirectory(prefix='ma2-independent-build-') as temp:
+            independent = Path(temp)
+            build(independent)
+            for name in names:
+                if hashlib.sha256((output / name).read_bytes()).digest() != hashlib.sha256((independent / name).read_bytes()).digest():
+                    raise ValueError('independent builds differ: ' + name)
+        print('Two independent builds: all three ZIPs byte-identical')
 
 
 if __name__ == '__main__':
