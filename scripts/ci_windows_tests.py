@@ -26,25 +26,18 @@ def run(command, output, timeout=240):
 
     record()
     started = time.monotonic()
-    with (output / 'pytest.log').open('wb') as log, (output / 'pytest.log').open('rb') as reader:
+    with (output / 'pytest.log').open('wb') as log:
         child = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
                                  start_new_session=os.name != 'nt')
         state.update(pid=child.pid, reason='running')
         record()
 
-        def relay():
-            data = reader.read(1024 * 1024)
-            if data:
-                print(data.decode('utf-8', errors='replace'), end='', flush=True)
-
         try:
             while child.poll() is None and time.monotonic() - started < timeout:
-                relay()
                 time.sleep(0.1)
             if child.poll() is None:
                 state['reason'] = 'watchdog_timeout'
                 record()
-                print(f'pytest watchdog expired (PID {child.pid}); see {output}', flush=True)
                 with (output / 'processes.log').open('wb') as snapshot:
                     if os.name == 'nt':
                         # Names/PIDs only: do not collect other processes' command-line secrets.
@@ -78,7 +71,6 @@ def run(command, output, timeout=240):
                         child.wait(timeout=5)
                 if state['reason'] == 'running':
                     state['reason'] = 'interrupted'
-            relay()
             state.update(returncode=child.returncode, elapsed_seconds=round(time.monotonic() - started, 2))
             record()
     return returncode
@@ -92,8 +84,6 @@ def main():
                '-vv', '-s', '--durations=15',
                f'--basetemp={output / "tmp"}', f'--junitxml={output / "pytest.xml"}']
     result = run(command, output)
-    if result == 124:
-        print(f'::error::Windows regression watchdog expired; logs: {output}', flush=True)
     return result
 
 
