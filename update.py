@@ -37,6 +37,11 @@ def allowed(name):
 
 def validate_zip(archive):
     with zipfile.ZipFile(archive) as candidate:
+        for item in candidate.infolist():
+            # Windows zipfile normalizes backslashes; NUL names are truncated.
+            # Reject changed raw names before either legacy or manifest validation.
+            if item.orig_filename != item.filename:
+                raise UpdateError(f'Недопустимый файл обновления: {item.orig_filename!r}')
         if 'program-manifest.json' in candidate.namelist():
             import release
             try:

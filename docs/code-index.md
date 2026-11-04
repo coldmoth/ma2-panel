@@ -514,34 +514,34 @@
 - 21 `UpdateError`
 - 25 `allowed`
 - 38 `validate_zip`
-- 66 `normalize_url`
-- 77 `download`
-- 89 `settings`
-- 94 `version`
-- 99 `idle`
-- 109 `prepare_bridge`
-- 137 `local_archive` — An update zip from a USB stick; a .sha256 next to it is checked when present.
-- 152 `backup_user_data` — Copies this panel's own data before an update; MA2 files are never touched. Returns the fo
-- 179 `remove`
-- 186 `sync_directory`
-- 195 `sync_tree`
-- 208 `durable_replace`
-- 223 `atomic_json`
-- 234 `copy_entry`
-- 245 `safe_targets`
-- 254 `snapshot_meta`
-- 264 `check_snapshot`
-- 276 `restore_snapshot`
-- 287 `transaction`
-- 296 `process_alive`
-- 323 `recover` — Restore an interrupted replacement before the bridge opens any interfaces.
-- 364 `install`
-- 429 `acquire_lock` — Publish an already populated owner directory atomically (also survives pre-status crashes)
-- 446 `serialized`
-  - 448 `call`
-- 472 `rollback`
-- 503 `run`
-- 542 `main`
+- 71 `normalize_url`
+- 82 `download`
+- 94 `settings`
+- 99 `version`
+- 104 `idle`
+- 114 `prepare_bridge`
+- 142 `local_archive` — An update zip from a USB stick; a .sha256 next to it is checked when present.
+- 157 `backup_user_data` — Copies this panel's own data before an update; MA2 files are never touched. Returns the fo
+- 184 `remove`
+- 191 `sync_directory`
+- 200 `sync_tree`
+- 213 `durable_replace`
+- 228 `atomic_json`
+- 239 `copy_entry`
+- 250 `safe_targets`
+- 259 `snapshot_meta`
+- 269 `check_snapshot`
+- 281 `restore_snapshot`
+- 292 `transaction`
+- 301 `process_alive`
+- 328 `recover` — Restore an interrupted replacement before the bridge opens any interfaces.
+- 369 `install`
+- 434 `acquire_lock` — Publish an already populated owner directory atomically (also survives pre-status crashes)
+- 451 `serialized`
+  - 453 `call`
+- 477 `rollback`
+- 508 `run`
+- 547 `main`
 
 ## static/app.js
 - 16 `captureRevision`

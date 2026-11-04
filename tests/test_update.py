@@ -3,7 +3,7 @@ import json
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
 import pytest
 
@@ -13,7 +13,10 @@ import update
 def archive(path, extra=None):
     with ZipFile(path, 'w') as z:
         for name, value in {'bridge.py': 'new', 'VERSION': 'v2', 'static/new.txt': 'new', **(extra or {})}.items():
-            z.writestr(name, value)
+            info = ZipInfo(name)
+            # Preserve malicious names verbatim even on Windows.
+            info.filename = name
+            z.writestr(info, value)
     return path
 
 
@@ -41,8 +44,29 @@ def test_good_zip(tmp_path):
 
 @pytest.mark.parametrize('name', ['settings.json', '../x.py', 'python/x', '/x.py', 'static/../../x.py', 'C:/x.py', 'static\\x'])
 def test_bad_zip(tmp_path, name):
+    package = archive(tmp_path / 'a.zip', {name: 'bad'})
+    with ZipFile(package) as z:
+        assert name in [item.orig_filename for item in z.infolist()]
     with pytest.raises(update.UpdateError):
-        update.validate_zip(archive(tmp_path / 'a.zip', {name: 'bad'}))
+        update.validate_zip(package)
+
+
+@pytest.mark.parametrize('manifest', [False, True])
+def test_zip_rejects_names_normalized_by_reader(tmp_path, monkeypatch, manifest):
+    extra = {'static\\x': 'bad'}
+    if manifest:
+        extra['program-manifest.json'] = '{}'
+    package = archive(tmp_path / 'raw.zip', extra)
+    original = ZipInfo.__init__
+
+    def windows_init(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        self.filename = self.filename.replace('\\', '/')
+
+    # Exercise Windows reader normalization on every platform.
+    monkeypatch.setattr(ZipInfo, '__init__', windows_init)
+    with pytest.raises(update.UpdateError, match='Недопустимый'):
+        update.validate_zip(package)
 
 
 def test_download_and_hash(tmp_path):
