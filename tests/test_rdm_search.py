@@ -84,8 +84,13 @@ def test_state_read_requires_matching_complete_bounded_evidence():
     reply("b" * 32), reply().replace("GLOBAL Off", "GLOBAL nil"), reply().replace("END 2", "END 1"),
     reply() + "\n" + reply(), reply().replace("UNIVERSE 2 Off", "UNIVERSE 1 Off"),
     reply().replace("UNIVERSE 1 On", "UNIVERSE 0 On"), reply().replace("END 2", "END 65537"),
-    "Executing : " + rdm.read_command(NONCE), reply() + "\nError #1", reply() + "x" * 1000000])
-def test_unknown_state_never_proves_off(body):
+    "Executing : " + rdm.read_command(NONCE), reply() + "\nError #1", reply() + "x" * 1000000],
+    ids=["empty", "echo-only", "wrong-nonce", "unknown-global", "wrong-count",
+         "duplicate-reply", "duplicate-universe", "zero-universe", "excess-count",
+         "command-echo", "trailing-error", "oversized-reply"])
+def test_unknown_state_never_proves_off(body, request):
+    # Pytest exports this ID to the environment even with hash-based selection.
+    assert len(request.node.nodeid) + len(" (setup)") < 32767
     with pytest.raises(ActionError):
         rdm.parse_state(body, NONCE)
 
