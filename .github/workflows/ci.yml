@@ -58,7 +58,7 @@ jobs:
 
   draft-release:
     if: github.event_name == 'workflow_dispatch' && inputs.draft_tag != ''
-    needs: [tests, windows-mock, browser-preflight]
+    needs: [tests, windows-tests, windows-mock, browser-preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
@@ -89,7 +89,87 @@ jobs:
           printf 'TEST BUILD. Hardware acceptance grandMA2 is incomplete.\nCommit: %s\nWindows x64, embedded Python 3.12.10. Update requires matching runtime lock.\nCI: https://github.com/%s/actions/runs/%s\nSHA256 files accompany each ZIP. HTTPS/GitHub ownership is the trust boundary; SHA256 is integrity, not an independent signature.\n' "$GITHUB_SHA" "$GH_REPO" "$GITHUB_RUN_ID" > release-notes.txt
           gh release create "$DRAFT_TAG" "${assets[@]}" --target "$GITHUB_SHA" --draft --prerelease --title "Test $DRAFT_TAG" --notes-file release-notes.txt
 
+  windows-tests:
+    name: Windows diagnostic (${{ matrix.group }})
+    if: github.event_name != 'push'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        group: [release, update, browser-unit, browser-worker, selfcheck, rdm, watchdog]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Bootstrap checkpoint
+        timeout-minutes: 1
+        shell: pwsh
+        env:
+          CI_GROUP: ${{ matrix.group }}
+        run: |
+          New-Item -ItemType Directory -Force test-results/checkpoints | Out-Null
+          "bootstrap group=$env:CI_GROUP sha=$env:GITHUB_SHA utc=$([DateTime]::UtcNow.ToString('o')) image=$env:ImageOS/$env:ImageVersion" | Tee-Object test-results/checkpoints/bootstrap.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        timeout-minutes: 1
+        with:
+          name: win-bootstrap-${{ matrix.group }}-${{ github.run_attempt }}
+          path: test-results/checkpoints/bootstrap.txt
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+        timeout-minutes: 2
+      - name: Python and pytest checkpoint
+        timeout-minutes: 1
+        run: .venv\Scripts\python.exe -c "import sys,pytest; print(sys.version); print(sys.executable); print(pytest.__version__)" > test-results/checkpoints/python.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        timeout-minutes: 1
+        with:
+          name: win-environment-${{ matrix.group }}-${{ github.run_attempt }}
+          path: test-results/checkpoints/python.txt
+          retention-days: 7
+          if-no-files-found: error
+      - name: Collect and verify all Windows test IDs
+        timeout-minutes: 2
+        run: .venv\Scripts\python.exe -u scripts/ci_windows_isolation.py --group ${{ matrix.group }} --collect-only
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        timeout-minutes: 1
+        with:
+          name: win-plan-${{ matrix.group }}-${{ github.run_attempt }}
+          path: test-results/windows/${{ matrix.group }}/plan.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Before pytest checkpoint
+        timeout-minutes: 1
+        run: '"before-pytest utc=$([DateTime]::UtcNow.ToString(''o''))" | Tee-Object test-results/checkpoints/before.txt'
+      - name: Bounded pytest group
+        timeout-minutes: 4
+        # Direct interpreter keeps the supervisor outside pytest and uv trees.
+        run: .venv\Scripts\python.exe -u scripts/ci_windows_isolation.py --group ${{ matrix.group }}
+      - name: After pytest checkpoint
+        if: always()
+        timeout-minutes: 1
+        run: '"after-pytest utc=$([DateTime]::UtcNow.ToString(''o'')) status=${{ job.status }}" | Tee-Object test-results/checkpoints/after.txt'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        timeout-minutes: 1
+        with:
+          name: win-result-${{ matrix.group }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: error
+
   windows-mock:
+    name: Windows delivered ZIP, runtime, BAT, rollback and mock
+    needs: [windows-tests]
     if: github.event_name != 'push'
     runs-on: windows-latest
     timeout-minutes: 20
@@ -104,10 +184,6 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - name: Windows update, recovery, BAT and journal regression tests
-        timeout-minutes: 5
-        # Direct interpreter keeps the watchdog outside pytest and uv process trees.
-        run: .venv\Scripts\python.exe -u scripts/ci_windows_tests.py
       - name: Build delivered Windows x64 and USB bundles
         run: uv run --no-sync python scripts/build_windows.py --verify-reproducible
       - name: Delivered embedded Python, BAT and update rollback

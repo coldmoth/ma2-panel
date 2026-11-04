@@ -1,0 +1,44 @@
+{
+  "release": {
+    "per_test_timeout_seconds": 20,
+    "group_timeout_seconds": 180,
+    "count": 18,
+    "sha256": "23a6de42e648b282a21b1b60f0985e0b468cc40374840502a44e3c419539a2a8"
+  },
+  "update": {
+    "per_test_timeout_seconds": 30,
+    "group_timeout_seconds": 180,
+    "count": 32,
+    "sha256": "74a678007be2babb8d48c3e2529a8750319d54b91acfde3e6f984b341dbfbb0e"
+  },
+  "browser-unit": {
+    "per_test_timeout_seconds": 30,
+    "group_timeout_seconds": 180,
+    "count": 8,
+    "sha256": "4379f22edddc1aa2ba8d1a9b0af7f539393c5ecbcfafc3b0730abc71b772944f"
+  },
+  "browser-worker": {
+    "per_test_timeout_seconds": 90,
+    "group_timeout_seconds": 120,
+    "count": 1,
+    "sha256": "61cf48d432a948bab90cde41a55018d5b39600d5a1ce6fc86f9f66514c3359ed"
+  },
+  "selfcheck": {
+    "per_test_timeout_seconds": 30,
+    "group_timeout_seconds": 180,
+    "count": 5,
+    "sha256": "bdea3fadf5052afde2e4bac701668b681e0d8aed49fd97adca599ee5929c707f"
+  },
+  "rdm": {
+    "per_test_timeout_seconds": 15,
+    "group_timeout_seconds": 180,
+    "count": 50,
+    "sha256": "6761eae7da4da2fcf5f72ba07050015da626b0f1ae9e7a4612defa40091bebf2"
+  },
+  "watchdog": {
+    "per_test_timeout_seconds": 30,
+    "group_timeout_seconds": 120,
+    "count": 4,
+    "sha256": "4c917ee4610a7b318877b767baf95da00ffbf4e99df23fb58c5c5e74aa90c02d"
+  }
+}
