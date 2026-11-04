@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const pw = require('./browser_smoke/node_modules/playwright');
-const [base, output] = process.argv.slice(2);
+const [base, output, simpleBase] = process.argv.slice(2);
 const data = zlib.gzipSync(Buffer.from('opaque upload fixture, not an actual MA2 show'));
 
 async function check(engine) {
@@ -16,6 +16,18 @@ async function check(engine) {
   let accept = true;
   page.on('dialog', dialog => accept ? dialog.accept() : dialog.dismiss());
   try {
+    const teacher = await context.newPage();
+    teacher.on('pageerror', error => errors.push(error.message));
+    await teacher.goto(simpleBase);
+    await teacher.waitForFunction(() => /Имитация.*подключено/.test(document.getElementById('connection').textContent));
+    async function busyBoth() {
+      await page.waitForFunction(() => state.showFileActive);
+      await teacher.waitForFunction(() => /Передача файла шоу/.test(document.getElementById('connection').textContent));
+      assert(await page.locator('#blackout').isDisabled());
+      assert(await teacher.locator('#blackout').isDisabled());
+      for (const control of await teacher.locator('.simple-scene button').all()) assert(await control.isDisabled());
+      await teacher.screenshot({path:path.join(output,engine+'-teacher-busy.png')});
+    }
     await page.goto(base);
     await page.waitForFunction(() => connected());
     await page.locator('[data-sec="shows"]').click();
@@ -29,6 +41,7 @@ async function check(engine) {
     await downloaded.saveAs(saved);
     assert.ok(zlib.gunzipSync(await fs.readFile(saved)).length > 0);
     await card.getByRole('button', {name: 'Сохранить текущее и скачать', exact: true}).click();
+    await busyBoth();
     await page.waitForFunction(() => showFileUI.operation && showFileUI.operation.kind === 'save' && showFileUI.operation.state === 'ready');
     await page.screenshot({path: path.join(output, engine + '-ready.png'), fullPage: true});
     accept = false;
@@ -37,7 +50,9 @@ async function check(engine) {
     assert.equal(await page.evaluate(() => showFileUI.operation.state), 'confirm');
     accept = true;
     await card.locator('input[type=file]').setInputFiles({name: 'School.show.gz', mimeType: 'application/octet-stream', buffer: data});
+    await busyBoth();
     await page.waitForFunction(() => showFileUI.operation && showFileUI.operation.kind === 'load' && showFileUI.operation.state === 'done');
+    await teacher.waitForFunction(() => !document.getElementById('blackout').disabled);
     await page.reload();
     await page.waitForFunction(() => showFileUI.operation && showFileUI.operation.state === 'done');
     await page.locator('[data-sec="shows"]').click();

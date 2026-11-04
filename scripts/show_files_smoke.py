@@ -26,17 +26,21 @@ def run(output):
         (app / 'shows-ma2').mkdir()
         (app / 'shows-ma2' / 'Mock show.show.gz').write_bytes(gzip.compress(b'isolated mock show', mtime=0))
         cfg = json.loads((ROOT / 'config.example.json').read_text())
+        cfg['scenes'] = [{'id': 'transfer', 'exec': '1.1', 'label': 'Файл шоу'}]
         settings = {'bind': '127.0.0.1', 'simple_port': None, 'poll_seconds': 0, 'dmx_seconds': 0,
                     'safety': {'mode': 'full', 'allow_show_load': True, 'allow_show_save': True},
                     'ma2': {'host': '127.0.0.1', 'user': 'Remote', 'load_timeout': 5,
                             'shows_dir': str(app / 'shows-ma2'), 'export_dir': str(app / 'exports')}}
-        with socket.socket() as listener:
+        with socket.socket() as listener, socket.socket() as simple:
             listener.bind(('127.0.0.1', 0))
             settings['port'] = listener.getsockname()[1]
+            simple.bind(('127.0.0.1', 0))
+            settings['simple_port'] = simple.getsockname()[1]
         for name, value in [('config', cfg), ('settings', settings)]:
             (app / (name + '.json')).write_text(json.dumps(value))
         worker = app / '_show_browser_server.py'
         worker.write_text('''import gzip
+import time
 import sys
 from pathlib import Path
 from mock import MockMA2
@@ -47,8 +51,10 @@ def answer(self, line):
     if line == 'ListShows':
         return '\\n'.join('"' + p.name[:-8] + '"' for p in folder.glob('*.show.gz')) + '\\n[Channel]>'
     if line.startswith('LoadShow'):
+        time.sleep(1)
         self.shows = [p.name[:-8] for p in folder.glob('*.show.gz')]
     if line == 'SaveShow':
+        time.sleep(1)
         (folder / (self.show_name + '.show.gz')).write_bytes(gzip.compress(b'new isolated mock show', mtime=0))
     return original(self, line)
 MockMA2._answer = answer
@@ -72,7 +78,7 @@ bridge.main()
                             if time.monotonic() > deadline:
                                 raise TimeoutError('mock startup timed out')
                             time.sleep(.1)
-                subprocess.run(['node', str(ROOT / 'scripts/show_files_smoke.cjs'), url, str(output)],
+                subprocess.run(['node', str(ROOT / 'scripts/show_files_smoke.cjs'), url, str(output), 'http://127.0.0.1:' + str(settings['simple_port'])],
                                check=True, env=env, timeout=120)
             finally:
                 process.terminate()

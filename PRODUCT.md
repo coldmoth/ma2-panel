@@ -38,8 +38,8 @@ A local-network web panel for grandMA2 that starts empty for each new show: it r
 
 ## Accessibility & Inclusion
 
-Touch targets at least 48 px; works with mouse and keyboard; respects reduced motion.
+Touch targets at least 44 px, main controls 48 px; works with mouse and keyboard; respects reduced motion.
 
 ## UI revision 2026-10-30
 
-The operator sees one scene list independent of MA2 pages. New scene storage is proposed by the bridge, checked empty again after explicit confirmation, never overwritten automatically. Movement settings and panel presets are collapsed with explicit deletion; no absolute numerical Pan/Tilt entry. Preparation distinguishes saved data from successful reads of the current connection. Master shows only the last value sent successfully by the panel.
+The operator sees one scene list independent of MA2 pages. New scene storage is proposed by the bridge, checked empty again after explicit confirmation, never overwritten automatically. Movement settings and panel presets are collapsed with explicit deletion; no numerical Pan/Tilt text entry; absolute horizontal Pan and Tilt sliders are supported alongside the joystick. Preparation distinguishes saved data from successful reads of the current connection. Master shows only the last value sent successfully by the panel.

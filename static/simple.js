@@ -7,8 +7,20 @@
   const connection = document.getElementById('connection');
   const error = document.getElementById('error');
   const blackout = document.getElementById('blackout');
+  function reportError(text, action) {
+    const errors = document.getElementById('errors');
+    const row = document.createElement('div'); row.className = 'error-entry';
+    const message = document.createElement('span');
+    const scene = action && (config.scenes || []).find(item => item.id === action.id);
+    const operation = action ? (scene ? scene.label || scene.id : action.a) + ' · ' + action.request_id : 'Связь';
+    message.textContent = operation + ': ' + text;
+    const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Закрыть';
+    close.setAttribute('aria-label', 'Закрыть сообщение: ' + operation);
+    close.onclick = () => { errors.removeChild(row); errors.hidden = !errors.children.length; };
+    row.append(message, close); errors.append(row); errors.hidden = false;
+  }
   function ready() {
-    return ws && ws.readyState === WebSocket.OPEN && status.ma2 === 'logged_in' && !status.halted &&
+    return ws && ws.readyState === WebSocket.OPEN && status.ma2 === 'logged_in' && !status.halted && !status.show_file_active &&
       (!status.show_load || status.show_load.state !== 'loading');
   }
   function enabled() {
@@ -36,6 +48,7 @@
   function render() {
     connection.textContent = !ws || ws.readyState !== WebSocket.OPEN ? 'Нет связи с мостом' :
       status.halted ? 'Передача остановлена' : status.ma2 !== 'logged_in' ? 'Нет связи с пультом' :
+      status.show_file_active ? 'Передача файла шоу · управление светом временно недоступно' :
       status.show_load && status.show_load.state === 'loading' ? 'Загружается шоу…' : status.mock ? 'Имитация · подключено' : 'Подключено';
     blackout.disabled = !enabled() || !!pending.length;
     scenes.replaceChildren();
@@ -93,12 +106,12 @@
         const index = pending.findIndex(action => action.request_id === msg.request_id);
         if (index < 0) return;
         const action = pending.splice(index, 1)[0];
-        if (!msg.ok) { error.classList.remove('sent'); error.textContent = (msg.outcome === 'unknown' ? 'Результат неизвестен. ' : msg.outcome === 'partial' ? 'Выполнена только часть операции. ' : '') + (msg.err || 'Не удалось выполнить'); error.hidden = false; }
+        if (!msg.ok) { reportError((msg.outcome === 'unknown' ? 'Результат неизвестен. ' : msg.outcome === 'partial' ? 'Выполнена только часть операции. ' : '') + (msg.err || 'Не удалось выполнить'), action); }
         else if (action) { error.classList.add('sent'); error.textContent = 'Команда отправлена'; error.hidden = false; }
       }
       render();
     };
-    ws.onclose = () => { if (pending.length) { error.classList.remove('sent'); error.textContent = 'Связь прервана: результат неизвестен. Команда не повторена.'; error.hidden = false; } status = {}; pending = []; running = {}; runningMeta = {}; receipts = {}; render(); setTimeout(connect, 1500); };
+    ws.onclose = () => { pending.forEach(action => reportError('Связь прервана: результат неизвестен. Команда не повторена.', action)); status = {}; pending = []; running = {}; runningMeta = {}; receipts = {}; render(); setTimeout(connect, 1500); };
     ws.onerror = () => ws.close();
   }
   setInterval(() => {

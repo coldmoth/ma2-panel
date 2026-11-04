@@ -1,11 +1,13 @@
 import hashlib
 import json
+import posixpath
 import re
 import stat
 import subprocess
 import tomllib
 import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 DOCS = ('SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md')
 MAX_FILE = 16 * 1024 * 1024
@@ -98,6 +100,31 @@ def payload(root):
             result['docs/' + doc] = result['docs/' + doc].replace(
                 b'](../.github/workflows/ci.yml)',
                 b'](https://github.com/coldmoth/ma2-panel/blob/main/.github/workflows/ci.yml)')
+    # Keep operator docs offline; developer/history targets stay explicitly online.
+    # Resolve against the packaged namespace (README has a different delivered name).
+    for name, data in list(result.items()):
+        if not name.endswith('.md'):
+            continue
+
+        def link(match):
+            label, target = match.groups()
+            if re.match(r'[a-z][a-z0-9+.-]*:', target, re.I) or target.startswith('#'):
+                return match.group(0)
+            path, sep, anchor = target.partition('#')
+            dest = posixpath.normpath(posixpath.join(posixpath.dirname(name), path))
+            if dest in result:
+                return match.group(0)
+            source = 'README.md' if name == 'README-RU.md' else name
+            original = posixpath.normpath(posixpath.join(posixpath.dirname(source), path))
+            if original == 'README.md':
+                relative = posixpath.relpath('README-RU.md', posixpath.dirname(name) or '.')
+                return '[' + label + '](' + relative + sep + anchor + ')'
+            if original.startswith('../') or not (root / original).is_file():
+                raise ValueError('missing documentation target: ' + name + ': ' + target)
+            url = 'https://github.com/coldmoth/ma2-panel/blob/main/' + quote(original) + sep + anchor
+            return '[' + label + ' — исходники, онлайн](' + url + ')'
+
+        result[name] = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', link, data.decode('utf-8')).encode('utf-8')
     _names(result)
     return result
 

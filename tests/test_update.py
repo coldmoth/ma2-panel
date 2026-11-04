@@ -306,3 +306,117 @@ def test_removal_flush_failure_does_not_commit_rollback(tmp_path, monkeypatch):
     with pytest.raises(OSError, match='removal flush'):
         update.rollback(root, confirm=lambda _: 'y')
     assert json.loads((root / '.updates/active.json').read_text())['phase'] == 'restoring'
+
+@pytest.mark.parametrize('failure', [None, 'runtime', 'snapshot', 'apply'])
+def test_external_usb_route_preserves_installed_updater(tmp_path, monkeypatch, failure):
+    import sys
+    root = tmp_path / 'старая установка'
+    root.mkdir()
+    original = {'bridge.py': b'old bridge', 'update.py': b'old updater',
+                'release.py': b'old release', 'VERSION': b'v1'}
+    for name, value in original.items():
+        (root / name).write_bytes(value)
+    stage = tmp_path / 'USB staging'
+    stage.mkdir()
+    package = archive(stage / 'ma2-panel-update.zip',
+                      {'update.py': 'new updater', 'release.py': 'new release'})
+    monkeypatch.setattr(sys, 'argv', [str(stage / 'update.py'), '--root', str(root), str(package)])
+    monkeypatch.setattr(update, '__file__', str(stage / 'update.py'))
+    (stage / 'update.py').write_bytes(b'external updater')
+    monkeypatch.setattr(update, 'prepare_bridge', lambda *args: 0)
+    monkeypatch.setattr(update, 'idle', lambda _: None)
+    if failure == 'runtime':
+        with ZipFile(package, 'a') as z:
+            z.writestr('program-manifest.json', '{}')
+        monkeypatch.setattr(update, 'validate_zip', lambda _: 'v2')
+    if failure in ('snapshot', 'apply'):
+        copy = update.copy_entry
+        injected = []
+        def fail_copy(source, target):
+            if not injected and ((failure == 'snapshot' and target.parent.name == 'backup') or
+                    (failure == 'apply' and target.parent == root)):
+                injected.append(True)
+                raise OSError('injected ' + failure)
+            return copy(source, target)
+        monkeypatch.setattr(update, 'copy_entry', fail_copy)
+    assert update.main() == (1 if failure else 0)
+    if not failure:
+        assert (root / 'previous/update.py').read_bytes() == original['update.py']
+        assert (root / 'previous/release.py').read_bytes() == original['release.py']
+        assert update.rollback(root, confirm=lambda _: 'y') == 0
+    if failure in ('snapshot', 'apply'):
+        assert injected
+    if failure == 'runtime':
+        assert not (root / '.updates/active.json').exists()
+        assert not (root / 'previous').exists()
+    assert {name: (root / name).read_bytes() for name in original} == original
+
+@pytest.mark.parametrize('journal', [
+    b'{"version":1,"pending":true,"id":"pending-op","target":{"host":"192.0.2.5","port":30001}}',
+    b'{"version":1,"pending":true,"target":null}',
+    b'{broken journal\x00',
+])
+def test_rdm_journal_survives_backup_transfer_update_rollback(tmp_path, monkeypatch, journal):
+    import asyncio
+    import shutil
+    from types import SimpleNamespace
+    from rdm_search import RDMSearch
+    from commands import ActionError
+
+    root = tmp_path / 'source'
+    root.mkdir()
+    (root / 'bridge.py').write_text('old')
+    (root / 'rdm-search.json').write_bytes(journal)
+    backup = update.backup_user_data(root)
+    assert (backup / 'rdm-search.json').read_bytes() == journal
+    restored = tmp_path / 'restored'
+    shutil.copytree(backup, restored)
+    transferred = tmp_path / 'transferred'
+    transferred.mkdir()
+    for name in update.USER_DATA:
+        source = root / name
+        if source.is_file():
+            shutil.copy2(source, transferred / name)
+        elif source.is_dir():
+            shutil.copytree(source, transferred / name)
+    update.install(archive(tmp_path / 'update.zip'), root)
+    monkeypatch.setattr(update, 'idle', lambda _: None)
+    assert update.rollback(root, confirm=lambda _: 'y') == 0
+    async def check_pending(folder):
+        async def no_commands(*args, **kwargs):
+            pytest.fail('RDM command attempted')
+        link = SimpleNamespace(host='127.0.0.1', port=30000, ready=True, halted=False, send=no_commands)
+        controller = RDMSearch(link, asyncio.Lock(), folder / 'rdm-search.json',
+                               lambda: True, lambda: (), no_commands, lambda: False)
+        assert controller.snapshot()['pending']
+        with pytest.raises(ActionError):
+            await controller.prepare()
+        if journal.startswith(b'{"version"'):
+            assert controller._target == json.loads(journal)['target']
+        assert (folder / 'rdm-search.json').read_bytes() == journal
+    for folder in (root, backup, restored, transferred):
+        asyncio.run(check_pending(folder))
+
+
+def test_external_usb_isolated_python_uses_staged_release(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+    stage = tmp_path / 'USB staging'
+    stage.mkdir()
+    root = tmp_path / 'установка'
+    root.mkdir()
+    source = Path(__file__).resolve().parents[1]
+    update.shutil.copy2(source / 'update.py', stage / 'update.py')
+    # A distinct release module proves the import origin without using installed modules.
+    (stage / 'release.py').write_text(
+        "def check(*args):\n    raise ValueError('staged release reached')\n")
+    (root / 'release.py').write_bytes(b'old release')
+    package = archive(stage / 'ma2-panel-update.zip', {'program-manifest.json': '{}'})
+    result = subprocess.run([sys.executable, '-I', str(stage / 'update.py'),
+                             '--root', str(root), str(package)],
+                            cwd=root, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 1
+    assert 'staged release reached' in result.stdout, result.stdout + result.stderr
+    assert (root / 'release.py').read_bytes() == b'old release'
+    assert not (root / 'previous').exists()

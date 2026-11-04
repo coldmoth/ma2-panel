@@ -160,8 +160,10 @@ context.tapFixture(12, 'control');
 assert.equal(sent().filter(a => a.a === 'highlight').length, n);
 assert.deepEqual(sent().at(-1), {a: 'select_fixtures', ids: [12]});
 assert.ok(dot);
-status({highlight: {state: 'stuck', zone: [12, 14], reason: 'нет связи'}});
+status({highlight: {state: 'stuck', zone: [12, 14], reason: 'нет связи', release_token: 'current-release'}});
 assert.ok(findBtn('Снять подсветку'));
+findBtn('Снять подсветку').click();
+assert.deepEqual(sent().at(-1), {a: 'highlight_off', release_token: 'current-release'});
 console.log('highlight lifecycle passed');
 
 // Colour wheel maths and the honest states of the colour card.
@@ -202,7 +204,7 @@ assert.equal(document.getElementById('notice').classList.contains('success'), tr
 const resultButton = findBtn('+ Добавить'); const resultLabel = resultButton.textContent;
 context.feedback(resultButton, false, 'Пульт не ответил');
 assert.equal(resultButton.textContent, resultLabel);
-assert.match(document.getElementById('notice').textContent, /Пульт не ответил/);
+assert.match(document.getElementById('errors').textContent, /Пульт не ответил/);
 console.log('master persistence and durable feedback passed');
 
 // Touch movement has an explicit fine-step cross and discoverable preset management.
@@ -439,6 +441,42 @@ assert.match(simpleDoc.getElementById('scenes').textContent,/статус неи
 assert.equal(simpleDoc.getElementById('scenes').all().filter(n=>n.tagName==='BUTTON' && n.textContent==='Выключить').length,2);
 console.log('scene booleans without read metadata remain unknown passed');
 
+// Master is last-sent evidence, with its own age; rendering preserves an active thumb.
+status();
+context.receive({master:60,values_meta:{master:{source:'panel',freshness:'fresh',updated_at:123}}});
+context.go('scenes');
+assert.match(page.textContent,/отправлено панелью/);
+context.receive({values_meta:{master:{source:'panel',freshness:'stale',updated_at:123}}});
+assert.match(page.textContent,/устарело/);
+context.receive({master:null,values_meta:{master:{source:'unknown',freshness:'unknown',updated_at:null}}});
+assert.match(page.textContent,/неизвестно/);
+console.log('master evidence labels passed');
+
+// A new attribute receipt cannot extend the lifetime of a different attribute.
+context.receive({shown:{12:{pan:20,dim:40}},values_meta:{
+  'sent:12:pan':{source:'panel',freshness:'fresh',updated_at:1001},
+  'sent:12:dim':{source:'panel',freshness:'fresh',updated_at:1002}}});
+context.evidenceReceipts.values['sent:12:pan'].at -= 6001;
+context.expireEvidence();
+assert.equal(context.state.shown[12].pan,undefined);
+assert.equal(context.state.shown[12].dim,40);
+assert.equal(context.valueFreshness('sent:12:pan'),'stale');
+console.log('attribute evidence expires independently passed');
+
+// A focused fixture slider must still disclose expiry without moving its thumb.
+context.receive({config:{fixtures:[{id:12,label:'A',params:['Dimmer']}],groups:[],scenes:[],presets:[],attrs:{}},
+  shown:{12:{dim:42}},tracked:true,values_meta:{shown:{source:'panel',freshness:'fresh',updated_at:2001},
+  'sent:12:dim':{source:'panel',freshness:'fresh',updated_at:2001}}});
+context.state.selection=[12];context.go('light');
+const agingDim=page.all().find(n=>n.tagName==='INPUT' && n.getAttribute('aria-label')==='Яркость');
+agingDim.focus();
+const agingThumb=agingDim.value;
+context.evidenceReceipts.values['sent:12:dim'].at-=6001;
+context.expireEvidence();
+assert.equal(agingDim.value,agingThumb);
+assert.match(page.textContent,/Отправленное значение устарело/);
+console.log('focused light slider discloses expiry passed');
+
 // Diagnostic upload runs in its own VM and never sends panel actions.
 require('./diag-upload.cjs');
 
@@ -451,3 +489,9 @@ require('./protocol-panel.cjs');
 require('./setup-ui.cjs');
 require('./show-files-ui.cjs');
 require('./rdm-search-ui.cjs');
+
+require('./durable-feedback.cjs');
+require('./plan-keyboard.cjs');
+require('./show-file-busy.cjs');
+
+require('./plan-beams.cjs');

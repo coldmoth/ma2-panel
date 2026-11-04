@@ -10,7 +10,7 @@ from pathlib import Path
 
 from websockets.sync.client import connect
 
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080").rstrip("/")
+BASE = "http://127.0.0.1:8080"
 HERE = Path(__file__).resolve().parent
 READ_ONLY = re.compile(r'^(ListVar|ListShows|Export Fixture 1 Thru 9999 "panel_fixtures_\d+"|List Group 1 Thru 999|List Preset \d\.1 Thru \d\.999'
                        r'|login "[^"]*" "[^"]*"|Login "[^"]*" "[^"]*")\s*$')
@@ -97,11 +97,25 @@ def main():
     check("за время проверки на пульт ушли только команды чтения", not bad, f"{len(sent)} команд" + (f"; лишние: {bad[:3]}" if bad else ""))
 
 
-try:
-    main()
-except Exception as e:
-    check("проверка завершилась без сбоя", False, f"{type(e).__name__}: {e}")
-fail = [r for r in rows if not r[1]]
-report = "\n".join(("ОК     " if ok else "ОШИБКА ") + n + (" - " + dt if dt else "") for n, ok, dt in rows)
-(HERE / "selfcheck-report.txt").write_text(time.strftime("%Y-%m-%d %H:%M:%S") + f"\nОшибок: {len(fail)} из {len(rows)}\n\n" + report + "\n", encoding="utf-8")
-print(f"\nОшибок: {len(fail)} из {len(rows)}. Отчёт: selfcheck-report.txt")
+def cli(argv=None):
+    global BASE
+    args = sys.argv[1:] if argv is None else argv
+    BASE = (args[0] if args else "http://127.0.0.1:8080").rstrip("/")
+    rows.clear()
+    try:
+        main()
+    except Exception as e:
+        check("проверка завершилась без сбоя", False, f"{type(e).__name__}: {e}")
+    fail = [r for r in rows if not r[1]]
+    report = "\n".join(("ОК     " if ok else "ОШИБКА ") + n + (" - " + dt if dt else "") for n, ok, dt in rows)
+    try:
+        (HERE / "selfcheck-report.txt").write_text(time.strftime("%Y-%m-%d %H:%M:%S") + f"\nОшибок: {len(fail)} из {len(rows)}\n\n" + report + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"Не удалось сохранить отчёт selfcheck: {exc}", file=sys.stderr)
+        return 1
+    print(f"\nОшибок: {len(fail)} из {len(rows)}. Отчёт: selfcheck-report.txt")
+    return 1 if fail else 0
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

@@ -299,6 +299,9 @@ class MA2Link:
                 if not getattr(self, 'admission', lambda: True)():
                     return False, 'идёт обновление программы'
                 reply, seen = await self._exchange(cmd, self.timeout)
+                # Semantic errors do not complete a frame: its tail must be consumed
+                # before another line can leave this connection.
+                self._stale = not seen
             except OSError:
                 self._result(cmd, "unknown", "связь оборвалась во время команды: выполнилась ли она, неизвестно")
                 return False, NO_LINK
@@ -308,7 +311,6 @@ class MA2Link:
         if cmd.startswith("Fixture "):
             self._targeted = status == "sent"
         if status == "unknown":
-            self._stale = True
             log.warning("-> %s | РЕЗУЛЬТАТ НЕИЗВЕСТЕН %s", cmd, " ".join(self.mask(reply).split()))
             self._result(cmd, status, UNKNOWN)
             return False, UNKNOWN
@@ -374,5 +376,9 @@ class MA2Link:
             except TimeoutError:
                 if not self.require_prompt:
                     break
-        reply, self._buf = clean(self._buf).decode(errors="replace"), b""
+        reply = clean(self._buf).decode(errors="replace")
+        # Keep raw bytes until the frame ends: a late prompt needs the preceding
+        # newline, and ANSI/Telnet sequences may themselves cross the timeout.
+        if seen or not self.require_prompt:
+            self._buf = b""
         return reply, seen or not self.require_prompt

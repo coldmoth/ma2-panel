@@ -8,6 +8,8 @@ import json
 import math
 import os
 import re
+import tempfile
+import threading
 from pathlib import Path
 
 MODES = ("test", "store", "full")
@@ -67,8 +69,78 @@ SCENE = r"(Go|Off) Executor (\d+\.\d+)"
 SCENE_FADE = rf"Goto Cue 1 Executor (\d+\.\d+) Fade {NUM}"
 
 
+_settings_lock = threading.RLock()
+_SETTINGS_JOURNAL = ".settings-transaction.json"
+
+
+def _atomic_bytes(path, data):
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix="secret.env.", delete=False) as f:
+        try:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+            f.close()
+            os.replace(f.name, path)
+        finally:
+            Path(f.name).unlink(missing_ok=True)
+
+
+def recover_settings(folder):
+    """Roll back an interrupted pair before either file is consumed. Keep the journal on failure."""
+    with _settings_lock:
+        journal = folder / _SETTINGS_JOURNAL
+        if not journal.exists():
+            return
+        old = json.loads(journal.read_text(encoding="utf-8"))
+        for name, data in old.items():
+            if Path(name).name != name:
+                raise OSError("invalid settings recovery target")
+            target = folder / name
+            if data is None:
+                target.unlink(missing_ok=True)
+            else:
+                _atomic_bytes(target, bytes.fromhex(data))
+        journal.unlink()
+
+
+def save_settings_pair(path, proposed, secret):
+    """Durable undo journal: a crash before removing it restores the previous complete pair.
+
+    secret=None leaves secret.env untouched. All material is local and the journal is mode 0600.
+    File fsync does not claim directory/NTFS power-loss durability.
+    """
+    with _settings_lock:
+        recover_settings(path.parent)
+        targets = {path: (json.dumps(proposed, ensure_ascii=False, indent=2) + "\n").encode("utf-8")}
+        if secret is not None:
+            targets[path.parent / "secret.env"] = f"MA2_PASSWORD={secret}\n".encode("utf-8")
+        old = {p.name: p.read_bytes().hex() if p.exists() else None for p in targets}
+        # Prepare every replacement before committing either file.
+        prepared = []
+        journal = path.parent / _SETTINGS_JOURNAL
+        try:
+            for target, data in targets.items():
+                with tempfile.NamedTemporaryFile(dir=path.parent, prefix="secret.env.", delete=False) as f:
+                    prepared.append((Path(f.name), target))
+                    f.write(data)
+                    f.flush()
+                    os.fsync(f.fileno())
+            _atomic_bytes(journal, json.dumps(old).encode("utf-8"))
+            try:
+                for source, target in prepared:
+                    os.replace(source, target)
+                journal.unlink()
+            except OSError:
+                recover_settings(path.parent)
+                raise
+        finally:
+            for source, _ in prepared:
+                source.unlink(missing_ok=True)
+
+
 def load_secret(folder: Path) -> str:
     """Password from the MA2_PASSWORD variable or secret.env (one line MA2_PASSWORD=...). Never goes into settings or logs."""
+    recover_settings(folder)
     if os.environ.get("MA2_PASSWORD") is not None:
         return os.environ["MA2_PASSWORD"]
     path = folder / "secret.env"
@@ -81,6 +153,7 @@ def load_secret(folder: Path) -> str:
 
 
 def load_settings(path: Path) -> dict:
+    recover_settings(path.parent)
     if not path.exists():
         return {}
     try:
@@ -90,6 +163,14 @@ def load_settings(path: Path) -> dict:
     if without_passwords(data) != data:
         raise SystemExit(f"Пароль нельзя хранить в {path}: положите его в secret.env (MA2_PASSWORD=...)")
     return data
+
+
+def read_settings_pair(path: Path):
+    """One recoverable snapshot for the settings UI, including fallback eligibility."""
+    with _settings_lock:
+        recover_settings(path.parent)
+        stored = json.loads(path.read_text(encoding="utf-8-sig")) if path.exists() else {}
+        return stored, load_secret(path.parent), (path.parent / "secret.env").exists()
 
 
 def effective_safety(settings: dict) -> dict:

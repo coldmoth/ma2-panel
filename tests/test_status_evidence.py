@@ -68,7 +68,7 @@ def context(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge, 'register_api', lambda app, c, local: captured.append(c))
     cfg = json.loads(Path('tests/config.test.json').read_text())
     cfg['ma2']['export_dir'] = str(tmp_path)
-    cfg['fixtures'] = [{'id': 12, 'type': 'Par', 'address': '1.120', 'channels': 4}]
+    cfg['fixtures'] = [{'id': 12, 'type': 'Par', 'address': '1.120', 'channels': 4, 'footprint': 4}]
     cfg['dmx_map'] = {'Par': {'dim': 1, 'r': 2, 'g': 3, 'b': 4}}
     bridge.create_app(cfg, mock=True, config_path=str(tmp_path / 'config.json'),
                       settings={'safety': {'mode': 'full', 'allow_fixture_read': True}, 'poll_seconds': .01})

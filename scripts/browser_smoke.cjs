@@ -50,6 +50,7 @@ async function checkEngine(name) {
         constructor(...args) { super(...args); window.__smokeSockets.push(this); }
       };
     });
+    await require('./plan_beams_smoke.cjs')(context, fullURL, output, name);
     for (const mode of ['full', 'simple']) {
       const page = await context.newPage();
       page.__smokeName = name + '-' + mode;
@@ -64,7 +65,119 @@ async function checkEngine(name) {
         : () => page.waitForFunction(() => /Имитация.*подключено/.test(document.querySelector('#connection').textContent));
       await page.goto(mode === 'full' ? fullURL : simpleURL);
       await ready();
+      // Isolate synthetic replies in the browser: no action reaches even the mock bridge.
+      await page.evaluate(mode => {
+        const socket = window.__smokeSockets.at(-1), originalSend = socket.send;
+        let action;
+        socket.send = raw => { action = JSON.parse(raw); };
+        const reply = msg => socket.onmessage({data: JSON.stringify({...msg, a:action.a, request_id:action.request_id})});
+        try {
+          if (mode === 'full') send({a:'master',value:20});
+          else document.querySelector('.simple-scene .go').click();
+          reply({ok:false,outcome:'unknown',err:'Тестовая ошибка: ' + 'длинный_контекст_'.repeat(35)});
+          if (mode === 'full') send({a:'master',value:30});
+          else document.querySelector('.simple-scene .go').click();
+          reply({ok:false,outcome:'partial',err:'Вторая ошибка'});
+          if (mode === 'full') send({a:'master',value:40});
+          else document.querySelector('.simple-scene .go').click();
+          reply({ok:true});
+        } finally { socket.send = originalSend; }
+      }, mode);
+      await page.waitForTimeout(6100);
+      assert.equal(await page.locator('#errors .error-entry').count(), 2);
+      assert.match(await page.locator('#errors').textContent(), /Результат неизвестен/);
+      for (const width of [1024,390]) {
+        await page.setViewportSize({width,height:844});
+        await noOverflow(page, name + '/' + mode + '/durable-errors');
+        const box = await page.locator('#errors').boundingBox();
+        assert(box.height <= 844 * .25 + 1, 'Errors have a bounded scroll region');
+        assert(await page.locator('#blackout').isVisible(), 'Blackout remains present');
+        const close = await page.locator('#errors button').first().boundingBox();
+        assert(close.y >= box.y && close.y + close.height <= box.y + box.height + 1, 'First dismissal fits error region');
+        await screenshot(page, name + '-' + mode + '-errors-' + width);
+      }
+      await page.locator('#errors button').first().focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await page.locator('#errors .error-entry').count(), 1);
+      await page.locator('#errors button').click();
+      assert(await page.locator('#errors').isHidden());
+      await page.setViewportSize({width:1024,height:768});
+      if (mode === 'full') await page.evaluate(() => go('scenes'));
+      await page.evaluate(() => {
+        const socket=window.__smokeSockets.at(-1);
+        window.__busyReply=socket.onmessage;
+        socket.onmessage=event=>{const msg=JSON.parse(event.data);if(!msg.status)window.__busyReply(event);};
+        window.__publishFileBusy=(active,kind,state='running')=>window.__busyReply({data:JSON.stringify({
+          status:{ma2:'logged_in',mock:true,safety:{mode:'full'},show_file_active:active,show_file:{kind,state}}
+        })});
+      });
+      try {
+        const before=frames.length;
+        for(const kind of ['save','load','upload']) {
+          await page.evaluate(kind=>window.__publishFileBusy(true,kind),kind);
+          assert(await page.locator('#blackout').isDisabled());
+          assert.match(await page.locator(mode==='full'?'#banners':'#connection').textContent(),/файл.*шоу.*недоступно/);
+          const go=mode==='full'?page.locator('.tile[data-scene="smoke-scene"]'):page.locator('.simple-scene .go');
+          assert(await go.isDisabled(),mode+' scene Go disabled during '+kind);
+          for(const off of await page.getByRole('button',{name:/^Выключить/}).all())assert(await off.isDisabled());
+          await page.evaluate(kind=>window.__publishFileBusy(true,kind,'unknown'),kind);
+          assert(await page.locator('#blackout').isDisabled(),'unknown text never clears active lock');
+          if(kind==='save')await screenshot(page,name+'-'+mode+'-file-busy');
+          await page.evaluate(kind=>window.__publishFileBusy(false,kind,'failed'),kind);
+          assert(await page.locator('#blackout').isEnabled());
+          assert(await go.isEnabled());
+        }
+        assert.equal(frames.length,before,'Status transitions never replay an action');
+      } finally {
+        await page.evaluate(()=>{window.__smokeSockets.at(-1).onmessage=window.__busyReply;});
+      }
       if (mode === 'full') {
+        {
+        await page.evaluate(() => {
+          window.__fixtureTaps = 0;
+          const original = tapFixture;
+          tapFixture = function(...args) { window.__fixtureTaps++; return original(...args); };
+          go('light'); lightUI.tab='plan'; render();
+        });
+        const fixtureButton = page.locator('.hall .fx').first();
+        await fixtureButton.focus();
+        await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
+        assert(await fixtureButton.evaluate(el => el === document.activeElement), 'Tab reaches fixture');
+        let taps = await page.evaluate(() => window.__fixtureTaps);
+        await page.keyboard.press('Enter');
+        assert.equal(await page.evaluate(() => window.__fixtureTaps), ++taps, 'Enter activates fixture once');
+        assert.deepEqual(await page.evaluate(() => state.selection), [1]);
+        await fixtureButton.focus(); await page.keyboard.press('Space');
+        assert.equal(await page.evaluate(() => window.__fixtureTaps), ++taps, 'Space activates fixture once');
+        assert.deepEqual(await page.evaluate(() => state.selection), []);
+        await fixtureButton.click();
+        assert.equal(await page.evaluate(() => window.__fixtureTaps), ++taps, 'Pointer activates fixture once');
+        await page.evaluate(() => go('hall'));
+        for (const tab of ['place','groups']) {
+          await page.evaluate(tab => { planState.tab=tab; render(); }, tab);
+          for (const key of ['Enter','Space']) {
+            await fixtureButton.focus(); await page.keyboard.press(key);
+            assert.equal(await page.evaluate(() => window.__fixtureTaps), ++taps, tab + '/' + key + ' once');
+          }
+        }
+        await page.evaluate(() => { planState.tab='place'; render(); });
+        let box = await fixtureButton.boundingBox();
+        let start = frames.length;
+        await page.mouse.move(box.x+box.width/2,box.y+box.height/2);
+        await page.mouse.down(); await page.mouse.move(box.x+box.width/2+45,box.y+box.height/2+35,{steps:4});
+        await page.mouse.up();
+        await until(() => frames.slice(start).some(a=>a.a==='layout_save'), 'Drag saves position');
+        assert.equal(frames.slice(start).filter(a=>a.a==='layout_save').length,1);
+        assert.equal(await page.evaluate(() => window.__fixtureTaps),taps,'Drag has no selection click');
+        await page.waitForFunction(() => !busy('layout_save'));
+        await fixtureButton.waitFor({state:'visible'});
+        box = await fixtureButton.boundingBox(); start = frames.length;
+        await page.mouse.move(box.x+box.width/2,box.y+box.height/2); await page.mouse.down();
+        await page.mouse.move(box.x+box.width/2+35,box.y+box.height/2+35);
+        await fixtureButton.dispatchEvent('pointercancel',{pointerId:1}); await page.mouse.up();
+        assert.equal(frames.slice(start).filter(a=>a.a==='layout_save').length,0,'Cancelled drag never saves');
+        await page.evaluate(() => { lightUI.tab='groups'; });
+        }
         for (const section of ['scenes', 'light', 'history', 'start', 'hall', 'patch', 'shows']) {
           await page.locator(`#rail [data-sec="${section}"]`).tap();
           await page.waitForFunction(section => state.sec === section, section);

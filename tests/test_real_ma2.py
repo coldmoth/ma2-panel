@@ -74,10 +74,10 @@ def test_real_echo_does_not_make_an_empty_slot_look_taken():
     assert not group_slot_empty(taken, 1, D["group_regex"], D["group_empty_regex"])
 
 
-def test_executor_list_steps_down_after_number_too_large(bridge_cfg, monkeypatch):
+def test_executor_list_steps_down_but_refuses_unproved_coverage(bridge_cfg, monkeypatch):
     monkeypatch.setenv("MA2_MOCK_REAL", "1")
     with bridge_cfg(settings=READ) as (ws, mock, path):
         r = ask(ws, {"a": "scenes_import"})
         lists = [c for c in mock.received if c.startswith("List Executor")]
         assert lists[0].endswith(".250") and lists[1].endswith(".200"), lists
-        assert r["ok"], r
+        assert not r["ok"] and "охват" in r["err"], r

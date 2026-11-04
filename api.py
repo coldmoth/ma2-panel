@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, Response
 from commands import ActionError
 from fixtures import save_config
 from link import HALTED, NO_LINK, clean
-from safety import DEFAULT_MA2, DEFAULT_SAFETY, load_secret, validate_settings, without_passwords
+from safety import DEFAULT_MA2, DEFAULT_SAFETY, load_secret, read_settings_pair, save_settings_pair, validate_settings, without_passwords
 
 log = logging.getLogger("bridge")
 LOOPBACK = ("127.0.0.1", "::1")
@@ -90,7 +90,7 @@ def register(app, c, is_loopback):
     @app.get("/api/idle")
     def idle():  # update.py asks this before stopping the bridge: no update while lines are going out
         quiet = time.monotonic() - getattr(app.state, "last_send", -1e9)
-        busy = action_lock.locked() or bool(throttle._pending) or quiet < 10
+        busy = c.update_busy()
         return {"idle": not busy, "quiet_seconds": round(quiet), "ma2": link.state}
 
     @app.get("/api/log")
@@ -110,14 +110,13 @@ def register(app, c, is_loopback):
     def get_settings(request: Request):
         if not is_loopback(request):
             return JSONResponse({"ok": False}, status_code=403)
-        stored = json.loads(settings_path.read_text(encoding="utf-8-sig")) if settings_path.exists() else {}
-        secret = load_secret(settings_path.parent)
-        if not (settings_path.parent / "secret.env").exists():
+        stored, secret, secret_exists = read_settings_pair(settings_path)
+        if not secret_exists:
             secret = secret or password
         # Editable values go back exactly as stored: they are the owner's own settings, and the password never lives in them.
         return {"settings": without_passwords(stored), "password_set": bool(secret),
                 "defaults": {"ma2": DEFAULT_MA2, "safety": DEFAULT_SAFETY}, "path": str(settings_path),
-                "config_attrs": config_attrs}
+                "config_attrs": c.get_config_attrs()}
 
     @app.post("/api/settings")
     async def put_settings(request: Request):
@@ -144,21 +143,17 @@ def register(app, c, is_loopback):
                 while backup.exists():
                     backup = backup.with_stem(backup.stem + "-1")
                 shutil.copy2(settings_path, backup)
-            save_config(str(settings_path), proposed)
+            secret = None
             if "password" in body or body.get("clear_password"):
                 secret = "" if body.get("clear_password") else body["password"]
                 if secret:
                     secrets.add(secret)
-                target = settings_path.parent / "secret.env"
-                with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent, delete=False) as f:
-                    try:
-                        f.write(f"MA2_PASSWORD={secret}\n")
-                        f.close()
-                        os.replace(f.name, target)
-                    finally:
-                        Path(f.name).unlink(missing_ok=True)
+            save_settings_pair(settings_path, proposed, secret)
         except OSError:
-            return JSONResponse({"ok": False, "err": "Не удалось сохранить настройки: проверьте доступ к папке"}, status_code=500)
+            recovery_pending = (settings_path.parent / ".settings-transaction.json").exists()
+            err = ("Сохранение прервано: прежняя пара настроек будет восстановлена при чтении или запуске; проверьте доступ к папке"
+                   if recovery_pending else "Не удалось сохранить настройки: проверьте доступ к папке")
+            return JSONResponse({"ok": False, "err": err, "recovery_pending": recovery_pending}, status_code=500)
         log.info("настройки изменены (без пароля)")
         return {"ok": True, "restart_needed": True}
 
@@ -166,7 +161,7 @@ def register(app, c, is_loopback):
     async def restart(request: Request):
         if not is_loopback(request) or request.headers.get("x-stop") != "1":
             return JSONResponse({"ok": False}, status_code=403)
-        if not idle()["idle"]:
+        if not await c.update_gate():
             return JSONResponse({"ok": False, "err": "идёт передача команд"}, status_code=409)
         app.state.exit_code = 3
         if server := getattr(app.state, "server", None):

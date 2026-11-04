@@ -54,6 +54,22 @@ function highlightOn(on) {
   render();
 }
 
+// A schematic heading from panel Pan history, never a measured beam or a Tilt projection.
+function planBeamAngle(f, hc) {
+  var pan = (state.shown[f.id] || {}).pan, home = (f.beam || {}).home;
+  var range = ((state.config || {}).attrs || {}).pan || {};
+  if (!connected() || f.missing || !canMove(f) || !Number.isFinite(pan) || !Number.isFinite(home) ||
+      valueFreshness('sent:' + f.id + ':pan') === 'stale' ||
+      valueFreshness('sent:' + f.id + ':pan') === 'unknown' ||
+      !Number.isFinite(range.min) || !Number.isFinite(range.max) || range.max <= range.min) return null;
+  var depth = Math.min(hc.stageDepth || 3, (hc.stage === 'left' || hc.stage === 'right' ? hc.w : hc.d) * .45);
+  var target = {top: [hc.w / 2, depth / 2], bottom: [hc.w / 2, hc.d - depth / 2],
+    left: [depth / 2, hc.d / 2], right: [hc.w - depth / 2, hc.d / 2]}[hc.stage];
+  if (!target) return null;
+  return Math.atan2(target[1] - f.y * hc.d, target[0] - f.x * hc.w) * 180 / Math.PI +
+    (pan - home) / 100 * (range.max - range.min) * (f.beam.invert ? -1 : 1);
+}
+
 /* ---------- plan widget ---------- */
 function hallPlan(root, mode) {
   var hc = hallOf() || HALL_DEFAULT;
@@ -78,12 +94,20 @@ function hallPlan(root, mode) {
   var sp = {top: {left: '0', top: '0', width: '100%', height: depth}, bottom: {left: '0', bottom: '0', width: '100%', height: depth},
     left: {left: '0', top: '0', height: '100%', width: depth}, right: {right: '0', top: '0', height: '100%', width: depth}}[hc.stage] || {};
   add(hall, h('div', {class: 'stage', style: sp}, 'СЦЕНА'));
+  add(root, h('p', {class: 'note'}, 'Расчётное направление по Pan панели · не измерение луча; Tilt не проецируется'));
+  var beamLayer = h('div', {class: 'plan-beams', 'aria-hidden': 'true'});
+  add(hall, beamLayer);
   var dots = {};
   fixtures().forEach(function (f) {
     if (!placed(f)) return;
     var b = h('button', {class: 'fx k-' + planKind(f), type: 'button', 'data-id': f.id, 'aria-label': f.id + ' ' + (f.label || f.name) + (f.missing ? ', нет в шоу' : '') + (f.service ? ', служебный' : ''),
-      style: {left: f.x * 100 + '%', top: f.y * 100 + '%'}}, h('span', {class: 'g', style: f.rot === 90 && planKind(f) === 'bar' ? {width: '14px', height: '34px'} : {}}), h('span', {class: 'l'}, f.label || f.id), h('span', {class: 'i'}, f.id));
-    dots[f.id] = {el: b, f: f};
+      style: {left: f.x * 100 + '%', top: f.y * 100 + '%'}, onclick: function (ev) {
+        // Native keyboard/assistive activation has detail=0. Pointer taps finish below.
+        if (ev.detail === 0 && !b.disabled && connected()) tapFixture(f.id, mode);
+      }}, h('span', {class: 'g', style: f.rot === 90 && planKind(f) === 'bar' ? {width: '14px', height: '34px'} : {}}), h('span', {class: 'l'}, f.label || f.id), h('span', {class: 'i'}, f.id));
+    var beam = canMove(f) ? h('div', {class: 'plan-beam', 'aria-hidden': 'true', style: {left: f.x * 100 + '%', top: f.y * 100 + '%'}}) : null;
+    if (beam) add(beamLayer, beam);
+    dots[f.id] = {el: b, f: f, beam: beam};
     add(hall, b);
   });
   var hint = null;
@@ -99,6 +123,12 @@ function hallPlan(root, mode) {
     var cur = mode === 'edit' ? planCurrent() : null;
     Object.keys(dots).forEach(function (id) {
       var d = dots[id], f = d.f, shown = state.shown[id] || state.shown[f.id];
+      if (d.beam) {
+        var angle = planBeamAngle(f, hallOf() || HALL_DEFAULT);
+        d.beam.hidden = angle === null;
+        d.beam.style.transform = 'rotate(' + (angle === null ? 0 : angle) + 'deg)';
+        d.beam.className = 'plan-beam' + (state.selection.indexOf(f.id) >= 0 ? ' selected' : '');
+      }
       var cls = ['fx', 'k-' + planKind(f)];
       // Groups tab picks a set like Свет does; placement marks the one current fixture.
       var picking = mode === 'control' || planState.tab === 'groups';
@@ -173,7 +203,7 @@ function hallPlan(root, mode) {
   function finish(ev, commit) {
     if (drag && drag.pointer === ev.pointerId) {
       var d = drag; drag = null;
-      if (!commit) { sectionKey = null; render(); return; }
+      if (!commit || !connected()) { sectionKey = null; render(); return; }
       if (d.moved) { var p = pct(ev); send({a: 'layout_save', pos: [{id: d.id, x: p.x, y: p.y}]}); return; }
       tapFixture(d.id, mode);
       return;
@@ -283,7 +313,7 @@ SECTIONS.hall = function (el) {
   add(body, side);
   var service = fixtures().filter(function (f) { return f.service; });
   if (planState.tab === 'groups') { groupSide(side); return; }
-  add(side, h('p', {class: 'note'}, (lit ? 'Подсветка: выбранный горит, остальные ' + Math.max(0, zone.length - 1) + ' приб. плана погашены. Снимается при снятии галочки, уходе из «Зала», закрытии вкладки (мост, через ' + 10 + ' с), потере связи. ' :
+  add(side, h('p', {class: 'note'}, (lit ? 'Подсветка запрошена для выбранного прибора и ' + Math.max(0, zone.length - 1) + ' остальных приборов плана. Автоснятие возможно только без новых действий со светом и потери контекста. Если подсветка не снята, смотрите предупреждение сверху. ' :
     'С подсветкой выбранный прибор загорится, а ' + Math.max(0, zone.length - 1) + ' других приборов плана погаснут. ') +
     'Не трогаются: ' + (service.length ? service.map(function (f) { return f.label || f.name; }).join(', ') + ' (служебные), ' : '') + 'приборы вне списка панели, сцены, программер других пользователей.'));
   var order = planOrder(), cur = planCurrent();

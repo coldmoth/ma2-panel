@@ -232,3 +232,44 @@ def test_hall_and_candidate_protocol_links_are_shipped():
             destination = posixpath.normpath(posixpath.join(posixpath.dirname(name), target.split('#')[0]))
             assert destination in files, (name, target, destination)
     assert b'](https://github.com/coldmoth/ma2-panel/blob/main/.github/workflows/ci.yml)' in files['docs/browser-preflight.md']
+
+
+def test_every_markdown_link_resolves_inside_delivered_zip(tmp_path):
+    # Read only the delivered archive; the checkout must not satisfy missing targets.
+    source = Path(__file__).resolve().parents[1]
+    archive = tmp_path / 'delivered.zip'
+    release.write_zip(release.build(source, version='test-links'), archive)
+    release.check(archive)
+    with zipfile.ZipFile(archive) as packed:
+        files = {name: packed.read(name) for name in packed.namelist()}
+    broken = []
+    for name, data in files.items():
+        if not name.endswith('.md'):
+            continue
+        text = data.decode('utf-8')
+        for label, target in re.findall(r'\[([^\]]+)\]\(([^)]+)\)', text):
+            if re.match(r'[a-z][a-z0-9+.-]*:', target, re.I):
+                continue
+            path, _, anchor = target.partition('#')
+            dest = posixpath.normpath(posixpath.join(posixpath.dirname(name), path)) if path else name
+            if dest not in files:
+                broken.append((name, target))
+                continue
+            if anchor and dest.endswith('.md'):
+                headings = re.findall(r'^#{1,6}\s+(.+)', files[dest].decode('utf-8'), re.M)
+                slugs = [re.sub(r'[^\w\- ]', '', heading.lower()).replace(' ', '-') for heading in headings]
+                assert anchor in slugs, (name, target)
+    assert broken == []
+
+
+def test_packaged_readme_alias_and_missing_target(tmp_path, monkeypatch):
+    import pytest
+    monkeypatch.setattr(release, 'DOCS', ())
+    for name, data in {'README.md': '[history](CHANGELOG.md)',
+                       'CHANGELOG.md': '[home](README.md)', 'LICENSE': 'license'}.items():
+        (tmp_path / name).write_text(data)
+    files = release.payload(tmp_path)
+    assert files['CHANGELOG.md'] == b'[home](README-RU.md)'
+    (tmp_path / 'README.md').write_text('[typo](absent.md)')
+    with pytest.raises(ValueError, match='missing documentation target'):
+        release.payload(tmp_path)

@@ -63,7 +63,7 @@ Two modes, told apart by the whole frame, not by a label alone:
 
 Rail 96 px (84 px under 1100 px, a bottom bar with a divider between the two groups under 860 px, 56 px buttons when the window is under 680 px tall). Top bar: show name, link state, selection pill (live mode only), «Стоп передачи» (outlined) and «Погасить свет» (filled red); under 520 px both buttons share their own row. Banners for link, halt, load, highlight and show mismatch sit under the top bar. A reload keeps the section it came back to; until the plan arrives the page says «Загружаю план панели…».
 
-Свет: picker column 260 px (240 px at 1024), tabs Группы / Приборы / План. Shared selection and fade above two control tabs: Свет (brightness, strobe, colour) and Движение (joystick, fine step cross, optics). Movement modes Точно / Зеркально are matching toggle buttons; inversions live in collapsed Настройки движения; presets in collapsed Пресеты with explicit management. No numeric absolute Pan/Tilt entry. The joystick and 1° step cross fit 1024×768 and 1280×720 without scrolling when secondary settings are closed.
+Свет: picker column 260 px (240 px at 1024), tabs Группы / Приборы / План. Shared selection and fade above two control tabs: Свет (brightness, strobe, colour) and Движение (joystick, fine step cross, optics). Movement modes Точно / Зеркально are matching toggle buttons; inversions live in collapsed Настройки движения; presets in collapsed Пресеты with explicit management. No numeric Pan/Tilt text entry. Absolute horizontal Pan and Tilt sliders are available alongside the joystick. The joystick and 1° step cross fit 1024×768 and 1280×720 without scrolling when secondary settings are closed.
 
 Площадка: four preparation steps (link, fixtures, MA2 data, hall), each with its state; the hall step opens Зал. The fixture table scrolls with the page, not inside it.
 
@@ -75,7 +75,7 @@ Rail 96 px (84 px under 1100 px, a bottom bar with a divider between the two gro
 - **Row item**: 52 px, checkbox square + ID + name; selected = amber wash with an amber inset ring; in Зал the current fixture is cyan instead.
 - **Slider**: 12 px track, 36 px thumb; unknown value = striped track and a hollow grey thumb, readout «неизвестно».
 - **Colour picker**: a wheel (hue by angle, saturation by radius, centre snaps to white) beside a preview chip, Насыщенность and Светлота цвета sliders and ten quick swatches (44 px minimum). Светлота darkens the wheel through a black shade. It sends `color` only; brightness stays on its own slider. Unknown colour = striped chip, no marker, sliders disabled until a hue is picked; different colours across the selection say so. A selection without RGB/CMY mixing gets no wheel, only MA2 colour presets or a plain statement that colour is not controlled.
-- **Plan fixture**: 52 px hit area; shape by kind (round PAR, rounded square head, bar, diamond fresnel); selected = amber ring with a gap; lit = its last sent colour; missing = red outline at 45 %; service = hatched.
+- **Plan fixture**: 52 px hit area; shape by kind (round PAR, rounded square head, bar, diamond fresnel); selected = amber ring with a gap; lit = fresh MA2 output colour; missing = red outline at 45 %; service = hatched.
 - **Scene tile**: a simple display number and scene name, no console address or page headers. Running uses a muted green surface and state label. Off and Edit are separate controls below the launch target; deletion and overwrite are inside Edit. The teacher panel uses the same order.
 
 ## Rules

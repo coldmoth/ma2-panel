@@ -43,5 +43,5 @@ assert.equal(raw().at(-1).config_revision, 'epoch:3');
 // Reconnect drops outstanding commands and does not replay them.
 const old = ws(); old.onclose(); c.connect();
 assert.equal(raw().length, 0);
-assert.match(document.getElementById('notice').textContent, /неизвестен/);
+assert.match(document.getElementById('errors').textContent, /неизвестен/);
 console.log('protocol: request correlation, stale forms, serial saves and no replay passed');

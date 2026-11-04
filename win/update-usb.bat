@@ -1,6 +1,10 @@
 @echo off
-rem Copy update.py, release.py, ma2-panel-update.zip and this file into the ma2-panel folder, then double-click this file.
-rem config.json, settings.json, secret.env and shows\ are not in the update: they stay as they are (and are copied to backups\ first).
-cd /d "%~dp0"
-"%~dp0python\python.exe" "%~dp0update.py" "%~dp0ma2-panel-update.zip"
+setlocal
+rem Run from external USB staging; never copy updater modules into the installation.
+set "TARGET=%~1"
+if not defined TARGET set /p "TARGET=Installation program folder (without quotes): "
+if not exist "%TARGET%\python\python.exe" exit /b 1
+"%TARGET%\python\python.exe" "%~dp0update.py" --root "%TARGET%" "%~dp0ma2-panel-update.zip"
+set "RESULT=%ERRORLEVEL%"
 pause
+exit /b %RESULT%

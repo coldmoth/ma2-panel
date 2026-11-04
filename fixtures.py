@@ -91,6 +91,8 @@ def parse_export(xml_text: str, skipped: list | None = None) -> list[dict]:
         entry = {"id": fid, "name": elem.get("name", ""),
                  "type": elem.get("type", elem.get("fixture_type", kind.get("name", "") if kind is not None else "")),
                  "params": params, "address": dmx_address(texts[0]) if texts else None}
+        if len(texts) > 1 or sum(local(e.tag) == "SubFixture" for e in elem.iter()) > 1:
+            entry["patch_unsupported"] = True
         if channels and not params:
             entry["channels"] = channels  # the 3.9 export lists channels by index only, without attribute names
         found.append(entry)
@@ -105,9 +107,11 @@ TYPE_ATTRS = {"DIM": "dim", "COLORRGB1": "r", "COLORRGB2": "g", "COLORRGB3": "b"
 
 def parse_fixture_type(xml_text: str) -> dict:
     """{dim, r, g, b}: 1-based DMX channel of each attribute, from an Export FixtureType file (<ChannelType attribute=.. coarse=..>).
-    ponytail: first module only; a multi-instance type with patch offsets is read as its first cell."""
+    Multiple modules/instances are unsupported until real offset samples are available."""
     spec, root = {}, ET.fromstring(xml_text)
     has = set()
+    if sum(local(e.tag) == "Module" for e in root.iter()) > 1 or any(local(e.tag) in ("Instance", "Instances") for e in root.iter()):
+        return {"unsupported": True, "has": []}
     module = next((e for e in root.iter() if local(e.tag) == "Module"), root)
     for e in module.iter():
         if local(e.tag) != "ChannelType":
@@ -185,6 +189,11 @@ def merge_fixtures(old: list[dict], found: list[dict], *, choices=None) -> list[
         if old_id is not None:
             merged[fid] = {**merged.pop(old_id), "id": fid, "repatched_from": old_id}
         entry = merged.get(fid, {"id": fid, "label": f["name"] or f"#{fid}"})
+        entry.pop("footprint", None)  # export Channel count is not current profile evidence
+        entry.pop("channels", None)
+        entry.pop("patch_unsupported", None)
+        if f.get("patch_unsupported"):
+            entry["patch_unsupported"] = True
         entry.update(type=f["type"], name=f["name"], params=f.get("params", []), address=f["address"])
         if "channels" in f:
             entry["channels"] = f["channels"]

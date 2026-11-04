@@ -1,5 +1,6 @@
 """Раздел «Патч» (spec 21): patch rows, plans, the guard, and readdress through the mock desk."""
 from pathlib import Path
+from contextlib import contextmanager
 
 import pytest
 
@@ -29,7 +30,7 @@ def test_footprints_come_from_the_type_list():
 
 def test_a_physical_footprint_shows_the_overlap_the_patch_hides():
     assert all(not r["conflicts"] for r in patch_rows(plan_fixtures()))  # 9 channels each: 280-288, 289-297, 298-306
-    rows = {r["id"]: r for r in patch_rows(plan_fixtures(**{"9": {"uid": "43500F019FCB", "footprint": 10}}))}
+    rows = {r["id"]: r for r in patch_rows(plan_fixtures(**{"9": {"uid": "43500F019FCB", "address": 280, "universe": 1, "footprint": 10}}))}
     assert rows[9]["conflicts"] == [23] and rows[23]["conflicts"] == [9]  # the device takes 280-289
     assert rows[24]["conflicts"] == [] and rows[24]["phys"] is None  # unknown size is not guessed
 
@@ -45,7 +46,7 @@ def test_plan_checks_and_lines():
         patch_plan([{**f, "footprint": None} for f in plan_fixtures()], 23, 290, patch=True, physical=False)
     with pytest.raises(ActionError, match="RDM"):
         patch_plan(plan_fixtures(), 23, 290, patch=False, physical=True)  # no UID linked
-    both = patch_plan(plan_fixtures(**{"23": {"uid": "43500F019FCB", "address": 289}}), 23, 290, patch=True, physical=True)
+    both = patch_plan(plan_fixtures(**{"23": {"uid": "43500F019FCB", "address": 289, "footprint": 10, "universe": 1}}), 23, 290, patch=True, physical=True)
     assert both["lines"] == ["RdmSetParameter dmx_start_address 290 / UID = 43500F019FCB", "Assign Fixture 23 At Dmx 1.290"]
     assert patch_plan(plan_fixtures(), 23, 290, True, False)["token"] != patch_plan(plan_fixtures(), 23, 291, True, False)["token"]
 
@@ -74,12 +75,17 @@ def test_guard_lets_out_only_the_planned_patch_and_rdm_lines():
 SETTINGS = {"safety": {"mode": "full", "allow_fixture_read": True, "allow_patch": True, "allow_rdm": True}}
 
 
+@contextmanager
 def start(bridge_cfg, settings=SETTINGS):
     def edit(cfg):
-        cfg["fixtures"] = [{"id": fid, "label": name, "name": name, "type": "3 ARTIST_FL_1000 RGB_CT", "address": f"1.{a:03d}", "channels": 9}
+        cfg["fixtures"] = [{"id": fid, "label": name, "name": name, "type": "3 ARTIST_FL_1000 RGB_CT", "address": f"1.{a:03d}", "channels": 9, "footprint": 9}
                            for fid, name, a in HALL]
         cfg["groups"] = [{"id": "w", "label": "Окна", "fixtures": [9, 23, 24]}]
-    return bridge_cfg(edit, settings=settings)
+    with bridge_cfg(edit, settings=settings) as result:
+        ws, mock, _ = result
+        mock.export_text = export(HALL)
+        assert ask(ws, {"a": "fixtures_fetch"})["ok"]
+        yield result
 
 
 def test_patch_write_reads_back_and_keeps_groups(bridge_cfg):
@@ -115,13 +121,11 @@ def test_refused_write_and_a_break_between_the_two_steps(bridge_cfg):
         assert not r["ok"] and r["steps"][0]["ok"] is False and r["undo"] == [] and r["check"]["patch"] == "1.289"
         assert ask(ws, {"a": "rdm_list"})["devices"] == 1
         assert ask(ws, {"a": "rdm_link", "id": 23, "uid": "43500F019FCB"})["ok"]  # address 289 and footprint 10 from RdmList
-        plan = ask(ws, {"a": "patch_plan", "id": 23, "address": "1.400", "patch": True, "physical": True})["plan"]
-        start_n = len(mock.received)
-        r = ask(ws, {"a": "patch_apply", "id": 23, "address": "1.400", "patch": True, "physical": True, "token": plan["token"]})
-        assert not r["ok"] and [s["ok"] for s in r["steps"]] == [True, False]  # RDM done, patch refused: no retry
-        assert sum(line.startswith("Assign") for line in mock.received[start_n:]) == 1
-        assert r["undo"] == ["RdmSetParameter dmx_start_address 289 / UID = 43500F019FCB"] and mock.rdm_devices[0]["address"] == 400
-        assert "RdmList / UID = 43500F019FCB" in mock.received[start_n:]  # the device side is read back
+        before = len(mock.received)
+        result = ask(ws, {"a": "patch_plan", "id": 23, "address": "1.400", "patch": True, "physical": True})
+        assert not result["ok"] and "линия" in result["err"]
+        assert len(mock.received) == before  # UID/address are not evidence of a physical universe
+
 
 
 def test_patch_and_rdm_need_their_flags(bridge_cfg):
@@ -135,9 +139,82 @@ def test_patch_and_rdm_need_their_flags(bridge_cfg):
 
 def test_patch_is_refused_on_another_show(bridge_cfg):
     def edit(cfg):
-        cfg["fixtures"] = [{"id": 23, "label": "L-4", "name": "L-4", "type": "3 X", "address": "1.289", "channels": 9}]
+        cfg["fixtures"] = [{"id": 23, "label": "L-4", "name": "L-4", "type": "3 X", "address": "1.289", "channels": 9, "footprint": 9}]
         cfg["show"] = "другое шоу"
     with bridge_cfg(edit, settings=SETTINGS) as (ws, mock, _):
-        plan = ask(ws, {"a": "patch_plan", "id": 23, "address": "1.400", "patch": True})["plan"]
-        r = ask(ws, {"a": "patch_apply", "id": 23, "address": "1.400", "patch": True, "token": plan["token"]})
+        r = ask(ws, {"a": "patch_apply", "id": 23, "address": "1.400", "patch": True, "token": "old"})
         assert not r["ok"] and "другое шоу" in r["err"] and not any(line.startswith("Assign") for line in mock.received)
+
+
+@pytest.mark.parametrize('echo', ['Executing : RdmList / UID = 43500F019FCB',
+                                  '[Channel]> RdmList / UID = 43500F019FCB',
+                                  'RdmList / UID = 43500F019FCB',
+                                  'Error : UID = 43500F019FCB'])
+def test_rdm_request_is_not_device_evidence(echo):
+    assert parse_rdm_list(echo) == []
+    rows = parse_rdm_list(echo + '\n43500F019FCB BAR Address 289 Footprint 10')
+    assert rows[0].get('address') == 289 and rows[0].get('footprint') == 10
+
+
+def test_rdm_conflicting_or_truncated_properties_are_unknown():
+    rows = parse_rdm_list('43500F019FCB BAR Address 28x Footprint 10x')
+    assert 'address' not in rows[0] and 'footprint' not in rows[0]
+    rows = parse_rdm_list('43500F019FCB Address 289 Footprint 10\n43500F019FCB Address 290 Footprint 10')
+    assert 'address' not in rows[0]
+
+
+@pytest.mark.parametrize('start, size, allowed', [(496, 17, True), (497, 17, False),
+                                                  (512, 1, True), (512, 2, False),
+                                                  (131072, 1, True), (131072, 2, False)])
+def test_patch_rejects_block_crossing_universe(start, size, allowed):
+    fixtures = [{'id': 1, 'address': '1.001', 'footprint': size}]
+    if allowed:
+        assert patch_plan(fixtures, 1, start, True, False)['lines']
+    else:
+        with pytest.raises(ActionError, match='границ'):
+            patch_plan(fixtures, 1, start, True, False)
+
+
+@pytest.mark.parametrize('physical, footprint, universe, target', [
+    (True, None, 1, 400), (True, 10, None, 400), (True, 10, 1, 912),
+    (True, 10, 1, 510)])
+def test_physical_write_requires_size_and_known_matching_line(physical, footprint, universe, target):
+    fixtures = plan_fixtures(**{'23': {'uid': '43500F019FCB', 'address': 289,
+                                     'footprint': footprint, 'universe': universe}})
+    with pytest.raises(ActionError):
+        patch_plan(fixtures, 23, target, False, physical)
+
+
+def test_physical_rows_do_not_guess_line_from_patch():
+    rows = patch_rows(plan_fixtures(**{'23': {'uid': '43500F019FCB', 'address': 289, 'footprint': 10}}))
+    assert next(r for r in rows if r['id'] == 23)['phys_start'] is None
+
+
+def test_known_physical_line_stays_fixed_after_patch_move():
+    fixtures = plan_fixtures(**{'23': {'uid': '43500F019FCB', 'address': 289, 'footprint': 10, 'universe': 1}})
+    plan = patch_plan(fixtures, 23, 912, True, False)
+    assert plan['phys_range'] == [289, 298]
+
+
+def test_multiple_patch_addresses_never_authorize_flat_write():
+    from fixtures import parse_export, merge_fixtures
+    xml = export([(1, 'Complex', 100)]).replace('</Patch>', '</Patch><Patch><Address>600</Address></Patch>')
+    found = parse_export(xml)
+    fixtures = merge_fixtures([], found)
+    fixtures[0]['footprint'] = 17
+    with pytest.raises(ActionError, match='структур'):
+        patch_plan(fixtures, 1, 200, True, False)
+
+
+def test_rdm_repeated_incomplete_records_do_not_synthesize_properties():
+    rows = parse_rdm_list('43500F019FCB Address 289\n43500F019FCB Footprint 10')
+    assert 'address' not in rows[0] and 'footprint' not in rows[0]
+    rows = parse_rdm_list('43500F019FCB Address ' + '9' * 5000)
+    assert 'address' not in rows[0]
+
+
+def test_unsupported_neighbor_cannot_hide_extra_patch_ranges():
+    fixtures = [{'id': 1, 'address': '1.100', 'footprint': 17},
+                {'id': 2, 'address': '1.200', 'footprint': 17, 'patch_unsupported': True}]
+    with pytest.raises(ActionError):
+        patch_plan(fixtures, 1, 300, True, False)

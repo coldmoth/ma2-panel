@@ -107,6 +107,7 @@ function linkLine() {
   if (state.halted && linkReady()) return {dot: 'wait', text: 'Передача остановлена'};
   var short = {logged_in:'Подключено',down:'Нет связи с пультом',tcp:'Подключение…',login_failed:'Ошибка входа',
     login_unknown:'Вход не подтверждён',manual_off:'Связь отключена'};
+  if (state.showFileActive) return {dot:'wait',text:'Передача файла шоу'};
   if (state.showLoad && state.showLoad.state === 'loading') return {dot:'wait',text:'Загрузка шоу'};
   return {dot:state.ma2 === 'logged_in' ? 'on' : state.ma2 === 'down' ? '' : 'wait',text:short[state.ma2] || state.ma2};
 }
@@ -139,11 +140,20 @@ function sendRaw(action) {  // halt / resume / link: work without a console link
 }
 function busy(a) { return Object.keys(pending).some(function (id) { return pending[id].a === a; }); }
 
-function feedback(button, ok, error) {
+function feedback(button, ok, error, operation) {
   if (button) { button.removeAttribute('aria-busy'); button.classList.remove('waiting'); }
-  notice(ok ? 'Команда отправлена' : (error || 'Ошибка команды'), ok ? 'success' : 'error', !ok);
+  notice(ok ? 'Команда отправлена' : (error || 'Ошибка команды'), ok ? 'success' : 'error', !ok, operation);
 }
-function notice(text, kind, sticky) {
+function notice(text, kind, sticky, operation) {
+  if (text && ((!kind || kind === 'error') || sticky)) {
+    var errors = document.getElementById('errors');
+    var row = h('div', {class: 'error-entry'}, h('span', {}, (operation ? operation + ': ' : '') + text));
+    add(row, h('button', {type: 'button', class: 'btn small', 'aria-label': 'Закрыть сообщение: ' + (operation || text), onclick: function () {
+      errors.removeChild(row); errors.hidden = !errors.children.length;
+    }}, 'Закрыть'));
+    add(errors, row); errors.hidden = false;
+    return;
+  }
   var el = document.getElementById('notice');
   el.textContent = text || '';
   el.className = 'notice ' + (kind || 'error');
@@ -220,13 +230,15 @@ function renderBanners() {
   var hl = state.highlight || {};
   if (hl.state === 'stuck') b.appendChild(h('div', {class: 'banner bad', role: 'alert'}, icon('alert'),
     'Подсветка не снята' + (hl.reason ? ': ' + hl.reason : '') + '. Кнопка снимает её командой Off: у приборов зала пропадёт и то, что выставлено на пульте вручную. Сначала сохраните шоу или запишите сцену.',
-    h('button', {class: 'btn small', type: 'button', disabled: !connected(), onclick: function () { if (confirm('Снять подсветку командой Off? У приборов зала пропадёт и то, что выставлено на пульте вручную.')) send({a: 'highlight_off'}); }}, 'Снять подсветку')));
+    h('button', {class: 'btn small', type: 'button', disabled: !connected(), onclick: function () { if (confirm('Снять подсветку командой Off без восстановления прежних значений? У приборов зала пропадёт и то, что выставлено на пульте вручную.')) send({a: 'highlight_off', release_token: hl.release_token}); }}, 'Снять подсветку')));
   if (bridgeUp() && !linkReady()) b.appendChild(h('div', {class: 'banner ' + (state.ma2 === 'login_failed' ? 'bad' : 'warn'), role: 'alert'}, icon('alert'),
     (LINK_TEXT[state.ma2] || state.ma2) + '. Управление недоступно' + (state.manual ? '.' : ', мост переподключается сам.')));
   if (!bridgeUp()) b.appendChild(h('div', {class: 'banner bad', role: 'alert'}, icon('alert'), 'Нет связи с мостом. Панель переподключается каждые 2 с.'));
   if (bridgeUp() && state.halted) b.appendChild(h('div', {class: 'banner warn', role: 'alert'}, icon('pause'),
     'Передача остановлена: панель ничего не отправляет на MA2, очередь удалена. Свет на пульте не менялся.',
     h('button', {class: 'btn small', type: 'button', onclick: function () { sendRaw({a: 'resume'}); }}, 'Возобновить')));
+  if (bridgeUp() && state.showFileActive) b.appendChild(h('div', {class: 'banner warn', role: 'status'}, icon('refresh'),
+    'Идёт передача файла шоу. Управление светом временно недоступно; дождитесь результата операции.'));
   var load = state.showLoad || {};
   var loadText = {loading: 'Загружается шоу «' + load.name + '». Управление светом недоступно до подтверждения от MA2.',
     failed: 'Загрузка шоу «' + load.name + '» не подтверждена' + (load.reason ? ': ' + load.reason : '') + '. План панели не переключён.',
@@ -466,6 +478,7 @@ SECTIONS.scenes = function (el) {
 function masterControl() {
   var activeGesture = false;
   var out = h('span', {class: 'val'});
+  var source = h('span', {class: 'note'});
   var input = h('input', {type: 'range', min: 0, max: 100, value: 100, 'aria-label': 'Общая яркость', oninput: function (e) {
     out.textContent = e.target.value + '%'; out.classList.remove('unknown'); setFill(input, Number(e.target.value));
     throttleSlider({a: 'master', v: Number(e.target.value), fade: 0});
@@ -477,9 +490,11 @@ function masterControl() {
     input.title = state.safety && !state.safety.master ? 'Общая яркость заблокирована (allow_master)' : '';
     out.textContent = state.master === null ? 'неизвестно' : Math.round(state.master) + '%';
     out.classList.toggle('unknown', state.master === null);
+    source.textContent = state.master === null ? 'значение неизвестно' : 'отправлено панелью' +
+      (valueFreshness('master') === 'stale' ? ' · устарело' : '');
     if (!activeGesture) setFill(input, state.master);
   });
-  return h('div', {class: 'master'}, h('div', {class: 'vrow'}, h('b', {}, 'Общая яркость'), out), input);
+  return h('div', {class: 'master'}, h('div', {class: 'vrow'}, h('b', {}, 'Общая яркость'), out), input, source);
 }
 function setFill(input, v) {
   input.classList.toggle('unknown', v === null || v === 'mixed');
@@ -559,9 +574,9 @@ SECTIONS.history = function (el) {
   add(el, h('p', {class: 'note'}, 'Последние 100 изменений с этого моста, новые сверху. «Откатить» возвращает то, что было до изменения. После перезапуска моста история пустая.'));
   if (!state.history.length) { add(el, h('div', {class: 'card'}, h('p', {}, 'Изменений пока нет.'))); return; }
   add(el, h('div', {class: 'card'}, state.history.slice().reverse().map(function (e) {
-    return h('div', {class: 'grow-row'}, h('span', {class: 'note'}, e.t), h('span', {class: 'nm'}, e.what),
+    return h('div', {class: 'grow-row history-row'}, h('span', {class: 'note'}, e.t), h('span', {class: 'nm'}, e.what),
       e.undo ? h('button', {class: 'btn small', type: 'button', disabled: !linkReady() || e.done, onclick: function (ev) { send({a: 'undo', n: e.n}, ev.currentTarget); }},
-        e.done ? 'Откачено' : 'Откатить') : h('span', {class: 'note'}, 'не откатывается'));
+        e.done ? 'Откачено' : 'Откатить') : h('span', {class: 'note'}, e.reason || 'не откатывается'));
   })));
 };
 
@@ -655,7 +670,10 @@ function valueFreshness(kind) {
   return (state.valuesMeta[kind] || {}).freshness;
 }
 function sentSource() {
-  return 'последнее отправленное панелью' + (valueFreshness('shown') === 'stale' ? ' · устарело' : '');
+  return 'последнее отправленное панелью';
+}
+function sentStale(attr) {
+  return state.selection.some(function(id) { return valueFreshness('sent:' + id + ':' + attr) === 'stale'; });
 }
 function observeEvidence(meta, receipts) {
   Object.keys(meta).forEach(function (id) {
@@ -674,6 +692,10 @@ function expireEvidence() {
         group[0][id] = Object.assign({}, group[0][id], {freshness: 'stale'});
         if (group[2]) state.scenes[id] = null;
         else if (id === 'live') { state.live = {}; state.dmx = {}; }
+        else if (id.indexOf('sent:') === 0) {
+          var parts = id.split(':');
+          if (state.shown[parts[1]]) delete state.shown[parts[1]][parts[2]];
+        }
         changed = true;
       }
     });
@@ -767,7 +789,8 @@ function receive(message) {
       render();
       return;
     }
-    if (button) feedback(button, message.ok, message.err || 'ошибка');
+    var operation = (a === 'master' ? 'Общая яркость' : a) + (message.request_id ? ' · ' + message.request_id : '');
+    if (button || !message.ok) feedback(button, message.ok, message.err || 'ошибка', operation);
     if (message.ok && ['scene_create','scene_rename','scene_delete'].indexOf(a) >= 0) { var dialog = document.getElementById('dlg'); if (dialog.open) dialog.close(); }
     if (a === 'fixtures_fetch') state.fetch = message.ok ? {state: 'done', added: message.added, missing: message.missing, total: message.total} : {state: 'error', err: message.err || 'ошибка чтения'};
     if (a === 'import_confirm_merge') {
@@ -785,10 +808,7 @@ function receive(message) {
     if ((a === 'fixtures_fetch' || a === 'import_confirm_merge') && message.ok && (message.switched || (message.no_id || []).length)) notice(
       (message.switched ? 'Открыт план шоу «' + message.switched + '», приборы получены в него. ' : '') +
       ((message.no_id || []).length ? 'Без Fixture ID, панель ими не управляет: ' + message.no_id.join(', ') + '. Дайте им Fixture ID в патче MA2.' : ''));
-    if (!message.ok && button) notice(message.err || 'Ошибка команды', 'error', true);
-    if (!message.ok && (a === 'select_group' || a === 'select_fixtures' || a === 'clear')) { state.selection = []; state.group = null; notice(message.err || 'Ошибка выбора'); }
-    else if (!message.ok && !button && SLIDER_ACTIONS.indexOf(a) < 0) notice(message.err || 'Ошибка команды');
-    else if (!message.ok && SLIDER_ACTIONS.indexOf(a) >= 0) notice((a === 'master' ? 'Общая яркость' : a) + ': ' + (message.err || 'ошибка'));
+    if (!message.ok && (a === 'select_group' || a === 'select_fixtures' || a === 'clear')) { state.selection = []; state.group = null; }
   }
   render();
   Object.keys(message).forEach(function (type) {

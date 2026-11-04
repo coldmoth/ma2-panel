@@ -155,9 +155,10 @@ class MockMA2:
         if "PANELLUA" in text:  # the read-back's canary line
             self.vars["PANELLUA"] = "1"
             return f"Executing : {text}\r\n[Channel]>"
-        if m := re.match(r"Lua \"local a,n=(\d+),(\d+) ", text):  # DMX read-back: answers by feedback like the real line would
+        if m := re.match(r"Lua \"local a,n,v=(\d+),(\d+),", text):  # DMX read-back: answers by feedback like the real line would
             a, n = int(m[1]), int(m[2])
-            self.vars[f"PANELDMX{a}"] = f"T {a} " + ",".join(str(self.dmx.get(i, 0)) for i in range(a, a + n))  # by SetVar, as the line asks
+            tag = re.search(r"'T([0-9a-f]*) '", text)[1]
+            self.vars[f"PANELDMX{a}"] = f"T{tag} {a} " + ",".join(str(self.dmx.get(i, 0)) for i in range(a, a + n))  # by SetVar, as the line asks
             return f"Executing : {text}\r\n[Channel]>"
         if text == "List FixtureType":
             return f"Executing : {text}\r\n" + TYPE_LIST.read_text(encoding="utf-8").replace("\n", "\r\n") + "[Channel]>"

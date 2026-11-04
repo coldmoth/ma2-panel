@@ -17,7 +17,7 @@ module.exports = async function ({context,page,document,findBtn,sent,status,Node
   findBtn('Применить выбор').click();
   assert.deepEqual(JSON.parse(JSON.stringify(sent().at(-1))),{a:'import_confirm_merge',request_token:'pending-token',choices:{'31':null,'32':null}});
   context.receive({ok:true,a:'import_confirm_merge',added:2,missing:2,total:4,no_id:['Без номера']});
-  assert.match(document.getElementById('notice').textContent,/Без Fixture ID.*Без номера.*Дайте им Fixture ID/);
+  assert.match(document.getElementById('errors').textContent,/Без Fixture ID.*Без номера.*Дайте им Fixture ID/);
   context.receive(ambiguity);
   page.all().find(n=>n.tagName==='BUTTON' && n.textContent.startsWith('Объединить с #6')).click();
   const candidates=page.all().filter(n=>n.tagName==='BUTTON' && n.textContent.startsWith('Объединить с #6'));

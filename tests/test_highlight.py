@@ -133,8 +133,9 @@ def test_stuck_and_recovery(bridge_cfg, reason):
         wait_for(lambda: until_status(ws, {'a': 'show_identify'})['ma2'] == 'logged_in')
         assert until_status(ws, {'a': 'show_identify'})['highlight']['state'] == 'stuck'
         assert not any(line.startswith('Off Fixture') for line in mock.received[len(before):])
-        assert ask(ws, {'a': 'highlight_off'})['ok']
-        assert mock.received[-2:] == OFF and not (path.parent / 'highlight.json').exists()
+        before = len(mock.received)
+        assert not ask(ws, {'a': 'highlight_off'})['ok']
+        assert len(mock.received) == before and (path.parent / 'highlight.json').exists()
 
 
 @pytest.mark.parametrize('show', ['Mock show', 'Other show', None])
@@ -156,7 +157,9 @@ def test_restart_recovers_only_same_or_unknown_show(tmp_path, show):
             else:  # restart never sends Off by itself; the operator's button does
                 assert recovery.exists() and status['highlight']['state'] == 'stuck'
                 assert not any(line.startswith('Off Fixture') for line in client.app.state.mock.received)
-                assert ask(ws, {'a': 'highlight_off'})['ok']
+                status = until_status(ws, {'a': 'show_identify'})
+                token = status['highlight']['release_token']
+                assert ask(ws, {'a': 'highlight_off', 'release_token': token})['ok']
                 assert client.app.state.mock.received.count(OFF[1]) == 1
 
 
@@ -221,13 +224,15 @@ def test_release_serialized_with_slider(tmp_path, monkeypatch, reason):
             time.sleep(.27)
         b.send_json({'a': 'dim', 'v': 22})
         ask(b, {'a': 'clear'})
-        wait_for(lambda: 'Off Fixture 12 + 14' in mock.received)
-        i = mock.received.index('Fixture 12 + 14')
-        assert mock.received[i:i + 2] == OFF
+        if 'Off Fixture 12 + 14' in mock.received:
+            i = mock.received.index('Fixture 12 + 14')
+            assert mock.received[i:i + 2] == OFF
+        else:  # the newer slider won the lock: late Off would overwrite it
+            assert (path.parent / 'highlight.json').exists()
 
 
 def test_release_restores_only_zone_known_attributes(bridge_cfg):
-    with bridge_cfg(edit, SETTINGS) as (ws, mock, path):
+    with bridge_cfg(edit, SETTINGS, confirmed_profiles=True) as (ws, mock, path):
         ask(ws, {'a': 'select_fixtures', 'ids': [12]})
         for action in [{'a': 'color', 'r': 10, 'g': 20, 'b': 30}, {'a': 'aim', 'pan': 0, 'tilt': 0},
                        {'a': 'zoom', 'v': 25}, {'a': 'focus', 'v': 35}, {'a': 'strobe', 'v': 45}]:
@@ -276,8 +281,9 @@ def test_failed_release_keeps_journal_and_reopens_unknown(bridge_cfg, monkeypatc
         if failure != 'error':  # the uncertain line reopens the session; the relogin itself sends no Off
             wait_for(lambda: sum(line.lower().startswith('login ') for line in mock.received) >= 2)
             wait_for(lambda: until_status(ws, {'a': 'show_identify'})['ma2'] == 'logged_in')
-        assert ask(ws, {'a': 'highlight_off'})['ok']
-        assert not (path.parent / 'highlight.json').exists()
+        before = len(mock.received)
+        assert not ask(ws, {'a': 'highlight_off'})['ok']
+        assert len(mock.received) == before and (path.parent / 'highlight.json').exists()
 
 
 def test_restart_unknown_current_show(tmp_path, monkeypatch):
@@ -322,3 +328,28 @@ def test_dim_only_fixture_restores_without_color(bridge_cfg):
         before = len(mock.received)
         assert ask(ws, {'a': 'highlight_off'})['ok']
         assert mock.received[before:] == OFF + ['Fixture 12', 'At 37']
+
+
+@pytest.mark.parametrize('newer', ['blackout', 'scene_go', 'dim', 'color'])
+def test_newer_light_blocks_automatic_highlight_release(bridge_cfg, newer):
+    with bridge_cfg(edit, {**SETTINGS, 'safety': {**SETTINGS['safety'], 'allowed_scenes': ['1.101']}}) as (ws, mock, path):
+        ask(ws, {'a': 'select_fixtures', 'ids': [12]})
+        ws.send_json({'a': 'dim', 'v': 40})
+        ask(ws, {'a': 'clear'})
+        start(ws)
+        ask(ws, {'a': 'select_fixtures', 'ids': [12]})
+        action = {'a': newer, **({'id': 'pianist'} if newer == 'scene_go' else
+                  {'v': 10} if newer == 'dim' else {'r': 10, 'g': 20, 'b': 30} if newer == 'color' else {})}
+        ws.send_json(action)
+        if newer in ('dim', 'color'):
+            ws.send_json({'a': 'select_fixtures', 'ids': [12]})
+            result = until(ws, lambda m: m.get('a') == 'select_fixtures' and 'ok' in m)
+        else:
+            result = until(ws, lambda m: m.get('a') == newer and 'ok' in m)
+        assert result['ok'], result
+        before = len(mock.received)
+        ws.send_json({'a': 'edit_end'})
+        result = until(ws, lambda m: m.get('a') == 'edit_end' and 'ok' in m)
+        assert not result['ok']
+        assert not any(line.startswith(('Off Fixture', 'At ', 'Attribute ')) for line in mock.received[before:])
+        assert (path.parent / 'highlight.json').exists()

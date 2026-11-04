@@ -146,7 +146,7 @@ def local_archive(path, directory):
     return archive
 
 
-USER_DATA = ('config.json', 'settings.json', 'secret.env', 'highlight.json', 'update_url.txt', 'shows', 'diagnostic-upload.json', 'diag', 'field-data')
+USER_DATA = ('config.json', 'settings.json', 'secret.env', 'highlight.json', 'rdm-search.json', 'update_url.txt', 'shows', 'diagnostic-upload.json', 'diag', 'field-data')
 
 
 def backup_user_data(root):
@@ -544,12 +544,24 @@ def main():
         if sys.argv[1:2] == ['--recover'] and len(sys.argv) == 3:
             recover(Path(sys.argv[2]))
             return 0
-        root = Path(__file__).resolve().parent
-        return rollback(root) if sys.argv[1:] == ['--rollback'] else run(root, sys.argv[1] if len(sys.argv) > 1 else None)
+        import argparse
+        parser = argparse.ArgumentParser(description='Обновление панели')
+        parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parent,
+                            help='папка установленной программы (с python/ и start.bat)')
+        parser.add_argument('--rollback', action='store_true')
+        parser.add_argument('source', nargs='?')
+        args = parser.parse_args()
+        root = args.root.resolve()
+        if not root.is_dir():
+            raise UpdateError('Папка установки не найдена')
+        return rollback(root) if args.rollback else run(root, args.source)
     except Exception as exc:
         print(f'Обновление не выполнено: {exc}')
         return 1
 
 
 if __name__ == '__main__':
+    # Embedded Windows Python's _pth can omit the external script directory.
+    # Always pair this updater with release.py from the same staging folder.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.exit(main())

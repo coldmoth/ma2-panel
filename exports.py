@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import time
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -51,10 +52,10 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
         except OSError as e:
             log.warning("не удалось записать diag/%s: %s", name, e)
 
-    async def export_type(no):
+    async def export_type(no, *, gen=None, validate=lambda: None, send=None):
         """One Export FixtureType under a one-off name. The documentation puts fixture types in their own library folder
         without naming it, so the file is looked for by name in the console's folders and one level below them."""
-        unique = f"panel_type{no}_{time.strftime('%H%M%S')}"
+        unique = f"panel_type{no}_{uuid.uuid4().hex[:16]}"
         cmd = f'Export FixtureType {no} "{unique}"'
         install = link.vars.get("PATH", "")
         roots = list(dict.fromkeys([Path(export_dir).parent, *([Path(install).parent] if install else []), *export_folders()]))
@@ -62,15 +63,19 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
         state["type_reads"][str(no)] = trace
         export_extra.add(cmd)
         try:
-            ok, reply = await link.send(cmd)
+            validate()
+            ok, reply = await (send or link.send)(cmd, gen=gen)
+            validate()
             trace["reply"] = " ".join(reply.split())[:600]
             if not ok:
                 raise ActionError(f"экспорт типа не выполнен: {trace['reply'][:200] or 'ошибка пульта'}")
             deadline = time.monotonic() + float(ma2["export_wait"])
             while True:
+                validate()
                 hits = [p for r in roots if r.is_dir() for pattern in (f"*{unique}*.xml", f"*/*{unique}*.xml") for p in r.glob(pattern)]
                 if hits:
                     await asyncio.sleep(.3)  # MA2 may still be writing
+                    validate()
                     text = hits[0].read_text(encoding="utf-8-sig")
                     for p in hits:
                         p.unlink(missing_ok=True)  # our own one-off file
@@ -88,7 +93,7 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
         finally:
             export_extra.discard(cmd)
 
-    async def export_once(cmd, kind, parse, trace_file):
+    async def export_once(cmd, kind, parse, trace_file, *, gen=None, validate=lambda: None):
         """One export under a name nobody has used, read from the console's folders, then removed. Caller checks the link."""
         name = re.search(r'"([^"/\\]+)"', cmd)
         if not name or name[1] in (".", ".."):
@@ -103,7 +108,7 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
         trace = state["export_trace"] = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "cmd": cmd, "expected_file": " | ".join(file_name),
                                          "export_wait": ma2["export_wait"], "folders": [str(f) for f in folders]}
         try:
-            return await run_export(cmd, file_name, folders, trace, parse)
+            return await run_export(cmd, file_name, folders, trace, parse, gen=gen, validate=validate)
         except (ActionError, ValueError) as e:
             trace["error"] = str(e)
             raise
@@ -117,7 +122,7 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
                         pass
             save_diag_json(trace_file, safe_data(trace))
 
-    async def run_export(cmd, file_name, folders, trace, parse):
+    async def run_export(cmd, file_name, folders, trace, parse, *, gen=None, validate=lambda: None):
         # An old copy would make MA2 ask for an overwrite confirmation (the guard never lets /Overwrite out) and could be
         # mistaken for a new export: remove our own file name from every folder first.
         for folder in folders:
@@ -127,12 +132,15 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
             except OSError as e:
                 raise ActionError(f"не удалось удалить старый экспорт: {e}") from e
         sent_at = time.time()
-        ok, reply = await link.send(cmd)
+        validate()
+        ok, reply = await link.send(cmd, gen=gen)
+        validate()
         trace.update(sent_ok=ok, reply=" ".join(reply.split())[:1500])
         if not ok:
             raise ActionError(f"команда экспорта не выполнена: {' '.join(reply.split())[:300] or 'ошибка пульта'}")
         deadline = time.monotonic() + float(ma2["export_wait"])
         while True:
+            validate()
             file = next((f / n for f in folders for n in file_name if (f / n).is_file()
                          and (f == folders[0] or (f / n).stat().st_mtime >= sent_at)), None)
             if file:

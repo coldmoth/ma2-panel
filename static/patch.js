@@ -31,10 +31,8 @@ on('ok', function (ok, m) {
     rdmSearchUI.error = ok ? '' : m.err || 'Результат операции RDM не подтверждён';
     render();
   }
-  if (m.a === 'patch_plan') { patchState.plan = ok ? m.plan : null; if (ok) patchDialog(m.plan); else notice(m.err); }
+  if (m.a === 'patch_plan') { patchState.plan = ok ? m.plan : null; if (ok) patchDialog(m.plan); }
   if (m.a === 'patch_apply') { patchState.result = m; patchState.plan = null; closeDialog(); render(); }
-  if (m.a === 'rdm_list' && !ok) notice(m.err);
-  if (m.a === 'rdm_identify' && !ok) notice(m.err);
 });
 
 function dmxText(a) { return Math.floor((a - 1) / 512) + 1 + '.' + String((a - 1) % 512 + 1).padStart(3, '0'); }
@@ -101,7 +99,7 @@ function patchTable() {
   var rows = (state.config && state.config.patch) || [];
   var byId = {};
   fixtures().forEach(function (f) { byId[f.id] = f; });
-  function range(start, n) { return n ? dmxText(start) + '–' + ((start + n - 2) % 512 + 1) : dmxText(start) + '–?'; }
+  function range(start, n) { if (start == null) return 'линия/адрес не подтверждены'; return n ? dmxText(start) + '–' + ((start + n - 2) % 512 + 1) : dmxText(start) + '–?'; }
   return h('div', {class: 'tablewrap', 'data-scroll': 'patch'}, h('table', {},
     h('tr', {}, ['Fixture', 'Имя', 'Тип', 'Патч MA2', 'Каналы MA2', 'Физический (RDM)', 'Пересечения'].map(function (t) { return h('th', {}, t); })),
     rows.map(function (r) {
@@ -183,8 +181,8 @@ function patchDialog(plan) {
 function patchResult() {
   var r = patchState.result;
   if (!r) return null;
-  return h('div', {class: 'card'}, h('b', {class: r.ok ? null : 'bad'}, r.ok ? 'Записано' : (r.err || 'Не записано')),
-    (r.steps || []).map(function (s) { return h('p', {class: s.ok ? 'note' : 'bad'}, (s.ok ? 'да · ' : 'нет · ') + s.line + (s.reply ? ' — ' + s.reply : '')); }),
+  return h('div', {class: 'card'}, h('b', {class: r.ok ? null : 'bad'}, r.ok ? 'Адрес подтверждён чтением' : (r.err || 'Результат неизвестен')),
+    (r.steps || []).map(function (s) { return h('p', {class: s.ok ? 'note' : 'bad'}, (s.status === 'unknown' ? 'неизвестно · ' : s.ok ? 'отправлено · ' : 'отказ · ') + s.line + (s.reply ? ' — ' + s.reply : '')); }),
     r.check ? h('p', {class: 'note'}, 'Перечитано: ' + (r.check.patch ? 'патч ' + r.check.patch : '') + (r.check.rdm ? ' · RDM: ' + r.check.rdm.join(' ') : '') + (r.check.error ? ' · ошибка перечитывания: ' + r.check.error : '')) : null,
     (r.undo || []).length ? h('p', {class: 'note warn'}, 'Вернуть как было: ' + r.undo.join('; ') + ' (постройте план на прежний адрес ' + ((r.plan && r.plan.old) || '') + ').') : null,
     r.note ? h('p', {class: 'note warn'}, r.note) : null);

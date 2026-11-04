@@ -95,7 +95,10 @@ def exec_verdict(reply: str, ex: str, empty_re: re.Pattern) -> tuple[str, str]:
 
 
 def unrecognised_lines(reply: str) -> int:
-    return sum(not parse_executors(line) for line in _reply_lines(reply))
+    lines = list(_reply_lines(reply))
+    # A completed transport frame with no catalogue data is still unknown,
+    # not evidence of an empty address range. Surface it through the existing warning.
+    return sum(not parse_executors(line) for line in lines) if lines else 1
 
 
 # An executor row: an optional leading word ("Executor", or "Exec" as the desk's other List replies use a short one),
@@ -153,15 +156,23 @@ def group_slot_empty(reply: str, n: int, pattern: str, empty_pattern: str) -> bo
 def parse_running(reply: str) -> dict[str, bool]:
     """exec -> running, only for lines that carry a status word. ponytail: status word guessed, check in the hall."""
     state = {}
+    ambiguous = set()
     for line in reply.splitlines():
         m = EXEC_ROW.match(line)
-        cols = re.split(r"\s{2,}", m[2])[1:] if m else []
+        if not m:
+            continue
+        cols = re.split(r"\s{2,}", m[2])[1:]
         words = {w.lower() for col in cols for w in col.split()}
-        if words & {"running", "on", "active"}:
-            state[m[1]] = True
-        elif words & {"off", "stopped"}:
-            state[m[1]] = False
-    return state
+        on = bool(words & {"running", "on", "active"})
+        off = bool(words & {"off", "stopped"})
+        if on == off:
+            ambiguous.add(m[1])
+        elif m[1] in state and state[m[1]] != on:
+            ambiguous.add(m[1])
+        else:
+            state[m[1]] = on
+    # A later row cannot turn conflicting or missing evidence into a known status.
+    return {ex: value for ex, value in state.items() if ex not in ambiguous}
 
 
 def movers(ids: list[int], cfg: dict) -> list[int]:
@@ -414,12 +425,12 @@ DMX_CHUNK = 32
 # So each address is read with the documented one-address form getdmx(address) -> 0-255 (also what MA's own Littlites
 # plug-in uses), each call under pcall. Until values arrive the canary reports $PANELST (1 the call worked, -1 it failed)
 # and $PANELV (the first address's raw value).
-DMX_LUA = ("Lua \"local a,n={a},{n} local v={{}} for i=1,n do local ok,x=pcall(gma.show.getdmx,a+i-1) "
+DMX_LUA = ("Lua \"local a,n,v={a},{n},{{}} for i=1,n do local ok,x=pcall(gma.show.getdmx,a+i-1) "
            "v[i]=ok and tonumber(x) and math.floor(x+.5) or -1 end "
-           "gma.cmd(('SetVar %sPANELDMX%d = %q'):format(string.char(36),a,'T '..a..' '..table.concat(v,',')))\"")
+           "gma.cmd(('SetVar %sPANELDMX%d = %q'):format(string.char(36),a,'T{nonce} '..a..' '..table.concat(v,',')))\"")
 DMX_CANARY = ("Lua \"local D='SetVar '..string.char(36)..'PANEL' local ok,v=pcall(gma.show.getdmx,{a}) "
               "gma.cmd(D..'ST = '..(ok and 1 or -1)) gma.cmd(D..'V = '..(ok and tonumber(v) or -1))\"")
-DMX_ROW = re.compile(r"PANELDMX\d+\s*=\s*\"?([TS]) (\d+) (-?[\d.]+(?:,-?[\d.]+)*)")
+DMX_ROW = re.compile(r'PANELDMX\d+\s*=\s*"?([TS][0-9a-f]*) (\d+) (-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?)*)"?[ \t]*$', re.M)
 
 
 def absolute(address) -> int | None:
@@ -430,9 +441,9 @@ def absolute(address) -> int | None:
 
 def dmx_intervals(fixtures: list[dict]) -> list[tuple[int, int]]:
     """Sorted (start, count) ranges, without reading holes in a sparse patch."""
-    spans = sorted((a, a + f.get("channels", 1)) for f in fixtures
+    spans = sorted((a, a + f["footprint"]) for f in fixtures
                    if not f.get("missing") and (a := absolute(f.get("address")))
-                   and f.get("channels", 1) > 0)
+                   and type(f.get("footprint")) is int and f["footprint"] > 0)
     merged = []
     for start, end in spans:
         if merged and start <= merged[-1][1]:
@@ -444,25 +455,32 @@ def dmx_intervals(fixtures: list[dict]) -> list[tuple[int, int]]:
 
 def dmx_span(fixtures: list[dict]) -> tuple[int, int] | None:
     """(first address, count) covering every patched fixture of the plan."""
-    spans = [(a, a + f.get("channels", 1) - 1) for f in fixtures if not f.get("missing") and (a := absolute(f.get("address")))]
+    spans = [(a, a + n - 1) for a, n in dmx_intervals(fixtures)]
     return (min(s for s, _ in spans), max(e for _, e in spans) - min(s for s, _ in spans) + 1) if spans else None
 
 
-def dmx_lua(start: int, count: int) -> list[str]:
+def dmx_lua(start: int, count: int, *, nonce: str = "") -> list[str]:
     """One Lua line per chunk of DMX_CHUNK addresses."""
-    return [DMX_LUA.format(a=a, n=min(DMX_CHUNK, start + count - a)) for a in range(start, start + count, DMX_CHUNK)]
+    if nonce and not re.fullmatch(r"[0-9a-f]{16}", nonce):
+        raise ValueError("invalid DMX measurement marker")
+    return [DMX_LUA.format(nonce=nonce, a=a, n=min(DMX_CHUNK, start + count - a)) for a in range(start, start + count, DMX_CHUNK)]
 
 
-def parse_dmx(text: str, *, span: tuple[int, int] | None = None) -> dict[int, float]:
+def parse_dmx(text: str, *, span: tuple[int, int] | None = None, nonce: str | None = None) -> dict[int, float]:
     """{absolute address: 0-255} from the Lua feedback or ListVar; -1 (unreadable) is left out."""
     out = {}
     for m in DMX_ROW.finditer(text):
+        if nonce is not None and m[1] != "T" + nonce:
+            continue
         if span is not None and (int(re.match(r"PANELDMX(\d+)", m[0])[1]) != span[0]
                                  or int(m[2]) != span[0] or len(m[3].split(",")) != span[1]):
             continue
+        if int(m[2]) < 1:
+            continue
         for i, v in enumerate(m[3].split(",")):
-            if float(v) >= 0:
-                out[int(m[2]) + i] = float(v)
+            value = float(v)
+            if math.isfinite(value) and value.is_integer() and 0 <= value <= 255:
+                out[int(m[2]) + i] = value
     return out
 
 
@@ -472,9 +490,12 @@ def live_from_dmx(fixtures: list[dict], dmx: dict[int, float], dmx_map: dict) ->
     live = {}
     for f in fixtures:
         start, spec = absolute(f.get("address")), dmx_map.get(f.get("type") or "")
-        if start is None or not spec:
+        if start is None or not spec or spec.get("stale") or spec.get("unsupported"):
             continue
         get = lambda key: dmx.get(start + spec[key] - 1) if spec.get(key) else None  # noqa: E731
+        # A missing mapped byte is unknown, not an absent channel in the profile.
+        if any(spec.get(k) and get(k) is None for k in ("dim", "r", "g", "b")):
+            continue
         rgb = [get(k) for k in "rgb"]
         dim = get("dim")
         if dim is None and None in rgb:
@@ -530,13 +551,15 @@ def patch_rows(fixtures: list[dict]) -> list[dict]:
         if f.get("missing") or start is None:
             continue
         rdm = f.get("rdm") or {}
-        # RDM addresses are within the device's line (1-512); the device is taken to sit on its patch universe.
-        phys_start = (start - 1) // 512 * 512 + rdm["address"] if rdm.get("address") else start
-        rows.append({"id": f["id"], "start": start, "ma2": f.get("footprint") or f.get("channels"), "ma2_from": "List FixtureType" if f.get("footprint") else "экспорт" if f.get("channels") else None,
+        # A patch universe is not evidence of the device's physical line.
+        universe, address = rdm.get("universe"), rdm.get("address")
+        phys_start = ((universe - 1) * 512 + address if type(universe) is int and 1 <= universe <= 256
+                      and type(address) is int and 1 <= address <= 512 else None)
+        rows.append({"id": f["id"], "start": start, "ma2": f.get("footprint"), "ma2_from": "List FixtureType" if f.get("footprint") else None,
                      "phys_start": phys_start, "phys": rdm.get("footprint"),
                      "uid": rdm.get("uid"), "conflicts": []})
     spans = [(r["id"], r["start"], r["start"] + (r["ma2"] or 1) - 1) for r in rows]
-    spans += [(r["id"], r["phys_start"], r["phys_start"] + r["phys"] - 1) for r in rows if r["phys"]]
+    spans += [(r["id"], r["phys_start"], r["phys_start"] + r["phys"] - 1) for r in rows if r["phys"] and r["phys_start"] is not None]
     for r in rows:
         mine = [(s, e) for i, s, e in spans if i == r["id"]]
         r["conflicts"] = sorted({i for i, s, e in spans if i != r["id"] and any(s <= me and ms <= e for ms, me in mine)})
@@ -549,13 +572,35 @@ def patch_plan(fixtures: list[dict], fid: int, start: int, patch: bool, physical
     f = next((x for x in fixtures if x["id"] == fid and not x.get("missing")), None)
     if f is None or absolute(f.get("address")) is None:
         raise ActionError(f"прибор {fid} не в патче плана: сначала «Получить приборы»")
-    if not (f.get("footprint") or f.get("channels")):
+    if f.get("patch_unsupported"):
+        raise ActionError("структура патча прибора не поддерживается: несколько адресов/instances/breaks")
+    if type(start) is not int or not 1 <= start <= 256 * 512:
+        raise ActionError("адрес вне границ DMX 1–256.512")
+    if type(f.get("footprint")) is not int or not 1 <= f["footprint"] <= 512:
         raise ActionError(f"число каналов прибора {fid} в MA2 не прочитано: перечитайте патч, без него пересечения не проверить")
+    if any(x.get("patch_unsupported") and not x.get("missing") for x in fixtures):
+        raise ActionError("структура соседнего прибора не поддерживается: все пересечения проверить нельзя")
+    unknown = [r["id"] for r in patch_rows(fixtures) if not r["ma2"]]
+    if unknown:
+        raise ActionError(f"число каналов приборов {unknown} в MA2 не прочитано: без него пересечения не проверить")
     if not patch and not physical:
         raise ActionError("нечего менять: выберите патч MA2, физический адрес или оба")
     uid = (f.get("rdm") or {}).get("uid")
     if physical and not uid:
         raise ActionError("физический адрес меняется только у прибора, связанного с RDM-устройством (UID)")
+    def fits(address, size):
+        return type(size) is int and 1 <= size <= 512 and (address - 1) % 512 + size <= 512
+    if patch and not fits(start, f["footprint"]):
+        raise ActionError("блок MA2 пересекает границу DMX-вселенной")
+    if physical:
+        rdm = f["rdm"]
+        if not fits(start, rdm.get("footprint")):
+            raise ActionError("физический footprint неизвестен или блок пересекает границу DMX-линии")
+        universe = rdm.get("universe")
+        if type(universe) is not int or not 1 <= universe <= 256:
+            raise ActionError("физическая линия UID не подтверждена; запись RDM запрещена")
+        if universe != (start - 1) // 512 + 1:
+            raise ActionError("RDM не переносит прибор между физическими линиями: нужно переподключение")
     after = [dict(x, address=dmx_text(start)) if x["id"] == fid and patch else x for x in fixtures]
     if physical:
         after = [dict(x, rdm={**x["rdm"], "address": (start - 1) % 512 + 1}) if x["id"] == fid else x for x in after]
@@ -564,7 +609,7 @@ def patch_plan(fixtures: list[dict], fid: int, start: int, patch: bool, physical
     plan = {"id": fid, "name": f.get("name") or f.get("label"), "uid": uid, "patch": patch, "physical": physical,
             "old": dmx_text(old), "new": dmx_text(start), "old_phys": (f.get("rdm") or {}).get("address"),
             "ma2_range": [start if patch else old, (start if patch else old) + row["ma2"] - 1] if row["ma2"] else None,
-            "phys_range": [row["phys_start"], row["phys_start"] + row["phys"] - 1] if row["phys"] else None,
+            "phys_range": [row["phys_start"], row["phys_start"] + row["phys"] - 1] if row["phys"] and row["phys_start"] is not None else None,
             "conflicts": row["conflicts"], "lines": []}
     if physical:
         plan["lines"].append(f"RdmSetParameter dmx_start_address {(start - 1) % 512 + 1} / UID = {uid}")
@@ -586,7 +631,8 @@ def parse_type_footprints(text: str) -> dict[str, int]:
     out = {}
     for ln in lines:
         m = re.match(r"FixtureType (\d+) ", ln)
-        if m and ln[a:b].strip().isdigit():
+        instances = ln[b:].split(maxsplit=1)[0] if ln[b:].strip() else ""
+        if m and ln[a:b].strip().isdigit() and instances == "1":
             out[m[1]] = int(ln[a:b].strip())
     return out
 
@@ -599,16 +645,32 @@ def type_no(kind) -> str | None:
 def parse_rdm_list(text: str) -> list[dict]:
     """RdmList feedback -> [{uid, line}]. ponytail: the 3.9 manual gives no column layout, so only the UID is taken;
     the line is kept as the desk wrote it. Address and footprint are read only when the line labels them."""
-    out, seen = [], set()
+    out, by_uid, conflicts = [], {}, {}
     for line in text.splitlines():
-        m = UID.search(line)
-        if not m or (uid := (m[1] + m[2]).upper()) in seen:
+        # Only a UID-led record can be device evidence. Commands, prompts and
+        # diagnostics containing a UID are not replies from that device.
+        m = UID.match(line.strip())
+        if not m:
             continue
-        seen.add(uid)
-        row = {"uid": uid, "line": " ".join(line.split())[:300]}
+        uid = (m[1] + m[2]).upper()
+        props = {}
         for key, label in (("address", r"(?:dmx\s*)?(?:start\s*)?addr(?:ess)?"), ("footprint", r"footprint")):
-            v = re.search(rf"(?i)\b{label}\s*[:=]?\s*(\d+)\b", line)
-            if v and 1 <= int(v[1]) <= 512:
-                row[key] = int(v[1])
-        out.append(row)
+            tokens = re.findall(rf"(?i)\b{label}\s*[:=]?\s*(\S+)", line)
+            values = [int(v) if re.fullmatch(r"[0-9]{1,3}", v) else None for v in tokens]
+            if values and all(v is not None and 1 <= v <= 512 for v in values) and len(set(values)) == 1:
+                props[key] = values[0]
+        if uid not in by_uid:
+            row = {"uid": uid, "line": " ".join(line.split())[:300], **props}
+            by_uid[uid] = row
+            conflicts[uid] = set()
+            out.append(row)
+        else:
+            # Repeated UID records must agree in full; never synthesize a device
+            # from incomplete fragments of an unconfirmed multiline layout.
+            row = by_uid[uid]
+            for key in ("address", "footprint"):
+                if row.get(key) != props.get(key):
+                    conflicts[uid].add(key)
+                if key in conflicts[uid]:
+                    row.pop(key, None)
     return out
