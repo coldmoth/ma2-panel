@@ -8,14 +8,14 @@
   "update": {
     "per_test_timeout_seconds": 30,
     "group_timeout_seconds": 180,
-    "count": 32,
-    "sha256": "74a678007be2babb8d48c3e2529a8750319d54b91acfde3e6f984b341dbfbb0e"
+    "count": 35,
+    "sha256": "57a6bdcc4a0e5cf34dc99143b18dd99b0365ad19f8c9655e5eaf16972d0bc134"
   },
   "browser-unit": {
     "per_test_timeout_seconds": 30,
     "group_timeout_seconds": 180,
-    "count": 8,
-    "sha256": "4379f22edddc1aa2ba8d1a9b0af7f539393c5ecbcfafc3b0730abc71b772944f"
+    "count": 12,
+    "sha256": "a983e9d31b64db889b24ec404cb2b572667e20e66927687048a08a4bf8b36b41"
   },
   "browser-worker": {
     "per_test_timeout_seconds": 90,
@@ -33,7 +33,7 @@
     "per_test_timeout_seconds": 15,
     "group_timeout_seconds": 180,
     "count": 50,
-    "sha256": "6761eae7da4da2fcf5f72ba07050015da626b0f1ae9e7a4612defa40091bebf2"
+    "sha256": "136677a7e8b85d3f891d9828f6d0435b4e02d55cb1868b37e201348f339a4bb5"
   },
   "watchdog": {
     "per_test_timeout_seconds": 30,

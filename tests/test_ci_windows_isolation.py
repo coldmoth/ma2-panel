@@ -9,12 +9,12 @@ def groups(tmp_path_factory):
     return isolation.collect(tmp_path_factory.mktemp("windows-collection"))
 
 
-def test_all_original_nodes_are_assigned_once(groups):
+def test_all_regression_nodes_are_assigned_once(groups):
     assert {key: len(value) for key, value in groups.items()} == {
-        'release': 18, 'update': 32, 'browser-unit': 8, 'browser-worker': 1,
+        'release': 18, 'update': 35, 'browser-unit': 12, 'browser-worker': 1,
         'selfcheck': 5, 'rdm': 50, 'watchdog': 4}
     nodes = [node for values in groups.values() for node in values]
-    assert len(nodes) == len(set(nodes)) == 118
+    assert len(nodes) == len(set(nodes)) == 125
 
 
 @pytest.mark.parametrize('change', ['missing', 'duplicate', 'unexpected', 'renamed'])
