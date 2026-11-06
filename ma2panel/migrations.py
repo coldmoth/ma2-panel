@@ -10,8 +10,8 @@ import shutil
 import time
 from pathlib import Path
 
-from fixtures import save_config
-from safety import validate_settings
+from .fixtures import save_config
+from .safety import validate_settings
 
 SITE_KEYS = ('port', 'rate_hz', 'ma2', 'master')
 
@@ -54,7 +54,7 @@ def legacy_archive_path(config_path, cfg):
     name = cfg.get('show')
     if not isinstance(name, str) or not name.strip():
         return folder / 'backups' / 'unnamed-plan-v3.json'
-    from show_plans import plan_path
+    from .show_plans import plan_path
     return plan_path(folder / 'shows', name, write=True)
 
 

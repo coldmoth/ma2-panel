@@ -14,8 +14,8 @@ from fastapi import Request
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.requests import ClientDisconnect
 
-from commands import ActionError, is_error_reply
-import show_files as files
+from .commands import ActionError, is_error_reply
+from . import show_files as files
 
 FILE_WAIT = 120
 STABLE_SECONDS = 1

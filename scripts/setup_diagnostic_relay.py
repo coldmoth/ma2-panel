@@ -6,8 +6,7 @@ import shlex
 import subprocess
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from diagnostic_upload import Github, REPOSITORY
+from ma2panel.diagnostic_upload import Github, REPOSITORY
 
 
 REMOTE = '''

@@ -50,7 +50,7 @@ GitHub уже ответил, а SQLite-квитанция ещё не была 
 Код разместить в `/opt/ma2-diagnostics` с готовым `.venv` проекта; новых Python
 зависимостей нет. Создать системного пользователя/группу `ma2-diagnostics` без
 интерактивного shell. Код принадлежит root и недоступен сервису для записи.
-Установить unit из `relay/ma2-diagnostics.service` в `/etc/systemd/system/`.
+Установить unit из `scripts/relay/ma2-diagnostics.service` в `/etc/systemd/system/`.
 Systemd создаёт `/var/lib/ma2-diagnostics` с правами 0700.
 
 Ограниченный GitHub-токен только для `coldmoth/ma2-panel-diagnostics` с Issues
@@ -63,7 +63,7 @@ read/write и Metadata read установить безопасным спосо
 
 Каталог: root:ma2-diagnostics, 0750. Файл: root:ma2-diagnostics, 0640.
 Для однократного безопасного ввода и установки использовать
-`uv run python scripts/setup_diagnostic_relay.py` из корня проекта на Mac владельца.
+`uv run python -m scripts.setup_diagnostic_relay` из корня проекта на Mac владельца.
 Не копировать широкий CLI-токен и не добавлять токен в unit, аргументы процесса,
 Git, отчёты, логи или чат. Токен читает только существующий Uploader.
 Без файла сервис сохраняет очередь, а health показывает `delivery_ready: false`.
@@ -107,7 +107,7 @@ uv run pytest -q -p no:cacheprovider tests/test_diagnostic_relay_server.py
    Only select repositories → `ma2-panel-diagnostics`; Repository permissions:
    Issues — Read and write, Metadata — Read. Указать срок действия, записать дату
    продления в личном календаре. Создание и подтверждения GitHub выполняет владелец.
-2. На Mac владельца запустить `uv run python scripts/setup_diagnostic_relay.py`.
+2. На Mac владельца запустить `uv run python -m scripts.setup_diagnostic_relay`.
    Вставить токен в скрытый интерактивный ввод; не передавать его аргументом,
    переменной в shell history, в чат или отчёт. Скрипт проверяет приватность репозитория,
    передаёт токен по stdin SSH и устанавливает `/etc/ma2-diagnostics/github.json`

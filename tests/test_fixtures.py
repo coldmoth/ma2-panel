@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from commands import load_config
-from fixtures import merge_fixtures, parse_export, save_config
+from ma2panel.commands import load_config
+from ma2panel.fixtures import merge_fixtures, parse_export, save_config
 
 
 def test_parse_sample():
-    found = parse_export(Path("tests/sample_export.xml").read_text())
+    found = parse_export(Path("ma2panel/resources/mock/sample_export.xml").read_text())
     assert [f["id"] for f in found] == [1, 2, 12, 99]
     assert found[2] == {"id": 12, "name": "Front", "type": "ACME", "params": [], "address": "2.001"}
     assert found[3]["address"] is None
@@ -48,7 +48,7 @@ def test_merge_unmissing():
 
 
 def test_save_atomic(tmp_path, monkeypatch):
-    import fixtures
+    from ma2panel import fixtures
     cfg = json.loads(Path("tests/config.test.json").read_text())
     path = tmp_path / "config.json"
     path.write_text("old")

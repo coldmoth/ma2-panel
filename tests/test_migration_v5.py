@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from migrations import migrate_config
+from ma2panel.migrations import migrate_config
 
 
 def workspace(tmp_path, version=4, settings=None, **extra):
@@ -80,7 +80,7 @@ def test_invalid_data_fails_before_backup_or_write(tmp_path, extra, settings):
 
 
 def test_interrupted_config_write_can_retry_without_losing_settings(tmp_path, monkeypatch):
-    import migrations
+    from ma2panel import migrations
     cp, sp = workspace(tmp_path, settings={'ma2': {'host': 'site'}}, port=8080,
                        ma2={'host': 'legacy', 'port': 30000})
     original = cp.read_bytes()
@@ -123,7 +123,7 @@ def test_archive_for_another_show_refuses_before_write(tmp_path):
 
 
 def test_settings_write_failure_leaves_both_original_files(tmp_path, monkeypatch):
-    import migrations
+    from ma2panel import migrations
     cp, sp = workspace(tmp_path, settings={'port': 9091}, rate_hz=10)
     original_cfg, original_settings = cp.read_bytes(), sp.read_bytes()
     def fail_write(path, value):
@@ -145,7 +145,7 @@ def test_bad_top_level_or_nested_settings_does_not_modify_files(tmp_path, target
 
 
 def test_migrated_export_path_with_password_word_can_be_loaded(tmp_path):
-    from safety import load_settings
+    from ma2panel.safety import load_settings
     config, settings = workspace(tmp_path, ma2={'export_dir': 'C:/password-tests/importexport'})
     migrate_config(config, settings)
     assert load_settings(settings)['ma2']['export_dir'] == 'C:/password-tests/importexport'

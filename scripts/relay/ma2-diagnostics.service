@@ -8,7 +8,7 @@ Type=simple
 User=ma2-diagnostics
 Group=ma2-diagnostics
 WorkingDirectory=/opt/ma2-diagnostics
-ExecStart=/opt/ma2-diagnostics/.venv/bin/uvicorn relay.app:configured_app --factory --host 127.0.0.1 --port 8767 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
+ExecStart=/opt/ma2-diagnostics/.venv/bin/uvicorn scripts.relay.app:configured_app --factory --host 127.0.0.1 --port 8767 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
 StateDirectory=ma2-diagnostics
 StateDirectoryMode=0700
 Environment=MA2_DIAGNOSTICS_STATE=/var/lib/ma2-diagnostics

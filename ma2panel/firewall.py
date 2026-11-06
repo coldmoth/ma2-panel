@@ -20,5 +20,9 @@ def apply(root):
                             'remoteip=LocalSubnet', f'profile={profile}', 'enable=yes'], check=True)
 
 
+def main():
+    apply(Path(__file__).resolve().parent.parent)
+
+
 if __name__ == '__main__':
-    apply(Path(__file__).resolve().parent)
+    main()

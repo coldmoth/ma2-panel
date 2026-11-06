@@ -4,7 +4,7 @@ from contextlib import ExitStack
 
 import pytest
 from fastapi.testclient import TestClient
-from bridge import create_app, MA2Link
+from ma2panel.bridge import create_app, MA2Link
 from test_bridge import bridge_cfg, ask, ready, until, CONFIG, FULL
 
 
@@ -193,7 +193,7 @@ def test_concurrent_saves_have_one_winner(tmp_path):
 def test_waiting_conflict_does_not_claim_another_clients_mutation(tmp_path, monkeypatch):
     import asyncio
     from types import SimpleNamespace
-    import bridge
+    from ma2panel import bridge
     captured = []
     monkeypatch.setattr(bridge, 'register_api', lambda app, context, gate: captured.append(context))
     cfg = json.loads(open(CONFIG).read()); cfg['ma2']['export_dir'] = str(tmp_path)

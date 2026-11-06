@@ -18,6 +18,18 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
+def release_module():
+    if __package__:
+        from . import release
+        return release
+    # A detached updater must use its staged validator, never the installed one.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('_ma2_staged_release', Path(__file__).with_name('release.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class UpdateError(Exception):
     pass
 
@@ -30,7 +42,9 @@ def allowed(name):
         return False
     if name == 'program-manifest.json' or name == 'CHANGELOG.md':
         return True
-    if path.parts[0] in ('static', 'docs'):
+    if path.parts[0] in ('static', 'docs', 'ma2panel'):
+        return True
+    if name == 'ma2panel':
         return True
     return len(path.parts) == 1 and (name in ('VERSION', 'README-RU.md') or path.suffix in ('.py', '.bat'))
 
@@ -43,7 +57,7 @@ def validate_zip(archive):
             if item.orig_filename != item.filename:
                 raise UpdateError(f'Недопустимый файл обновления: {item.orig_filename!r}')
         if 'program-manifest.json' in candidate.namelist():
-            import release
+            release = release_module()
             try:
                 return release.check(archive)['version']
             except ValueError as exc:
@@ -522,7 +536,7 @@ def run(root, url=None, confirm=input):
         new = validate_zip(archive)
         with zipfile.ZipFile(archive) as package:
             if 'program-manifest.json' in package.namelist():
-                import release
+                release = release_module()
                 try:
                     installed = json.loads((root / 'runtime.json').read_text(encoding='utf-8'))
                     release.verify_runtime(root)
@@ -556,7 +570,7 @@ def main():
             return 0
         import argparse
         parser = argparse.ArgumentParser(description='Обновление панели')
-        parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parent,
+        parser.add_argument('--root', type=Path, default=(Path(__file__).resolve().parent.parent if __package__ else Path(__file__).resolve().parent),
                             help='папка установленной программы (с python/ и start.bat)')
         parser.add_argument('--rollback', action='store_true')
         parser.add_argument('source', nargs='?')
@@ -571,7 +585,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # Embedded Windows Python's _pth can omit the external script directory.
-    # Always pair this updater with release.py from the same staging folder.
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.exit(main())

@@ -1,7 +1,7 @@
 """DATA-018: an admitted patch never crosses context or stop boundaries."""
 import asyncio
 import pytest
-from commands import ActionError
+from ma2panel.commands import ActionError
 from test_status_evidence import context  # noqa: F401
 
 
@@ -148,7 +148,7 @@ def test_patch_profile_readback_preserves_context_through_last_stage(context, ki
                 return False, 'Error'
             if line == 'List FixtureType':
                 if phase == 'type_list': change(c, kind)
-                return True, Path('tests/list_fixturetype_3.9.60.txt').read_text()
+                return True, Path('ma2panel/resources/mock/list_fixturetype_3.9.60.txt').read_text()
             return True, 'ok'
         c.link.send = send
         c.ma2['export_wait'] = 0

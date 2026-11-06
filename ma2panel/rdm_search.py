@@ -13,8 +13,8 @@ import re
 import time
 import uuid
 
-from commands import ActionError, is_error_reply, parse_rdm_list
-from safety import RDM_GLOBAL  # the exact global On/Off lines: the guard admits them only through this module's admission
+from .commands import ActionError, is_error_reply, parse_rdm_list
+from .safety import RDM_GLOBAL  # the exact global On/Off lines: the guard admits them only through this module's admission
 
 log = logging.getLogger("bridge")
 WINDOW_SECONDS = 18

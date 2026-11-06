@@ -9,7 +9,8 @@ def generate(root):
     version = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
     if not isinstance(version, str) or not version or version.strip() != version or any(c.isspace() for c in version):
         raise ValueError('Invalid project version')
-    (root / 'VERSION').write_text(version + '\n', encoding='utf-8')
+    (root / 'ma2panel').mkdir(exist_ok=True)
+    (root / 'ma2panel/VERSION').write_text(version + '\n', encoding='utf-8')
     return version
 
 

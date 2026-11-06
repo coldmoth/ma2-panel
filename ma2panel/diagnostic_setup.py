@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-import diagnostic_upload as upload
+from . import diagnostic_upload as upload
 
 
 def _protect(path):
@@ -52,7 +52,7 @@ def configure(path, token):
 
 def main():
     parser = argparse.ArgumentParser(description='Настройка отправки диагностики в закрытый GitHub-репозиторий')
-    parser.add_argument('--settings', type=Path, default=Path(__file__).resolve().parent / 'settings.json')
+    parser.add_argument('--settings', type=Path, default=Path(__file__).resolve().parent.parent / 'settings.json')
     args = parser.parse_args()
     print('Получатель: ' + upload.REPOSITORY)
     print('Нужен fine-grained токен: только этот репозиторий, Issues read/write, Metadata read.')

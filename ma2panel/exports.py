@@ -14,8 +14,8 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
-from commands import ActionError
-from fixtures import parse_fixture_type
+from .commands import ActionError
+from .fixtures import parse_fixture_type
 
 log = logging.getLogger("bridge")
 

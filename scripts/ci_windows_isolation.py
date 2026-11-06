@@ -11,7 +11,6 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 from scripts.ci_windows_tests import TESTS, run
 
 MANIFEST = ROOT / 'scripts/ci_windows_groups.json'

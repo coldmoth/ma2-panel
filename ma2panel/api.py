@@ -17,15 +17,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-import diagnostic_upload
+from . import diagnostic_upload
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from commands import ActionError
-from fixtures import save_config
-from link import HALTED, NO_LINK, clean
-from safety import DEFAULT_MA2, DEFAULT_SAFETY, load_secret, read_settings_pair, save_settings_pair, validate_settings, without_passwords
+from .commands import ActionError
+from .fixtures import save_config
+from .link import HALTED, NO_LINK, clean
+from .safety import DEFAULT_MA2, DEFAULT_SAFETY, load_secret, read_settings_pair, save_settings_pair, validate_settings, without_passwords
 
 log = logging.getLogger("bridge")
 LOOPBACK = ("127.0.0.1", "::1")
@@ -181,6 +181,8 @@ def register(app, c, is_loopback):
     @app.get("/api/diag")
     def diagnostics():
         version = HERE / "VERSION"
+        if not version.exists():
+            version = Path(__file__).parent / "VERSION"
         return safe_data({"ma2": link.state, "login_reply": link.login_reply, "login_vars": link.vars, "last": link.last,
                           "show": state["show"], "export_file": state["export_file"], "raw": list(link.raw)[-50:], "errors": list(errors)[::-1],
                           "version": version.read_text(encoding="utf-8").strip() if version.exists() else "dev",
@@ -374,6 +376,8 @@ def register(app, c, is_loopback):
             problems.append(f"diag.json: {type(e).__name__}: {e}")
         part("journal.json", lambda: json.dumps(safe_data(list(journal)), ensure_ascii=False, indent=2))
         version = HERE / "VERSION"
+        if not version.exists():
+            version = Path(__file__).parent / "VERSION"
         files["VERSION"] = diag.get("version") or (read(version).strip() if version.exists() else "dev")
         if problems:
             files["collect_errors.txt"] = "\n".join(problems)

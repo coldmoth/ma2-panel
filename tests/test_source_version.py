@@ -12,12 +12,13 @@ def test_generate_and_refresh_source_version(tmp_path):
         metadata.write_text(f'[project]\nversion = "{value}"\n')
         result = subprocess.run([sys.executable, str(SCRIPT), '--root', str(tmp_path)], capture_output=True)
         assert result.returncode == 0, result.stderr.decode()
-        assert (tmp_path / 'VERSION').read_text() == value + '\n'
+        assert (tmp_path / 'ma2panel/VERSION').read_text() == value + '\n'
 
 
 def test_bad_metadata_preserves_previous_version(tmp_path):
-    (tmp_path / 'VERSION').write_text('previous\n')
+    (tmp_path / 'ma2panel').mkdir()
+    (tmp_path / 'ma2panel/VERSION').write_text('previous\n')
     (tmp_path / 'pyproject.toml').write_text('[project]\n')
     result = subprocess.run([sys.executable, str(SCRIPT), '--root', str(tmp_path)], capture_output=True)
     assert result.returncode != 0
-    assert (tmp_path / 'VERSION').read_text() == 'previous\n'
+    assert (tmp_path / 'ma2panel/VERSION').read_text() == 'previous\n'

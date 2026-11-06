@@ -1,7 +1,7 @@
 """Stable panel scene order, independent of the console's pages."""
 import re
 
-from commands import ActionError
+from .commands import ActionError
 
 
 def canonical_exec(value):

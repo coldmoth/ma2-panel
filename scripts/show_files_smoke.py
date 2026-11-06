@@ -23,9 +23,10 @@ def run(output):
         for source in ROOT.glob('*.py'):
             shutil.copy2(source, app / source.name)
         shutil.copytree(ROOT / 'static', app / 'static')
+        shutil.copytree(ROOT / "ma2panel", app / "ma2panel", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         (app / 'shows-ma2').mkdir()
         (app / 'shows-ma2' / 'Mock show.show.gz').write_bytes(gzip.compress(b'isolated mock show', mtime=0))
-        cfg = json.loads((ROOT / 'config.example.json').read_text())
+        cfg = json.loads((ROOT / 'ma2panel/resources/config.example.json').read_text())
         cfg['scenes'] = [{'id': 'transfer', 'exec': '1.1', 'label': 'Файл шоу'}]
         settings = {'bind': '127.0.0.1', 'simple_port': None, 'poll_seconds': 0, 'dmx_seconds': 0,
                     'safety': {'mode': 'full', 'allow_show_load': True, 'allow_show_save': True},

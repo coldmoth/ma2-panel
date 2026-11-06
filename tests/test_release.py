@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 import zipfile
 
-import release
+from ma2panel import release
 
 
 DOCS = ('SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'RELEASE-3.2.md', 'ONPC-HALL-TEST-3.2.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md')
@@ -23,7 +23,7 @@ class ReleaseTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / 'source'
         self.root.mkdir()
-        for name in (*('docs/' + d for d in DOCS), 'README.md', 'CHANGELOG.md', 'LICENSE', 'bridge.py', 'update.py', 'static/a.js', 'win/run.bat', 'uv.lock', 'settings.json', 'logs/log.txt', 'lib/private.py', 'static/__pycache__/bad.pyc'):
+        for name in (*('docs/' + d for d in DOCS), 'README.md', 'docs/CHANGELOG.md', 'LICENSE', 'bridge.py', 'update.py', 'static/a.js', 'scripts/win/run.bat', 'uv.lock', 'settings.json', 'logs/log.txt', 'lib/private.py', 'static/__pycache__/bad.pyc'):
             p = self.root / name
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(name.encode())
@@ -98,7 +98,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual({p.relative_to(target).as_posix(): p.read_bytes() for p in target.rglob('*') if p.is_file()}, full)
 
     def test_compact_windows_bundle_keeps_update_root_and_runtime(self):
-        (self.root / 'win/start.bat').write_bytes(b'@echo off\r\nexit /b 0\r\n')
+        (self.root / 'scripts/win/start.bat').write_bytes(b'@echo off\r\nexit /b 0\r\n')
         files = self.files()
         bundle = Path(self.tmp.name) / 'space in path' / 'ma2-panel'
         program = bundle / 'program'
@@ -265,8 +265,9 @@ def test_every_markdown_link_resolves_inside_delivered_zip(tmp_path):
 def test_packaged_readme_alias_and_missing_target(tmp_path, monkeypatch):
     import pytest
     monkeypatch.setattr(release, 'DOCS', ())
-    for name, data in {'README.md': '[history](CHANGELOG.md)',
-                       'CHANGELOG.md': '[home](README.md)', 'LICENSE': 'license'}.items():
+    (tmp_path / 'docs').mkdir()
+    for name, data in {'README.md': '[history](docs/CHANGELOG.md)',
+                       'docs/CHANGELOG.md': '[home](../README.md)', 'LICENSE': 'license'}.items():
         (tmp_path / name).write_text(data)
     files = release.payload(tmp_path)
     assert files['CHANGELOG.md'] == b'[home](README-RU.md)'

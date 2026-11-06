@@ -5,7 +5,7 @@ import re
 import time
 from types import SimpleNamespace
 import pytest
-import bridge
+from ma2panel import bridge
 from test_status_evidence import context  # noqa: F401
 
 

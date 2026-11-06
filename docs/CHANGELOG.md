@@ -7,7 +7,7 @@
 - Fixed selection recovery after reconnect, Zoom/Focus access without Pan/Tilt, overlapping controls and command-result feedback.
 - New installations require an explicit MA2 address. Initial test mode does not permit fixture or scene control.
 - Packaging uses the existing Windows x64 builder, pinned runtime and dependencies. Real MA2 acceptance remains pending.
-- [Release details and verification](docs/RELEASE-3.2.md) · [First-session checklist](docs/ONPC-HALL-TEST-3.2.md).
+- [Release details and verification](RELEASE-3.2.md) · [First-session checklist](ONPC-HALL-TEST-3.2.md).
 
 ## 3.1.1 — 2026-11-04 (Test build)
 
@@ -32,7 +32,7 @@ This build was intended for isolated testing. Real grandMA2 acceptance, independ
 - Protocol, HTTP/WebSocket and Chromium/WebKit interface checks; Linux, Windows mock and browser CI jobs.
 - GPL-3.0-only source, Windows x64 package, USB/program update ZIPs and checksums.
 
-Automated checks do not replace acceptance on Windows, physical tablets and MA2. General scene behavior and complete all-off behavior awaited venue evidence. Updating 3.0 through an update ZIP was incompatible with its runtime; a separate full installation and preserved local data were required. See the [historical 3.1 notes (Russian)](docs/RELEASE-3.1.md).
+Automated checks do not replace acceptance on Windows, physical tablets and MA2. General scene behavior and complete all-off behavior awaited venue evidence. Updating 3.0 through an update ZIP was incompatible with its runtime; a separate full installation and preserved local data were required. See the [historical 3.1 notes (Russian)](RELEASE-3.1.md).
 
 ## 3.0.0 — 2026-11-02
 

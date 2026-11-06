@@ -3,7 +3,7 @@ import json
 import pytest
 
 from test_bridge import FULL, ask, bridge_cfg  # noqa: F401
-from commands import unrecognised_lines
+from ma2panel.commands import unrecognised_lines
 
 
 @pytest.mark.parametrize("pages", [[1], [1, 2]])

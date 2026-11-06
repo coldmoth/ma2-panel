@@ -516,7 +516,7 @@ class Uploader:
             raise
 
     def _submit_relay(self, rid, collect):
-        from diagnostic_relay import Relay
+        from .diagnostic_relay import Relay
         state = self._load()
         current = state['reports'].get(state.get('current'))
         if current and current['state'] != 'sent' and current['report_id'] != rid:

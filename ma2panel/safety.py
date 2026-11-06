@@ -234,7 +234,7 @@ def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=(), 
             return None if safety.get("allow_fixture_read") is True and (line == export_cmd or line in export_extra) else "экспорт заблокирован: allow_fixture_read и ma2.export_cmd"
         if low.startswith("lua"):  # only the bridge's own read lines (DMX read-back, RDM state), never a free Lua line
             if rdm_extra:  # the coordinator's nonce-signed state reads; lazy import avoids a safety/rdm_search cycle
-                import rdm_search
+                from . import rdm_search
                 if rdm_search.is_read_command(line):
                     return None if safety.get("allow_rdm") is True else "RDM заблокирован: allow_rdm"
             return None if safety.get("allow_fixture_read") is True and (line in export_extra or line in rdm_extra) else "Lua заблокирован: только чтение мостом при allow_fixture_read"

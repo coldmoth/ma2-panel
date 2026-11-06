@@ -7,8 +7,8 @@ import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 
-from commands import is_error_reply
-from safety import redact
+from .commands import is_error_reply
+from .safety import redact
 
 log = logging.getLogger("bridge")
 NO_LINK = "нет связи с пультом"

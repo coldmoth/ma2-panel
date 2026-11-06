@@ -30,7 +30,7 @@ def _path(name):
         if re.fullmatch(r'(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])', part.split('.')[0], re.I):
             raise ValueError('reserved name')
     if len(parts) > 1:
-        if parts[0] not in ('static', 'docs'):
+        if parts[0] not in ('static', 'docs', 'ma2panel'):
             raise ValueError('invalid location')
     elif not (name.endswith(('.py', '.bat')) or name in ('VERSION', 'README-RU.md', 'CHANGELOG.md', 'program-manifest.json')):
         raise ValueError('invalid location')
@@ -69,28 +69,41 @@ def payload(root):
 
     for source in sorted(root.glob('*.py')):
         add(source, source.name)
-    static = root / 'static'
-    if static.is_symlink():
+    def walk(directory):
+        if directory.is_symlink():
+            raise ValueError('symlink')
+        for source in sorted(directory.iterdir()):
+            if source.is_symlink():
+                raise ValueError('symlink')
+            if source.name == '__pycache__' or source.suffix == '.pyc':
+                continue
+            if source.is_dir():
+                walk(source)
+            elif source.is_file():
+                add(source, source.relative_to(root).as_posix())
+
+    for name in ('static', 'ma2panel'):
+        directory = root / name
+        if directory.exists() or directory.is_symlink():
+            walk(directory)
+    # BAT-compatible standalone tools also serve detached USB/recovery workers.
+    for name in ('update.py', 'release.py', 'browser_update.py'):
+        source = root / 'ma2panel' / name
+        if source.is_file():
+            add(source, name)
+    if (root / 'ma2panel').exists():
+        for name in ('selfcheck', 'firewall', 'diagnostic_setup'):
+            entry = 'cli' if name == 'selfcheck' else 'main'
+            result[name + '.py'] = (f'from ma2panel.{name} import {entry} as main\n'
+                                   'if __name__ == "__main__":\n    raise SystemExit(main())\n').encode()
+    launchers = root / 'scripts/win'
+    if launchers.is_symlink():
         raise ValueError('symlink')
-    if static.exists():
-        def walk(directory):
-            for source in sorted(directory.iterdir()):
-                if source.is_symlink():
-                    raise ValueError('symlink')
-                if source.name == '__pycache__':
-                    continue
-                if source.is_dir():
-                    walk(source)
-                elif source.is_file():
-                    add(source, source.relative_to(root).as_posix())
-        walk(static)
-    if (root / 'win').is_symlink():
-        raise ValueError('symlink')
-    for source in sorted((root / 'win').glob('*.bat')):
+    for source in sorted(launchers.glob('*.bat')):
         add(source, source.name)
     add(root / 'README.md', 'README-RU.md')
     result['README-RU.md'] = result['README-RU.md'].replace(b'](LICENSE)', b'](docs/LICENSE.txt)')
-    add(root / 'CHANGELOG.md', 'CHANGELOG.md')
+    add(root / 'docs/CHANGELOG.md', 'CHANGELOG.md')
     add(root / 'LICENSE', 'docs/LICENSE.txt')
     for doc in DOCS:
         add(root / 'docs' / doc, 'docs/' + doc)
@@ -114,7 +127,7 @@ def payload(root):
             dest = posixpath.normpath(posixpath.join(posixpath.dirname(name), path))
             if dest in result:
                 return match.group(0)
-            source = 'README.md' if name == 'README-RU.md' else name
+            source = {'README-RU.md': 'README.md', 'CHANGELOG.md': 'docs/CHANGELOG.md'}.get(name, name)
             original = posixpath.normpath(posixpath.join(posixpath.dirname(source), path))
             if original == 'README.md':
                 relative = posixpath.relpath('README-RU.md', posixpath.dirname(name) or '.')

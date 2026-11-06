@@ -14,7 +14,7 @@ import uuid
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from diagnostic_upload import Github, LIMIT, UNKNOWN, PANEL_VERSION_PATTERN, Uploader, UploadError
+from ma2panel.diagnostic_upload import Github, LIMIT, UNKNOWN, PANEL_VERSION_PATTERN, Uploader, UploadError
 
 MAX_BYTES = 65536
 _FIXED_REPLY_LINES = ('[command echo]', '[prompt]>', '[unrecognized line]') + tuple(

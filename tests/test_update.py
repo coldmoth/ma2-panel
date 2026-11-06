@@ -7,7 +7,7 @@ from zipfile import ZipFile, ZipInfo
 
 import pytest
 
-import update
+from ma2panel import update
 
 
 def archive(path, extra=None):
@@ -384,8 +384,8 @@ def test_rdm_journal_survives_backup_transfer_update_rollback(tmp_path, monkeypa
     import asyncio
     import shutil
     from types import SimpleNamespace
-    from rdm_search import RDMSearch
-    from commands import ActionError
+    from ma2panel.rdm_search import RDMSearch
+    from ma2panel.commands import ActionError
 
     root = tmp_path / 'source'
     root.mkdir()
@@ -403,7 +403,7 @@ def test_rdm_journal_survives_backup_transfer_update_rollback(tmp_path, monkeypa
             shutil.copy2(source, transferred / name)
         elif source.is_dir():
             shutil.copytree(source, transferred / name)
-    update.install(archive(tmp_path / 'update.zip'), root)
+    update.install(archive(tmp_path / 'ma2panel.update.zip'), root)
     monkeypatch.setattr(update, 'idle', lambda _: None)
     assert update.rollback(root, confirm=lambda _: 'y') == 0
     async def check_pending(folder):
@@ -432,7 +432,7 @@ def test_external_usb_isolated_python_uses_staged_release(tmp_path, output_encod
     root = tmp_path / 'установка'
     root.mkdir()
     source = Path(__file__).resolve().parents[1]
-    update.shutil.copy2(source / 'update.py', stage / 'update.py')
+    update.shutil.copy2(source / 'ma2panel/update.py', stage / 'update.py')
     # A distinct release module proves the import origin without using installed modules.
     (stage / 'release.py').write_text(
         "def check(*args):\n    raise ValueError('staged release reached')\n")

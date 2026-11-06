@@ -5,9 +5,9 @@ import re
 import shutil
 from pathlib import Path
 
-SAMPLE = Path(__file__).parent / "tests" / "sample_export.xml"
-TYPE_LIST = Path(__file__).parent / "tests" / "list_fixturetype_3.9.60.txt"  # hall 2026-10-21, List FixtureType rows
-REAL_EXPORT = Path(__file__).parent / "tests" / "real_export_3.9.60.xml"
+SAMPLE = Path(__file__).parent / "resources" / "mock" / "sample_export.xml"
+TYPE_LIST = Path(__file__).parent / "resources" / "mock" / "list_fixturetype_3.9.60.txt"  # hall 2026-10-21, List FixtureType rows
+REAL_EXPORT = Path(__file__).parent / "resources" / "mock" / "real_export_3.9.60.xml"
 EMPTY_LIST = "WARNING, NO OBJECTS FOUND FOR LIST"
 
 

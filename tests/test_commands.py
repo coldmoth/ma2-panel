@@ -1,6 +1,6 @@
 import pytest
 
-from commands import (ActionError, build, is_error_reply, targets, parse_positions,
+from ma2panel.commands import (ActionError, build, is_error_reply, targets, parse_positions,
                       FULL, SIMPLE, SLIDERS, scale, movers, apply_move, head_lines,
                       check_move, parse_label)
 
@@ -35,7 +35,7 @@ def test_removed_import():
 
 def test_clear():      assert build({"a": "clear"}, CFG) == []  # bridge-side only, the console's Clear is never sent
 def test_store():
-    from commands import store_lines
+    from ma2panel.commands import store_lines
     assert build({"a": "store_scene", "id": "pianist"}, CFG) == store_lines("1.101", "Pianist") == [
         "StoreLook Executor 1.101 Cue 1 /Source=Output", 'Label Executor 1.101 "Pianist"']
     assert all("/Overwrite" not in line for line in store_lines("1.101", "P"))
@@ -142,12 +142,12 @@ def test_zoom_rejects():
     with pytest.raises(ActionError): build({"a": "zoom", "v": "1; ClearAll"}, MCFG)
 
 def test_pages():
-    from commands import parse_executors
+    from ma2panel.commands import parse_executors
     assert build({"a": "page_go", "n": 4}, CFG) == ["Page 4"]
     assert parse_executors('  Executor 1.101  Pia"no  Sequence 1\r\nnoise\r\n 1.7   Go\r\n[Channel]>') == [("1.101", "Piano"), ("1.7", "Go")]
 
 def test_parse_running():
-    from commands import parse_running
+    from ma2panel.commands import parse_running
     reply = "  Executor 1.101  Pianist  Sequence 1  Running\r\n  Executor 1.102  On  Sequence 2  Off\r\n  Executor 1.103  X\r\n"
     assert parse_running(reply) == {"1.101": True, "1.102": False}  # a label that says "On" is not a status
     assert parse_running("nothing useful") == {}
@@ -203,13 +203,13 @@ def test_aim_boundaries_and_nudge_mapping():
 ])
 def test_exec_verdict(reply, verdict):
     import re
-    from commands import exec_verdict
+    from ma2panel.commands import exec_verdict
     actual, reason = exec_verdict(reply, "2.150", re.compile(r"(?i)no objects? found|nothing found"))
     assert actual == verdict and reason
 
 
 def test_unrecognised_lines():
-    from commands import unrecognised_lines
+    from ma2panel.commands import unrecognised_lines
     assert unrecognised_lines("[Channel]> List Executor 2.150\n\nExecutor 2.150 Piano\n???\n[Channel]>") == 1
 
 @pytest.mark.parametrize('legacy', [2, 1.5])

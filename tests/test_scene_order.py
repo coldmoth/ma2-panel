@@ -1,8 +1,8 @@
 import importlib.util
 
 def rules():
-    assert importlib.util.find_spec("scenes") is not None, "scene ordering rules are missing"
-    import scenes
+    assert importlib.util.find_spec("ma2panel.scenes") is not None, "scene ordering rules are missing"
+    from ma2panel import scenes
     return scenes
 
 

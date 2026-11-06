@@ -13,8 +13,7 @@ import zipfile
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-import release
+from ma2panel import release
 
 PYTHON = '3.12.10'
 # Fixed input fetched from python.org; a cache entry must match before extraction.
@@ -63,11 +62,11 @@ def build(output):
                     '--python-version', '3.12', '--only-binary', ':all:', '--no-deps', '--require-hashes',
                     '--requirement', str(requirements)], cwd=ROOT, check=True)
     shutil.rmtree(program / 'lib/bin', ignore_errors=True)
-    subprocess.run([sys.executable, str(ROOT / 'scripts/package_release.py'), '--tree', str(program),
+    subprocess.run([sys.executable, '-m', 'scripts.package_release', '--tree', str(program),
                     '--archive', str(output / 'update/ma2-panel-update.zip')], cwd=ROOT, check=True)
-    shutil.copy2(ROOT / 'secret.env.example', program)
+    shutil.copy2(ROOT / 'ma2panel/resources/secret.env.example', program)
     for name in ('config', 'settings'):
-        shutil.copy2(ROOT / f'{name}.example.json', program / f'{name}.json')
+        shutil.copy2(ROOT / 'ma2panel/resources' / f'{name}.example.json', program / f'{name}.json')
     release.write_windows_launcher(bundle)
     for path in program.rglob('__pycache__'):
         shutil.rmtree(path)
@@ -78,7 +77,7 @@ def build(output):
     folder = usb / 'ma2-panel-update'
     folder.mkdir(parents=True)
     for source in (output / 'update/ma2-panel-update.zip', output / 'update/ma2-panel-update.zip.sha256',
-                   *(ROOT / name for name in ('update.py', 'release.py', 'win/update-usb.bat', 'docs/update-usb.txt'))):
+                   *(ROOT / name for name in ('ma2panel/update.py', 'ma2panel/release.py', 'scripts/win/update-usb.bat', 'docs/update-usb.txt'))):
         shutil.copy2(source, folder / source.name)
     write_bundle(usb, output / 'ma2-panel-update-usb.zip')
     inputs = {'schema': 1, 'version': release.identity(ROOT), 'runtime': release.runtime(ROOT),

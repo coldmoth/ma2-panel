@@ -2,7 +2,7 @@
 import http.client
 import json
 
-from diagnostic_upload import UploadError, _number, _uuid
+from .diagnostic_upload import UploadError, _number, _uuid
 
 HOST = 'diag.shmyrev52.ru'
 BASE = '/v1/reports/'

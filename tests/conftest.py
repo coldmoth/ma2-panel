@@ -1,9 +1,9 @@
 import pytest
 
-import api
-import bridge
-import link
-from safety import DEFAULT_MA2
+from ma2panel import api
+from ma2panel import bridge
+from ma2panel import link
+from ma2panel.safety import DEFAULT_MA2
 
 
 @pytest.fixture(autouse=True)

@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import bridge
-from fixtures import parse_export, merge_fixtures
-from safety import effective_safety, make_guard
-from show_plans import plan_path
+from ma2panel import bridge
+from ma2panel.fixtures import parse_export, merge_fixtures
+from ma2panel.safety import effective_safety, make_guard
+from ma2panel.show_plans import plan_path
 from test_bridge import bridge_cfg, ask, until  # noqa: F401
 
 EXPORT = 'Export Fixture 1 Thru 9999 "panel_fixtures"'
@@ -196,7 +196,7 @@ def test_export_search_freshness(bridge_cfg, tmp_path, fresh):
 
 def test_delayed_export_is_awaited(bridge_cfg, monkeypatch):
     import asyncio
-    from mock import MockMA2
+    from ma2panel.mock import MockMA2
     original = MockMA2._reply
     def reply(mock, text):
         if text.startswith(EXPORT[:-1] + '_'):
@@ -230,7 +230,7 @@ def test_show_open_resets_all_sessions(tmp_path):
 
 @pytest.mark.parametrize('reply', ['$SHOWFILE = "Quoted show"\r\n[Channel]>', '???\r\n[Channel]>', 'Error: denied\r\n[Channel]>'])
 def test_identification_reply_and_raw(bridge_cfg, monkeypatch, reply):
-    from mock import MockMA2
+    from ma2panel.mock import MockMA2
     original = MockMA2._reply
     monkeypatch.setattr(MockMA2, '_reply', lambda mock, text: reply if text == 'ListVar' and 'ListVar' in mock.received[:-1] else original(mock, text))  # login check first
     with bridge_cfg() as (ws, mock, path):
@@ -270,7 +270,7 @@ def test_fixture_flag_rot(bridge_cfg):
 
 
 def test_head_guess_and_same_type(bridge_cfg):
-    from fixtures import guess_head, merge_fixtures
+    from ma2panel.fixtures import guess_head, merge_fixtures
     assert guess_head("5 Oxygen Mode 1") and not guess_head("4 Mini-B Basic RGBW") and not guess_head("8 PAR 14X15 SLIM 10 ch")
     got = merge_fixtures([{"id": 2, "label": "x", "moves": False}],
                          [{"id": 1, "name": "a", "type": "Oxygen", "address": None}, {"id": 2, "name": "b", "type": "Oxygen", "address": None}])

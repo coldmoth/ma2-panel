@@ -1,7 +1,7 @@
 """Synthetic negative cases; these are not fixtures captured from a grandMA2."""
 import pytest
 
-from commands import parse_running
+from ma2panel.commands import parse_running
 
 
 @pytest.mark.parametrize("rows", [

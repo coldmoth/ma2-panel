@@ -11,7 +11,7 @@ from pathlib import Path
 from websockets.sync.client import connect
 
 BASE = "http://127.0.0.1:8080"
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 READ_ONLY = re.compile(r'^(ListVar|ListShows|Export Fixture 1 Thru 9999 "panel_fixtures_\d+"|List Group 1 Thru 999|List Preset \d\.1 Thru \d\.999'
                        r'|login "[^"]*" "[^"]*"|Login "[^"]*" "[^"]*")\s*$')
 rows = []

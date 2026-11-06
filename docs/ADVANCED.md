@@ -12,8 +12,8 @@ For a **new folder**, run in PowerShell:
 git clone --branch v3.2.0 --depth 1 https://github.com/coldmoth/ma2-panel.git ma2-panel-3.2
 cd ma2-panel-3.2
 uv sync --locked --no-dev
-Copy-Item config.example.json config.json
-Copy-Item settings.example.json settings.json
+Copy-Item ma2panel/resources/config.example.json config.json
+Copy-Item ma2panel/resources/settings.example.json settings.json
 uv run --no-sync python bridge.py --open-browser
 ```
 
@@ -68,7 +68,7 @@ With the bridge running, open `program/selfcheck.bat`. It checks the main port, 
 .\selfcheck.bat http://127.0.0.1:8180
 ```
 
-From source, use `uv run --no-sync python selfcheck.py http://127.0.0.1:8180`. The simple view has no diagnostics API. `selfcheck-report.txt` is written beside the script. Exit code 0 means all checks passed; 1 means a negative check, a check failure or a report-write failure. Action checks run only in test mode. The BAT returns the code after its pause.
+From source, use `uv run --no-sync python -m ma2panel.selfcheck http://127.0.0.1:8180`. The simple view has no diagnostics API. `selfcheck-report.txt` is written beside the script. Exit code 0 means all checks passed; 1 means a negative check, a check failure or a report-write failure. Action checks run only in test mode. The BAT returns the code after its pause.
 
 ## Development
 
@@ -82,3 +82,5 @@ node tests/panel-v4.cjs
 ```
 
 On macOS/Linux, the existing Windows packaging script is `bash scripts/build_win.sh` and requires uv, curl, zip/unzip and internet access. Its outputs require separate Windows validation; building a ZIP is not hardware acceptance. Keep venue configurations, secrets, shows and diagnostics out of Git.
+
+Source layout and release compatibility: [repository structure](repository-structure.md).

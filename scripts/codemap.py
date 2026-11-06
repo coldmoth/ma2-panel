@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 print("# Индекс функций\n\nСобрано `scripts/codemap.py` (не править руками). Описание устройства: `docs/CODEMAP.md`.\n")
-for path in sorted(ROOT.glob("*.py")):
+for path in sorted((ROOT / "ma2panel").glob("*.py")):
     tree = ast.parse(path.read_text(encoding="utf-8"))
     out = []
 
@@ -17,7 +17,7 @@ for path in sorted(ROOT.glob("*.py")):
                 if depth < 2 or isinstance(n, ast.ClassDef) or n.name == "create_app":
                     walk(n.body, depth + 1)
     walk(tree.body, 0)
-    print(f"## {path.name}\n" + "\n".join(out) + "\n")
+    print(f"## {path.relative_to(ROOT).as_posix()}\n" + "\n".join(out) + "\n")
 for path in sorted((ROOT / "static").glob("*.js")):
     lines = path.read_text(encoding="utf-8").split("\n")
     out = []
@@ -25,4 +25,4 @@ for path in sorted((ROOT / "static").glob("*.js")):
         m = re.match(r"(?:async )?function (\w+)|(SECTIONS\.\w+) = function", line)
         if m:
             out.append(f"- {i} `{m[1] or m[2]}`")
-    print(f"## static/{path.name}\n" + "\n".join(out) + "\n")
+    print(f"## static/{path.relative_to(ROOT).as_posix()}\n" + "\n".join(out) + "\n")

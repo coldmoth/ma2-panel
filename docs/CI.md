@@ -43,7 +43,7 @@ uv sync --locked
 uv run pytest -q -p no:cacheprovider
 node tests/panel-v4.cjs
 uv run python scripts/ci_smoke.py --log /tmp/ma2-ci-mock.log
-uv run python scripts/build_windows.py --verify-reproducible
+uv run python -m scripts.build_windows --verify-reproducible
 # Только Windows:
 uv run python scripts/windows_delivered.py
 uv run python scripts/ci_smoke.py --bundle dist/ma2-panel-win/ma2-panel/program
