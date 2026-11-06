@@ -26,7 +26,11 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
         # hall 2026-10-18: Export Fixture lands in <install>\fixtures, next to importexport (Layers etc. land in importexport)
         found = [Path(export_dir), Path(export_dir).parent / "fixtures"]
         for pattern in ma2["export_search"]:
-            found.extend(Path(d) for d in sorted(glob.glob(pattern)))
+            for directory in sorted(glob.glob(pattern)):
+                folder = Path(directory)
+                found.append(folder)
+                if folder.name.lower() == "importexport":
+                    found.append(folder.parent / "fixtures")
         return list(dict.fromkeys(found))
 
     def listing(folder, newest=30):

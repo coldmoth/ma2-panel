@@ -316,13 +316,13 @@
 ## exports.py
 - 23 `bind`
   - 24 `export_folders` — Where an export may land: ma2.export_dir first, then every existing folder matching ma2.ex
-  - 32 `listing`
-  - 47 `save_diag_json`
-  - 55 `export_type` — One Export FixtureType under a one-off name. The documentation puts fixture types in their
-  - 96 `export_once` — One export under a name nobody has used, read from the console's folders, then removed. Ca
-  - 125 `run_export`
-  - 174 `snapshot` — {path: (size, mtime)} of the files under roots, bounded. No disk-wide scan: only the conso
-  - 196 `run_export_probe` — Active diagnostics: sends a few export lines under unique names and reports which files ap
+  - 36 `listing`
+  - 51 `save_diag_json`
+  - 59 `export_type` — One Export FixtureType under a one-off name. The documentation puts fixture types in their
+  - 100 `export_once` — One export under a name nobody has used, read from the console's folders, then removed. Ca
+  - 129 `run_export`
+  - 178 `snapshot` — {path: (size, mtime)} of the files under roots, bounded. No disk-wide scan: only the conso
+  - 200 `run_export_probe` — Active diagnostics: sends a few export lines under unique names and reports which files ap
 
 ## firewall.py
 - 7 `apply`

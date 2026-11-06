@@ -1,0 +1,91 @@
+name: Fixture import hotfix acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-hotfix:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9
+      - run: uv sync --locked
+      - run: uv run --no-sync pytest -q -p no:cacheprovider tests/test_v3.py tests/test_hall_fixes.py tests/test_real_ma2.py tests/test_release.py tests/test_update.py
+      - name: Build compatible patch and verify migration from published 3.2.0
+        shell: python
+        run: |
+          import hashlib,json,pathlib,subprocess,sys,urllib.request,zipfile
+          import release
+          root=pathlib.Path.cwd()
+          output=root/'dist/hotfix'
+          output.mkdir(parents=True)
+          commit=subprocess.check_output(['git','rev-parse','--short','HEAD'],text=True).strip()
+          version='3.2.1+'+commit
+          archive=output/'ma2-panel-update.zip'
+          files=release.build(root,version=version)
+          release.write_zip(files,archive)
+          release.write_zip(release.build(root,version=version),output/'independent.zip')
+          assert archive.read_bytes()==(output/'independent.zip').read_bytes()
+          (output/'independent.zip').unlink()
+          digest=hashlib.sha256(archive.read_bytes()).hexdigest()
+          (output/'ma2-panel-update.zip.sha256').write_text(digest+'  ma2-panel-update.zip'+chr(10),encoding='ascii')
+          baseline=output/'baseline.zip'
+          urllib.request.urlretrieve('https://github.com/coldmoth/ma2-panel/releases/download/v3.2.0/ma2-panel-win.zip',baseline)
+          assert hashlib.sha256(baseline.read_bytes()).hexdigest()=='ebe01bdf8eabf9245830aeb61bce05f2dd49a14b0868f8f20b055919a94c487e'
+          with zipfile.ZipFile(baseline) as z:
+              z.extractall(output/'baseline')
+          program=output/'baseline/ma2-panel/program'
+          installed=json.loads((program/'runtime.json').read_text())
+          manifest=release.check(archive,installed)
+          assert manifest['runtime']['lock_sha256']=='16fc35a00aaa556f2547fa51222cf8e84adf7638e8818169dad4434358f4a592'
+          code="""
+          import json,pathlib,sys,zipfile
+          import release,update
+          root=pathlib.Path.cwd();archive=pathlib.Path(sys.argv[1])
+          release.verify_runtime(root)
+          original=(root/'VERSION').read_bytes()
+          protected={n:(root/n).read_bytes() for n in ('config.json','settings.json')}
+          for n,d in {'shows/operator.json':b'{}','secret.env':b'MA2_PASSWORD=synthetic','rdm-search.json':b'{}'}.items():
+              p=root/n;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(d);protected[n]=d
+          update.backup_user_data(root)
+          release.check(archive,json.loads((root/'runtime.json').read_text()))
+          update.install(archive,root)
+          with zipfile.ZipFile(archive) as z:
+              for n in z.namelist(): assert (root/n).read_bytes()==z.read(n),n
+          assert (root/'VERSION').read_text().startswith('3.2.1+')
+          for n,d in protected.items(): assert (root/n).read_bytes()==d,n
+          release.verify_runtime(root)
+          update.prepare_bridge=lambda *a,**kw:None
+          assert update.rollback(root,confirm=lambda _: 'y')==0
+          assert (root/'VERSION').read_bytes()==original
+          for n,d in protected.items(): assert (root/n).read_bytes()==d,n
+          update.install(archive,root)
+          release.verify_runtime(root)
+          print('Published 3.2.0 -> 3.2.1 install, rollback, runtime and user data: PASS')
+          """
+          import textwrap
+          subprocess.run([str(program/'python/python.exe'),'-c',textwrap.dedent(code),str(archive)],cwd=program,check=True,timeout=120)
+          subprocess.run(['uv','run','--no-sync','python','scripts/ci_smoke.py','--bundle',str(program),'--log','test-results/hotfix-mock.log'],check=True,timeout=120)
+          evidence={'version':version,'runtime':installed,'sha256':digest,'commit':commit,'baseline_sha256':hashlib.sha256(baseline.read_bytes()).hexdigest(),'windows_install_rollback_user_data':'passed','mock_http_ws':'passed'}
+          (output/'verification-3.2.1.json').write_text(json.dumps(evidence,indent=2)+chr(10))
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixture-hotfix-3.2.1
+          path: |
+            dist/hotfix/ma2-panel-update.zip
+            dist/hotfix/ma2-panel-update.zip.sha256
+            dist/hotfix/verification-3.2.1.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fixture-hotfix-logs
+          path: test-results/
