@@ -19,12 +19,17 @@ jobs:
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+          package-manager-cache: false
       - run: uv sync --locked
       - run: uv run --no-sync pytest -q -p no:cacheprovider tests/test_v3.py tests/test_hall_fixes.py tests/test_real_ma2.py tests/test_release.py tests/test_update.py
       - name: Build compatible patch and verify migration from published 3.2.0
         shell: python
         run: |
           import hashlib,json,pathlib,subprocess,sys,urllib.request,zipfile
+          sys.path.insert(0,str(pathlib.Path.cwd()))
           import release
           root=pathlib.Path.cwd()
           output=root/'dist/hotfix'
