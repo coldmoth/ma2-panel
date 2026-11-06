@@ -1,6 +1,6 @@
 """Absolute axis changes must leave the other desk axis untouched."""
 import pytest
-from commands import ActionError, build
+from ma2panel.commands import ActionError, build
 
 CFG = {"attrs": {"pan": {"min": -270, "max": 270, "cmd": 'Attribute "Pan" At {v}'},
                  "tilt": {"min": -135, "max": 135, "cmd": 'Attribute "Tilt" At {v}'}}}

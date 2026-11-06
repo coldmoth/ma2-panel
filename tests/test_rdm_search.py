@@ -5,8 +5,8 @@ import re
 
 import pytest
 
-from commands import ActionError
-import rdm_search as rdm
+from ma2panel.commands import ActionError
+from ma2panel import rdm_search as rdm
 
 
 NONCE = "a" * 32

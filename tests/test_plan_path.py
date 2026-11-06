@@ -6,7 +6,7 @@ import pytest
 
 
 def resolve(folder, name, *, write=False):
-    from show_plans import plan_path
+    from ma2panel.show_plans import plan_path
     return plan_path(folder, name, write=write)
 
 
@@ -105,7 +105,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 
 from fastapi.testclient import TestClient
-from bridge import create_app
+from ma2panel.bridge import create_app
 from test_bridge import ask, ready, until
 
 

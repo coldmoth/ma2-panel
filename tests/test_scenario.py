@@ -4,7 +4,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from bridge import create_app
+from ma2panel.bridge import create_app
 
 CONFIG = "tests/config.test.json"
 SETTINGS = {"safety": {"mode": "store", "allowed_fixtures": [12, 14], "allowed_scenes": ["1.101"],

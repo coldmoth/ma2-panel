@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import bridge
-from commands import select_line
+from ma2panel import bridge
+from ma2panel.commands import select_line
 from test_bridge import ask, until, bridge_cfg  # noqa: F401
 from test_safety import tabs
 from test_v3 import until_status
@@ -262,7 +262,7 @@ def test_identify_does_not_end_live_highlight(bridge_cfg):
 
 @pytest.mark.parametrize('failure', ['error', 'unknown'])
 def test_failed_release_keeps_journal_and_reopens_unknown(bridge_cfg, monkeypatch, failure):
-    from mock import MockMA2
+    from ma2panel.mock import MockMA2
     original = MockMA2._reply
     def reply(mock, text):
         if text.startswith('Off Fixture'):
@@ -287,7 +287,7 @@ def test_failed_release_keeps_journal_and_reopens_unknown(bridge_cfg, monkeypatc
 
 
 def test_restart_unknown_current_show(tmp_path, monkeypatch):
-    from mock import MockMA2
+    from ma2panel.mock import MockMA2
     original = MockMA2._reply
     monkeypatch.setattr(MockMA2, '_reply', lambda mock, text: f'$USER = {mock.user}\r\n???\r\n[Channel]>' if text == 'ListVar' else original(mock, text))
     cfg = json.loads(Path('tests/config.test.json').read_text())

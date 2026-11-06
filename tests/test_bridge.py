@@ -8,8 +8,8 @@ from contextlib import contextmanager
 import pytest
 from fastapi.testclient import TestClient
 
-from bridge import PROMPT, MA2Link, clean, Throttle, create_app
-from mock import start_mock
+from ma2panel.bridge import PROMPT, MA2Link, clean, Throttle, create_app
+from ma2panel.mock import start_mock
 
 CONFIG = "tests/config.test.json"  # not the live config.json: the owner edits that one in the hall
 FULL = {"safety": {"mode": "full"}, "poll_seconds": 0}
@@ -111,7 +111,7 @@ def bridge_cfg(tmp_path):
         path = tmp_path / "config.json"
         path.write_text(json.dumps(cfg, ensure_ascii=False))
         from unittest.mock import patch
-        import bridge as module
+        from ma2panel import bridge as module
         initial = json.loads(json.dumps(cfg))
         captured = []
         register = module.register_api
@@ -487,7 +487,7 @@ def test_running_poll(bridge_cfg):
         assert m["running_meta"]["s1"]["source"] == "ma2"
 
 def test_probe_and_backup(tmp_path, monkeypatch):
-    import bridge as b
+    from ma2panel import bridge as b
     monkeypatch.setattr(b, "HERE", tmp_path)
     async def go():
         mock = await start_mock(0, "panel")
@@ -818,7 +818,7 @@ def test_invalid_empty_regex_startup(tmp_path):
 
 def test_listvar_real_console_format():
     """MA2 3.9.60 prefixes every variable with "Global : "; the diagnostics bundle of 2026-10-18 showed it."""
-    from bridge import VAR
+    from ma2panel.bridge import VAR
     reply = "Executing : ListVar\nGlobal : $USER = Remote\nGlobal : $USERRIGHTS = Program\nGlobal : $SHOWFILE = big room v2\n [Group]>"
     assert dict(VAR.findall(reply)) == {"USER": "Remote", "USERRIGHTS": "Program", "SHOWFILE": "big room v2"}
 
@@ -831,7 +831,7 @@ def test_scene_crossfade(bridge_cfg):
 @pytest.fixture
 def scene_clock(monkeypatch, tmp_path):
     """Real bridge handlers, a gated fade clock and a recording transport; no desk."""
-    import bridge as module
+    from ma2panel import bridge as module
     captured = []
     monkeypatch.setattr(module, "register_api", lambda app, context, loopback: captured.append(context))
     cfg = json.loads(Path(CONFIG).read_text())
@@ -1174,8 +1174,8 @@ def test_dim_fade_played_by_bridge(bridge):
 
 
 def test_dmx_read_back_lights_the_plan(bridge_cfg):
-    from commands import DMX_CANARY, dmx_lua, live_from_dmx, parse_dmx
-    from safety import DEFAULT_SAFETY, make_guard
+    from ma2panel.commands import DMX_CANARY, dmx_lua, live_from_dmx, parse_dmx
+    from ma2panel.safety import DEFAULT_SAFETY, make_guard
     lines = dmx_lua(82, 100)
     assert [len(l) < 255 for l in lines] == [True] * 4 and "local a,n,v=178,4," in lines[3]
     assert len("SetVar $PANELDMX9 = \"T 9999 " + ",".join(["255"] * 32) + '"') < 255
@@ -1201,7 +1201,7 @@ def test_dmx_read_back_lights_the_plan(bridge_cfg):
 
 
 def test_dmx_read_back_takes_channels_from_the_fixture_type(bridge_cfg):
-    from fixtures import parse_fixture_type
+    from ma2panel.fixtures import parse_fixture_type
     xml = ('<MA xmlns="http://schemas.malighting.de/grandma2/xml/MA"><FixtureType name="Par"><Modules><Module index="0">'
            '<ChannelType index="0" attribute="SHUTTER" coarse="1"/><ChannelType index="1" attribute="DIM" coarse="2" fine="3"/>'
            '<ChannelType index="2" attribute="COLORRGB1" coarse="4"/><ChannelType index="3" attribute="COLORRGB2" coarse="5"/>'
@@ -1254,7 +1254,7 @@ def test_history_undoes_light_and_config(bridge):
 
 def test_capture_replies_at_start(tmp_path, monkeypatch):
     """Owner 2026-10-22: a real start writes the guessed-format replies to field-data/auto/, plus a running scene's row."""
-    import bridge
+    from ma2panel import bridge
     monkeypatch.setattr(bridge, "HERE", tmp_path)
     (tmp_path / "static").mkdir()
     with open(CONFIG, encoding="utf-8") as f:
@@ -1342,19 +1342,19 @@ def test_simple_config_and_routes(simple_bridge):
 
 @pytest.mark.parametrize('port', [0, 65536, True, '8090', 8090.0])
 def test_simple_port_invalid(port):
-    from safety import validate_settings
+    from ma2panel.safety import validate_settings
     with pytest.raises(ValueError, match='simple_port'):
         validate_settings({'simple_port': port})
 
 
 @pytest.mark.parametrize('settings', [{}, {'simple_port': None}, {'simple_port': 8090}, {'simple_port': 1}])
 def test_simple_port_valid(settings):
-    from safety import validate_settings
+    from ma2panel.safety import validate_settings
     validate_settings(settings)
 
 
 def test_simple_port_must_differ():
-    from safety import validate_settings
+    from ma2panel.safety import validate_settings
     with pytest.raises(ValueError, match='simple_port'):
         validate_settings({'port': 8090})
 
@@ -1394,7 +1394,7 @@ SPOT_TYPE = ('<MA xmlns="http://schemas.malighting.de/grandma2/xml/MA"><FixtureT
 
 
 def test_type_export_names_strobe_range_and_present_attributes():
-    from fixtures import parse_fixture_type
+    from ma2panel.fixtures import parse_fixture_type
     spec = parse_fixture_type(SPOT_TYPE)
     assert spec["dim"] == 2 and spec["has"] == ["strobe", "zoom"]
     assert spec["strobe"] == {"attr": "SHUTTER", "open": 12.5, "from": 25.1, "to": 100.0}  # DMX 32, 64, 255 as % of 255, one decimal

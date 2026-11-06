@@ -1,7 +1,7 @@
 import asyncio
 import re
 import pytest
-from commands import parse_dmx
+from ma2panel.commands import parse_dmx
 from test_status_evidence import context  # noqa: F401
 
 
@@ -30,7 +30,7 @@ def test_retained_listvar_cannot_refresh_current_chunk(context):
 
 
 def test_marker_exact_span_and_new_identical_bytes():
-    from commands import dmx_lua
+    from ma2panel.commands import dmx_lua
     current = '0123456789abcdef'
     old = 'fedcba9876543210'
     assert parse_dmx(f'PANELDMX120 = "T{old} 120 255"', span=(120, 1), nonce=current) == {}

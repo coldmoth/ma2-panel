@@ -6,11 +6,11 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-import bridge
+from ma2panel import bridge
 from test_bridge import CONFIG, FULL, ask, bridge_cfg, until  # noqa: F401
 from test_safety import tabs
-from migrations import SITE_KEYS, legacy_archive_path
-from show_plans import plan_path
+from ma2panel.migrations import SITE_KEYS, legacy_archive_path
+from ma2panel.show_plans import plan_path
 
 HALL = {'w': 20, 'd': 9, 'stage': 'left', 'stageDepth': 3}
 

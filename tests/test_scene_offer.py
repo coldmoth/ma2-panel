@@ -77,7 +77,7 @@ def test_disabled_store_feature_cannot_search(bridge_cfg):
 
 
 def test_unrecognised_slot_reply_stops_search(bridge_cfg,monkeypatch):
-    from mock import MockMA2
+    from ma2panel.mock import MockMA2
     original=MockMA2._reply
     def reply(self,text):
         if text=='List Executor 1.1':
@@ -92,7 +92,7 @@ def test_unrecognised_slot_reply_stops_search(bridge_cfg,monkeypatch):
 
 
 def test_expired_offer_cannot_write(bridge_cfg,monkeypatch):
-    import bridge
+    from ma2panel import bridge
     from types import SimpleNamespace
     clock=bridge.time
     with bridge_cfg() as (ws,mock,path):

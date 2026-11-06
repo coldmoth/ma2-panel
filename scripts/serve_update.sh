@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-python3 scripts/package_release.py
+python3 -m scripts.package_release
 [ "${1:-}" = "--build-only" ] && exit 0
 for interface in en0 en1; do
     address=$(ipconfig getifaddr "$interface" 2>/dev/null || true)

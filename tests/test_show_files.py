@@ -105,7 +105,7 @@ def test_unknown_save_never_returns_old_file_or_repeats(tmp_path, monkeypatch):
     source = folder / 'Mock show.show.gz'
     source.write_bytes(DATA)
     with tabs(tmp_path, settings) as (_, mock, client, _):
-        import show_transfer
+        from ma2panel import show_transfer
         monkeypatch.setattr(show_transfer, 'FILE_WAIT', .15)
         offer = post(client, '/prepare', json={'kind': 'save'}).json()
         assert offer.get('state') == 'confirm', offer
@@ -143,7 +143,7 @@ def test_save_observes_new_valid_file_and_keeps_backup(tmp_path, monkeypatch):
     source.write_bytes(DATA)
     updated = gzip.compress(b'new MA2 contents', mtime=0)
     with tabs(tmp_path, settings) as (_, mock, client, _):
-        import show_transfer
+        from ma2panel import show_transfer
         monkeypatch.setattr(show_transfer, 'STABLE_SECONDS', .02)
         original = mock._reply
         def reply(line):
@@ -161,7 +161,7 @@ def test_save_observes_new_valid_file_and_keeps_backup(tmp_path, monkeypatch):
 
 
 def test_archive_bomb_and_size_limit_reject_before_ma2(tmp_path, monkeypatch):
-    import show_files
+    from ma2panel import show_files
     settings, folder = options(tmp_path)
     with tabs(tmp_path, settings) as (_, mock, client, _):
         monkeypatch.setattr(show_files, 'MAX_EXPANDED', 64)
@@ -173,7 +173,7 @@ def test_archive_bomb_and_size_limit_reject_before_ma2(tmp_path, monkeypatch):
 
 
 def test_snapshot_refuses_symlinks_collision_and_changed_source(tmp_path, monkeypatch):
-    import show_files
+    from ma2panel import show_files
     source, target = tmp_path / 'source', tmp_path / 'target'
     source.write_bytes(DATA)
     target.write_bytes(b'valuable')
@@ -204,7 +204,7 @@ def test_unknown_id_and_expired_offer_never_replay(tmp_path, monkeypatch):
     (folder / 'Mock show.show.gz').write_bytes(DATA)
     with tabs(tmp_path, settings) as (_, mock, client, _):
         offer = post(client, '/prepare', json={'kind': 'save'}).json()
-        import show_transfer
+        from ma2panel import show_transfer
         monkeypatch.setattr(show_transfer, 'OFFER_TTL', -1)
         body = {'confirm_name': offer['name'], 'ack_overwrite': True}
         assert post(client, '/' + offer['id'] + '/confirm', json=body).status_code == 400
@@ -259,7 +259,7 @@ def test_bad_deflate_reports_validation_error(tmp_path):
 
 def test_busy_file_save_blocks_second_client_and_halt_leaves_unknown(tmp_path, monkeypatch):
     from test_bridge import ask
-    import show_transfer
+    from ma2panel import show_transfer
     monkeypatch.setattr(show_transfer, 'FILE_WAIT', 1)
     settings, folder = options(tmp_path)
     (folder / 'Mock show.show.gz').write_bytes(DATA)
@@ -281,7 +281,7 @@ def test_busy_file_save_blocks_second_client_and_halt_leaves_unknown(tmp_path, m
 
 
 def test_temporary_quota_and_disk_full_leave_no_partial_upload(tmp_path, monkeypatch):
-    import show_transfer
+    from ma2panel import show_transfer
     settings, folder = options(tmp_path)
     with tabs(tmp_path, settings) as (_, mock, client, _):
         monkeypatch.setattr(show_transfer, 'MAX_TEMP_BYTES', 1, raising=False)
@@ -306,7 +306,7 @@ def test_permissions_missing_directory_and_symlink_are_fail_closed(tmp_path):
 
 def test_failed_backup_never_sends_save(tmp_path, monkeypatch):
     import errno
-    import show_files
+    from ma2panel import show_files
     settings, folder = options(tmp_path)
     source = folder / 'Mock show.show.gz'
     source.write_bytes(DATA)
@@ -369,7 +369,7 @@ def test_file_disappears_after_listing_never_sends_load(tmp_path):
 @pytest.mark.parametrize('control', ['reconnect', 'halt_resume'])
 def test_connection_or_stop_during_disk_invalidates_consent(tmp_path, monkeypatch, kind, control):
     import threading
-    import show_files
+    from ma2panel import show_files
     from test_bridge import ask
     settings, folder = options(tmp_path)
     (folder / 'Mock show.show.gz').write_bytes(DATA)
@@ -409,7 +409,7 @@ def test_connection_or_stop_during_disk_invalidates_consent(tmp_path, monkeypatc
 @pytest.mark.parametrize('event', ['reconnect', 'halt_resume'])
 def test_expected_generation_is_rechecked_after_late_reply_drain(event):
     import asyncio
-    from link import MA2Link
+    from ma2panel.link import MA2Link
     async def scenario():
         link = MA2Link('127.0.0.1', 1, 'panel', '', lambda state: None)
         link.state, link._stale = 'logged_in', True

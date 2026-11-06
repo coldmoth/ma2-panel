@@ -12,8 +12,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-import bridge
-from safety import READ
+from ma2panel import bridge
+from ma2panel.safety import READ
 
 
 @pytest.fixture

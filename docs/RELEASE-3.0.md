@@ -13,7 +13,7 @@
 
 Для новой Windows-установки скачайте `ma2-panel-win.zip` и распакуйте всю папку. Начните с `start-mock.bat`, затем настройте пользователя MA2 и локальный `secret.env`. Для существующего комплекта предназначен `ma2-panel-update-usb.zip`.
 
-Для исходников: [SETUP.md](SETUP.md). Инструкция: [USAGE.md](USAGE.md). Изменения: [CHANGELOG.md](../CHANGELOG.md).
+Для исходников: [SETUP.md](SETUP.md). Инструкция: [USAGE.md](USAGE.md). Изменения: [CHANGELOG.md](CHANGELOG.md).
 
 ## Ограничения
 

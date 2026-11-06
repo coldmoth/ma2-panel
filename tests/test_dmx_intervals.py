@@ -3,7 +3,7 @@ import time
 from test_bridge import bridge_cfg
 
 def test_dmx_sparse_intervals_regression():
-    from commands import dmx_intervals, dmx_span
+    from ma2panel.commands import dmx_intervals, dmx_span
     fixtures = [
         {"address": "2.001", "footprint": 2},
         {"address": "1.010", "footprint": 4},
@@ -65,7 +65,7 @@ def test_manual_command_runs_during_dmx_lua_settle(bridge_cfg):
 
 
 def test_current_chunk_does_not_inherit_overlapping_listvar_rows():
-    from commands import parse_dmx
+    from ma2panel.commands import parse_dmx
     current = 'Global : $PANELDMX33 = "T 33 -1,128"'
     obsolete = 'Global : $PANELDMX1 = "T 1 ' + ','.join(['255'] * 64) + '"'
     for rows in ((current, obsolete), (obsolete, current)):
@@ -75,7 +75,7 @@ def test_current_chunk_does_not_inherit_overlapping_listvar_rows():
 
 
 def test_empty_patch_invalidates_previous_dmx_even_when_poll_skips(bridge_cfg, monkeypatch):
-    import bridge
+    from ma2panel import bridge
     from test_bridge import until
     original = bridge.dmx_intervals
     empty = [False]

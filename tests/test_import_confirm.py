@@ -1,6 +1,6 @@
 """Regression: ambiguous fixture re-patch requires confirmation (audit 12, plan step 13)."""
 import pytest
-from fixtures import merge_fixtures
+from ma2panel.fixtures import merge_fixtures
 
 
 def test_merge_ambiguous_needs_confirmation():
@@ -74,7 +74,7 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 from fastapi.testclient import TestClient
-import bridge
+from ma2panel import bridge
 from test_bridge import ask, ready
 
 

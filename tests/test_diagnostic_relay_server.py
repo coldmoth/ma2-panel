@@ -4,8 +4,8 @@ import uuid
 from fastapi.testclient import TestClient
 import pytest
 
-from diagnostic_upload import UploadError, build_report, collect_report
-from relay.app import create_app
+from ma2panel.diagnostic_upload import UploadError, build_report, collect_report
+from scripts.relay.app import create_app
 
 
 def rid():
@@ -241,7 +241,7 @@ def test_creation_quota_defers_reads_but_pending_can_reconcile(tmp_path):
 
 
 def test_actual_paginated_github_requests_have_persistent_budget(tmp_path, monkeypatch):
-    from diagnostic_upload import Github
+    from ma2panel.diagnostic_upload import Github
     calls = []
     monkeypatch.setattr(Github, 'request', lambda *args, **kwargs: calls.append(args) or {})
     server = app(tmp_path, github_requests_per_hour=2)

@@ -1,6 +1,6 @@
 """Drive every panel action against the mock console and print the exact MA2 lines each one sends, per safety mode.
 
-    uv run python scripts/command_map.py > docs/outgoing-commands.md
+    uv run python -m scripts.command_map > docs/outgoing-commands.md
 """
 import json
 import sys
@@ -10,8 +10,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from bridge import create_app  # noqa: E402
+from ma2panel.bridge import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CFG = json.loads((ROOT / "tests" / "config.test.json").read_text(encoding="utf-8"))

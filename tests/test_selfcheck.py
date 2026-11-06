@@ -47,7 +47,10 @@ def endpoint(*, logged_in=True, simple=False):
 
 def run_check(tmp_path, url, *, blocked_report=False):
     script = tmp_path / 'selfcheck.py'
-    shutil.copy2(Path(__file__).resolve().parents[1] / 'selfcheck.py', script)
+    from ma2panel import release
+    source = Path(__file__).resolve().parents[1]
+    shutil.copytree(source / 'ma2panel', tmp_path / 'ma2panel', ignore=shutil.ignore_patterns('__pycache__'))
+    script.write_bytes(release.payload(source)['selfcheck.py'])
     if blocked_report:
         (tmp_path / 'selfcheck-report.txt').mkdir()
     return subprocess.run([sys.executable, str(script), url], cwd=tmp_path,

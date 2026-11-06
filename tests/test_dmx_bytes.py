@@ -1,5 +1,5 @@
 import pytest
-from commands import parse_dmx, live_from_dmx
+from ma2panel.commands import parse_dmx, live_from_dmx
 
 
 @pytest.mark.parametrize('value', ['-1', '256', '999', '1.5', '1..2', 'nan', 'inf', '255junk', '255,', '255;0'])

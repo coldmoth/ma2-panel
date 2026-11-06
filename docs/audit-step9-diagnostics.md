@@ -19,7 +19,7 @@
 Квитанция «принят сервером» отдельно от номера Issue. SQLite admission сохраняет
 UUID/тело до ответа; per-report журналы защищают GitHub POST после рестартов.
 Лимиты формата, размера, общей ёмкости, частоты и GitHub API описаны в
-[relay/README.md](../relay/README.md). Автоматического удаления принятых отчётов нет.
+[relay/README.md](../scripts/relay/README.md). Автоматического удаления принятых отчётов нет.
 
 Проверки: **853 pytest**, 0 failures/errors/skipped, 62.111 с; Node — exit 0.
 Визуальный изолированный mock: Chromium/WebKit, 1024×768, ready/accepted/sent,
