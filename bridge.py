@@ -2825,6 +2825,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                    "completed" if reply.get("ok") else
                    "partial" if "sent" in evidence or op.get("local_changed") else "failed")
         return {**reply, "a": op["a"], "request_id": op["id"], "outcome": outcome,
+                "command_evidence": list(evidence),
                 **({"config_revision": op["result_revision"]} if op.get("result_revision") else {}),
                 **({"conflict": True, "config_revision": revision_token()} if op.get("conflict") else {})}
 
@@ -2855,7 +2856,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         rid = action.get("request_id")
         if "request_id" in action and (not isinstance(rid, str) or not 1 <= len(rid) <= 100):
             await ws.send_json({"ok": False, "a": action_name, "request_id": None,
-                                "outcome": "failed", "err": "request_id: нужна строка длиной 1–100"})
+                                "outcome": "failed", "command_evidence": [], "err": "request_id: нужна строка длиной 1–100"})
             return
         session = sessions.get(ws)
         if session is None:
@@ -2863,7 +2864,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         if rid is not None:
             if rid in session["requests"]:
                 await ws.send_json({"ok": False, "a": action_name, "request_id": rid,
-                                    "outcome": "failed", "err": "request_id уже использован; повтор не отправлен"})
+                                    "outcome": "failed", "command_evidence": [], "err": "request_id уже использован; повтор не отправлен"})
                 return
             # Bound memory without forgetting old IDs and permitting duplicate execution.
             if len(session["requests"]) >= 20000:
@@ -2999,6 +3000,10 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     @simple_app.get("/simple.js")
     async def simple_script():
         return FileResponse(HERE / "static" / "simple.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+    @simple_app.get("/command-feedback.js")
+    async def simple_feedback_script():
+        return FileResponse(HERE / "static" / "command-feedback.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
     @simple_app.get('/api/update/health')
     def simple_health():

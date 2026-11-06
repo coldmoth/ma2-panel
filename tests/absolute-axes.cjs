@@ -13,7 +13,7 @@ let ready=true, sent=[], now=1000, timers=[];
 const document={createElement:t=>new El(t),addEventListener(){},activeElement:null};
 const c=vm.createContext({document,console,Math,Number,performance:{now:()=>now},setInterval:()=>1,clearInterval(){},setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:id=>{if(id)timers[id-1]=null;},
   state:{selection:[1,2],shown:{1:{pan:10,tilt:20},2:{pan:60,tilt:20}},config:{fixtures:[{id:1,moves:true},{id:2,moves:true}],attrs:{pan:{min:-270,max:270},tilt:{min:-135,max:135}},presets:[]}},
-  confirm:()=>true,canMove:f=>f.moves,connected:()=>ready,featureReason:()=>'',busy:a=>Object.values(c.pending).some(request=>request.a===a),pending:{},fixtures:()=>[],attributeVisible:()=>true,sliderChannels:{},
+  confirm:()=>true,canMove:f=>f.moves,connected:()=>ready,featureReason:()=>'',busy:a=>Object.values(c.pending).some(request=>request.a===a),pending:{},fixtures:()=>[],attributeVisible:()=>true,toolVisible:()=>true,split:()=>({yes:[{id:1},{id:2}],no:[]}),sliderChannels:{},
   setFill:(n,v)=>{n.classList.toggle('unknown',typeof v!=='number'); if(typeof v==='number')n.value=v;},cancelSlider(){},send:a=>{sent.push(a);return true;},throttleSlider:a=>sent.push(a)});
 vm.runInContext(fs.readFileSync('static/move.js','utf8'),c);
 const root=new El('div'); c.renderMove(root);

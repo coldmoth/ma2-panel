@@ -19,7 +19,7 @@ module.exports = async function(context, url, output, engine) {
     });
     for(const mode of ['control','edit']) {
       await page.evaluate(mode=>{
-        lightUI.tab='plan';go(mode==='control'?'light':'hall');
+        lightUI.tab='plan';lightUI.picking=mode==='control';go(mode==='control'?'light':'hall');
         sectionKey=null;render();updaters.forEach(fn=>fn());
       },mode);
       if(mode==='edit') assert(await page.locator('.planbox').evaluate(box=>{

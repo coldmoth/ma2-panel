@@ -1,0 +1,43 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const prefix = fs.readFileSync('tests/panel-v4.cjs', 'utf8').split('// Empty workspace:')[0];
+const {context:c, document, status, ws} = new Function('require', prefix + '\nreturn {context,document,status,ws};')(require);
+status();
+const config = {revision:'test:1',show:'Mock show',fixtures:[1,2,3].map(id=>({id,label:'Прибор '+id,type:'LED',x:.2*id,y:.3})),groups:[{id:'g',label:'Группа',fixtures:[1,2]}],scenes:[{id:'s',exec:'1.1',label:'Сцена'}],attrs:{},presets:[],pages:{}};
+c.receive({config});
+c.go('light');
+const page = document.getElementById('page');
+const snap = () => page.children[0];
+function poll(time, running=false) {c.receive({running:{s:running},running_meta:{s:{source:'ma2',freshness:'fresh',updated_at:time}}});}
+for (const ids of [[1],[1,2]]) {
+ c.selectFixtures(ids); poll(1);
+ const dom=snap(); poll(2); poll(3,true);
+ assert.equal(snap(),dom,'scene polling must not replace selection/controls DOM on Свет');
+ assert.deepEqual(Array.from(c.state.selection),ids);
+}
+c.state.group='g'; c.state.selection=[1,2]; c.render();
+const groupDOM=snap(); poll(4);
+assert.equal(snap(),groupDOM); assert.equal(c.state.group,'g');
+c.lightUI.tab='plan';c.render();c.tapFixture(3,'control');
+const planDOM=snap();poll(5);assert.equal(snap(),planDOM);
+assert.deepEqual(Array.from(c.state.selection),[1,2,3]);
+const refreshed=JSON.parse(JSON.stringify(config));refreshed.fixtures[0].label='Новое имя';refreshed.groups[0].label='Новое имя группы';
+c.receive({config:refreshed});
+assert.deepEqual(Array.from(c.state.selection),[1,2,3],'same-show fixture/group refresh preserves ids');
+c.go('scenes');poll(6);const scenesDOM=snap();poll(7);
+assert.equal(snap(),scenesDOM,'same visible scene evidence preserves DOM');
+poll(8,true);assert.notEqual(snap(),scenesDOM,'actual scene status still renders');
+const freshDOM=snap();c.receive({running_meta:{s:{source:'ma2',freshness:'stale',updated_at:8}}});
+assert.notEqual(snap(),freshDOM,'stale evidence still renders');
+c.go('hall');c.planState.cur=2;c.render();const editorDOM=snap();poll(9);assert.equal(snap(),editorDOM,'polling preserves hall editor DOM');assert.equal(c.planState.cur,2,'placement target stays selected');
+c.go('light');assert.deepEqual(Array.from(c.state.selection),[1,2,3],'section switch preserves target');
+status({ma2:'down'});assert.deepEqual(Array.from(c.state.selection),[1,2,3],'MA2 availability alone preserves WS target');status();
+c.selectFixtures([]);assert.equal(c.state.selection.length,0,'explicit clear');
+c.selectFixtures([1]);const refused=ws().sent.at(-1);c.receive({ok:false,a:'select_fixtures',request_id:refused.request_id,err:'отказ'});assert.equal(c.state.selection.length,0,'refused selection is cleared');
+c.selectFixtures([1]);c.receive({config:{...config,show:'Other'}});assert.equal(c.state.selection.length,0,'another show clears target');
+c.selectFixtures([1]);status({show_load:{state:'loading'}});assert.equal(c.state.selection.length,0,'show loading clears target');
+status();c.selectFixtures([1]);const old=ws();old.onclose();c.connect();
+assert.equal(c.state.selection.length,0,'new WS session has no server selection');
+assert.equal(ws().sent.length,0,'reconnect never replays controls or selection');
+console.log('selection stability: fixtures, groups, multi, plan, polling, config, sections, explicit reset and reconnect passed');

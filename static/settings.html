@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Настройки · MA2</title><link rel="stylesheet" href="style.css">
+  <title>Настройки · MA2</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="atlas.css">
 </head>
 <body><main class="sx">
   <p class="toplinks"><a href="/">К панели</a> · <a href="setup.html">Мастер подключения</a> · <a href="diag.html">Диагностика</a></p>
@@ -16,6 +16,11 @@
     <button id="update-start" class="btn primary" type="button" disabled>Обновить</button>
     <p class="muted">Установка перезапустит панель. Конфиги и шоу сохраняются. USB и обновление по локальной сети доступны как прежде.</p>
     <p class="muted">После изменения портов заново запустите firewall-open.bat от имени администратора на ПК зала.</p>
+  </fieldset>
+  <fieldset id="interface"><legend>Интерфейс</legend>
+    <p class="muted">Какие инструменты показывать в рабочей панели. Настройка действует только в этом браузере и не меняет разрешения или возможности приборов.</p>
+    <div id="interface-tools" class="opts"></div>
+    <p id="interface-status" role="status" aria-live="polite">Все инструменты, включая Strobe, доступны по умолчанию.</p>
   </fieldset>
   <form id="settings-form" hidden novalidate>
     <fieldset><legend>Подключение к пульту</legend><div class="grid">
@@ -76,5 +81,5 @@
     <label class="fld"><span class="lbl">Файл XML</span><input id="fixture-file" type="file" accept=".xml,text/xml,application/xml"></label>
     <button id="import-file" class="btn" type="button">Импортировать файл</button>
   </fieldset>
-</main><script src="settings.js"></script><script src="update.js"></script></body>
+</main><script src="interface.js"></script><script src="settings.js"></script><script src="update.js"></script></body>
 </html>

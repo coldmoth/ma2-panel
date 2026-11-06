@@ -22,6 +22,8 @@ class MockMA2:
         self.received: list[str] = []
         self.paused = False
         self.mute = False       # test knob: take commands, never answer (a console that hangs)
+        self.fault_once = None  # demo/test knob: next non-poll command: delay | error | unknown
+        self.on_save = None  # optional isolated demo show-file writer
         self.no_prompt = False  # test knob: answer without the "]>" prompt
         self.late = 0.0         # test knob: answer every non-login line this many seconds late (a slow console)
         self.echo = False       # test knob: echo the command line back first, as some consoles do
@@ -70,7 +72,14 @@ class MockMA2:
                 self.received.append(text)
                 if self.mute and not text.lower().startswith("login"):
                     continue
-                reply = self._reply(text)
+                fault = None
+                if not text.lower().startswith(('login', 'list', 'lua', 'export')):
+                    fault, self.fault_once = self.fault_once, None
+                if fault == 'delay':
+                    await asyncio.sleep(.8)
+                reply = "Error #72: DEMO COMMAND REJECTED\r\n[Channel]>" if fault == 'error' else self._reply(text)
+                if fault == 'unknown':
+                    continue  # may have applied; no reply, no automatic retry
                 if re.fullmatch(r'LoadShow "([^"\r\n]+)" /nosave', text) and not reply.startswith("Error"):
                     # One drop per load, then the normal bridge reconnect/login path.
                     break
@@ -112,6 +121,10 @@ class MockMA2:
             self.show_name = m[1]
             self.running.clear()
             return "OK\r\n[Channel]>"
+        if text == 'SaveShow' and self.on_save:
+            self.on_save()
+        if m := re.match(r"Goto Cue 1 Executor (\S+)", text):
+            self.running.add(m[1])
         name = re.search(r'"([^"]*)"', text)
         if text.startswith("Attribute") and name and name[1] in self.missing_attrs:
             return f"Executing : {text}\r\nError : {text}\r\nError #14: OBJECT DOES NOT EXIST\r\n[Channel]>"

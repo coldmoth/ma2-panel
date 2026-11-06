@@ -15,7 +15,7 @@ import httpx
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(output: Path, node: str):
+def run(output: Path, node: str, script: Path = ROOT / "scripts/browser_smoke.cjs"):
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="ma2-browser-") as temp:
         app = Path(temp)
@@ -60,7 +60,7 @@ def run(output: Path, node: str):
                                 if time.monotonic() > deadline:
                                     raise TimeoutError("mock startup timed out")
                                 time.sleep(.1)
-                subprocess.run([node, str(ROOT / "scripts/browser_smoke.cjs"),
+                subprocess.run([node, str(script),
                                 *(f"http://127.0.0.1:{port}" for port in ports), str(output)],
                                env=env, check=True, timeout=180)
             finally:
@@ -78,5 +78,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path(tempfile.gettempdir()) / "ma2-browser-preflight")
     parser.add_argument("--node", default="node")
+    parser.add_argument("--script", type=Path, default=ROOT / "scripts/browser_smoke.cjs")
     args = parser.parse_args()
-    run(args.output.resolve(), args.node)
+    run(args.output.resolve(), args.node, args.script.resolve())

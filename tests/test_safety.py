@@ -194,7 +194,9 @@ def test_no_browser_storage_applied_to_console():
             if f.name != 'show-files.js':
                 assert "sessionStorage" not in text, f
             # UI preferences only. Diagnostic UUIDs are isolated from console actions.
-            keys = {"ma2.sec", "ma2.pick", "ma2.snap"}
+            keys = {"ma2.sec", "ma2.pick", "ma2.snap", "ma2.interface"}
+            if f.name == 'interface.js':
+                assert not re.search(r"\b(?:send|WebSocket|connect|fetch)\s*\(", text)
             if f.name == "diag-upload.js":
                 keys = {"ma2.diag-report-id"}
                 assert set(re.findall(r"fetch\('([^']*)'", text)) == {"/api/diag/upload", "/api/diag/queue"}

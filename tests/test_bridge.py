@@ -1333,7 +1333,7 @@ def test_simple_config_and_routes(simple_bridge):
     assert set(updated) == {'scenes', 'pages'}
     assert updated['scenes'][0]['label'] == 'New name'
     assert 'Погасить всё' in client.get('/').text
-    for path in ('/style.css', '/simple.js'):
+    for path in ('/style.css', '/simple.js', '/command-feedback.js'):
         assert client.get(path).status_code == 200
     for path in ('/api/settings', '/api/diag', '/settings.html', '/log.html', '/index.html', '/app.js', '/docs', '/openapi.json'):
         assert client.get(path).status_code == 404

@@ -26,6 +26,7 @@ async function screenshot(page, name) {
   await page.screenshot({path: path.join(output, name + '.png'), fullPage: true});
 }
 async function cutConnection(page, context, ready, offlineCheck, frames) {
+  const selection = await page.evaluate(() => typeof state === 'object' ? state.selection?.slice() : null);
   await context.setOffline(true);
   // Network emulation does not reliably close an already-open WS in every engine.
   // Explicitly close the actual native socket while the reconnect path is offline.
@@ -36,7 +37,12 @@ async function cutConnection(page, context, ready, offlineCheck, frames) {
   await context.setOffline(false);
   await ready();
   await page.waitForTimeout(2300); // one reconnect interval plus a joystick timer window
-  assert.equal(frames.length, before, 'Reconnect must not replay any action');
+  const restored = frames.slice(before);
+  assert(restored.length <= 1, 'Reconnect can only synchronize one validated selection');
+  for (const action of restored) {
+    assert.equal(action.a, 'select_fixtures', 'Reconnect must not replay lighting actions');
+    assert.deepEqual(action.ids, selection, 'Only the existing selection may be synchronized');
+  }
 }
 async function checkEngine(name) {
   const browser = await playwright[name].launch({headless: true});
@@ -137,7 +143,7 @@ async function checkEngine(name) {
           window.__fixtureTaps = 0;
           const original = tapFixture;
           tapFixture = function(...args) { window.__fixtureTaps++; return original(...args); };
-          go('light'); lightUI.tab='plan'; render();
+          go('light'); lightUI.tab='plan'; lightUI.picking=true; render();
         });
         const fixtureButton = page.locator('.hall .fx').first();
         await fixtureButton.focus();
@@ -195,7 +201,8 @@ async function checkEngine(name) {
         await page.locator('button.tile[data-scene="smoke-scene"]').tap();
         await until(() => frames.slice(beforeScene).some(a => a.a === 'scene_go'), 'full scene action');
         await page.locator('#rail [data-sec="light"]').tap();
-        await page.getByText('Тестовая группа', {exact: true}).tap();
+        await page.getByRole('button', {name: 'Группы', exact: true}).tap();
+        await page.locator('.pick').getByText('Тестовая группа', {exact: true}).tap();
         await page.getByRole('button', {name: 'Движение', exact: true}).tap();
         const pad = page.getByLabel('Пад Pan и Tilt');
         await pad.waitFor();
@@ -227,14 +234,17 @@ async function checkEngine(name) {
           assert(await page.locator('#blackout').isDisabled(), 'Disconnected controls disabled');
         }, frames);
         await page.mouse.up();
-        // Selection intentionally resets on reconnect; begin a fresh explicit interaction.
-        await page.getByText('Тестовая группа', {exact: true}).tap();
+        if (await page.locator('#notice').isVisible()) await page.locator('#notice button').click();
+        // Begin a fresh explicit interaction after validated selection synchronization.
+        await page.getByRole('button', {name: 'Группы', exact: true}).tap();
+        await page.locator('.pick').getByText('Тестовая группа', {exact: true}).tap();
         await page.getByRole('button', {name: 'Движение', exact: true}).tap();
         await page.getByRole('button', {name: 'Положение', exact: true}).tap();
         for (const attr of ['pan', 'tilt']) {
           const label = (attr === 'pan' ? 'Pan' : 'Tilt') + ' — абсолютное положение';
           const range = page.getByRole('slider', {name: label, exact: true});
           assert(await range.isEnabled(), `${label} must be enabled`);
+          await range.scrollIntoViewIfNeeded();
           const bounds = await range.boundingBox();
           assert(bounds && bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= 1024 &&
                  bounds.y + bounds.height <= 768, `${label} fits viewport`);

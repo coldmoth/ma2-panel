@@ -4,7 +4,7 @@
   "rate_hz": 5,
   "poll_seconds": 2,
   "ma2": {
-    "host": "127.0.0.1",
+    "host": "ma2-unconfigured.invalid",
     "port": 30000,
     "user": "Remote",
     "require_prompt": true,

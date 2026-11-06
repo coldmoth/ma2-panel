@@ -1,6 +1,7 @@
 /* Свет: pick groups or fixtures on the left, every control of the selection on the right at once. */
-var lightUI = {tab: 'groups', controlTab: 'light', moveBox: null};
-try { lightUI.tab = localStorage.getItem('ma2.pick') || 'groups'; } catch (error) {}
+var lightUI = {tab: 'plan', controlTab: 'light', moveBox: null, query: ''};
+try { lightUI.tab = localStorage.getItem('ma2.pick') || 'plan'; } catch (error) {}
+function toolVisible(key) { return typeof panelToolVisible !== 'function' || panelToolVisible(key); }
 var COLORS = [
   ['Белый', [100, 100, 100]], ['Тёплый', [100, 82, 60]], ['Красный', [100, 0, 0]], ['Оранжевый', [100, 50, 0]],
   ['Жёлтый', [100, 100, 0]], ['Зелёный', [0, 100, 0]], ['Голубой', [0, 100, 100]], ['Синий', [0, 0, 100]],
@@ -69,6 +70,7 @@ function pickRow(on, disabled, onclick, kids, title) {
 
 SECTIONS.light = function (el) {
   var cfg = state.config;
+  if (lightUI.controlTab === 'movement' && (!split('pos').yes.length || !toolVisible('pos'))) lightUI.controlTab = 'light';
   var wrap = h('div', {class: 'light' + (lightUI.tab === 'plan' ? ' wide' : '')});
   add(el, wrap);
   var tabs = h('div', {class: 'seg'}, [['groups', 'Группы'], ['fixtures', 'Приборы'], ['plan', 'План']].map(function (t) {
@@ -78,7 +80,7 @@ SECTIONS.light = function (el) {
       render();
     }}, t[1]);
   }));
-  var bd = h('div', {class: 'bd' + (lightUI.tab === 'plan' ? ' plan-mini' : ''), 'data-scroll': 'pick-' + lightUI.tab});
+  var bd = h('div', {class: 'bd' + (lightUI.tab === 'plan' ? ' plan-mini' : lightUI.tab === 'fixtures' ? ' fixture-browser' : ''), 'data-scroll': 'pick-' + lightUI.tab});
   var ready = connected();
   if (lightUI.tab === 'groups') {
     var panelGroups = (cfg.groups || []).filter(function (g) { return !('n' in g); });
@@ -110,9 +112,10 @@ SECTIONS.light = function (el) {
       var on = state.group === 'ma2:' + g.n, ids = g.ids || [];
       add(bd, h('div', {class: 'pick-del'}, pickRow(on, !ready || !ids.length, function () {
         cancelSlider('dim'); cancelSlider('color');
-        if (send({a: 'ma2_group_go', n: g.n}, null)) { state.selection = ids.slice(); state.group = 'ma2:' + g.n; render(); }
+        if (selectFixtures(ids)) { state.group = 'ma2:' + g.n; render(); }
       }, [h('span', {class: 'grow'}, h('b', {}, g.name), h('span', {class: 'meta'}, 'Group ' + g.n + (g.ids ? ' · ' + ids.length + ' приб.' : ' · состав не прочитан, импортируйте снова'))),
         h('span', {class: 'tag ma2'}, 'MA2')], ids.length ? '' : 'Состав не прочитан: на «Площадке» нажмите «Прочитать из MA2» и импортируйте группу снова'),
+        h('button', {class:'btn small ghost',type:'button',disabled:!ready || !ids.length,'aria-label':'Выбрать Group ' + g.n + ' на MA2',onclick:function(e) { selectConsoleGroup(g,e.currentTarget); }}, 'На MA2'),
         del('группу MA2 ' + g.n + ' «' + g.name + '»', {a: 'group_delete', n: g.n})));
     });
   } else if (lightUI.tab === 'fixtures') {
@@ -123,24 +126,43 @@ SECTIONS.light = function (el) {
       if (!byType[t]) { byType[t] = []; types.push(t); }
       byType[t].push(f);
     });
+    var families = [];
+    function filterFixtures() {
+      var query = lightUI.query.trim().toLocaleLowerCase();
+      var visible = 0;
+      families.forEach(function (family) {
+        var count = 0;
+        family.rows.forEach(function (row) { row.el.hidden = !!query && row.text.indexOf(query) < 0; if (!row.el.hidden) count++; });
+        family.el.hidden = !count; visible += count;
+      });
+      noMatches.hidden = visible > 0;
+    }
+    var search = h('input', {type:'search', value:lightUI.query, placeholder:'Номер, имя или тип', 'aria-label':'Найти прибор', oninput:function(e) {
+      lightUI.query = e.target.value; filterFixtures();
+    }});
+    var noMatches = h('p',{class:'note search-empty'},'Приборы не найдены');
+    add(bd,h('label',{class:'fixture-search'},icon('search',18),search));
     types.forEach(function (t) {
       var list = byType[t], ids = list.filter(function (f) { return allowedFixture(f.id); }).map(function (f) { return f.id; });
       var all = ids.length && ids.every(function (id) { return state.selection.indexOf(id) >= 0; });
-      add(bd, h('div', {class: 'type-head'}, h('span', {class: 'grow', title: t}, t), h('button', {class: 'btn small ghost', type: 'button', disabled: !ready || !ids.length,
+      var family = {el:h('div',{class:'fixture-family'}),rows:[]}; families.push(family); add(bd,family.el);
+      add(family.el, h('div', {class: 'type-head'}, h('span', {class: 'grow', title: t}, t), h('button', {class: 'btn small ghost', type: 'button', disabled: !ready || !ids.length,
         onclick: function () {
           var sel = state.selection.filter(function (id) { return ids.indexOf(id) < 0; });
           selectFixtures(all ? sel : sel.concat(ids));
         }}, all ? 'Снять ' + ids.length : 'Все ' + ids.length)));
       list.forEach(function (f) {
         var on = state.selection.indexOf(f.id) >= 0;
-        add(bd, pickRow(on, !ready || !allowedFixture(f.id), function () {
+        var row = pickRow(on, !ready || !allowedFixture(f.id), function () {
           var sel = state.selection.slice(), i = sel.indexOf(f.id);
           if (i < 0) sel.push(f.id); else sel.splice(i, 1);
           selectFixtures(sel);
         }, [h('span', {class: 'id'}, f.id), h('span', {class: 'grow'}, h('b', {}, fxName(f))),
-          canMove(f) ? h('span', {class: 'tag'}, 'голова') : null, f.service ? h('span', {class: 'tag'}, 'служ.') : null]));
+          canMove(f) ? h('span', {class: 'tag', title:'Поддерживает Pan/Tilt'}, icon('light',16)) : null, f.service ? h('span', {class: 'tag'}, 'служ.') : null]);
+        add(family.el,row);family.rows.push({el:row,text:(f.id+' '+fxName(f)+' '+t).toLocaleLowerCase()});
       });
     });
+    add(bd,noMatches);filterFixtures();
   } else {
     if (!fixtures().some(function (f) { return typeof f.x === 'number'; })) add(bd, h('div', {class: 'empty-pick'}, h('b', {}, 'План ещё не нарисован'),
       h('span', {class: 'note'}, 'Нарисуйте зал и расставьте приборы — потом их можно выбирать прямо на схеме.'),
@@ -148,7 +170,7 @@ SECTIONS.light = function (el) {
     else hallPlan(bd, 'control');
   }
   add(wrap, h('section', {class: 'pick', 'aria-label': 'Что управляем'}, h('div', {class: 'hd'}, tabs), bd,
-    lightUI.tab === 'plan' ? h('p', {class: 'note pick-tip'}, 'Нажмите прибор или обведите несколько пальцем.') : null,
+    lightUI.tab === 'plan' ? h('p', {class: 'note pick-tip'}, 'Касание — выбор · обведение — несколько') : null,
     h('div', {class: 'ft'}, h('button', {class: 'btn small', type: 'button', disabled: !ready, onclick: function () {
       selectFixtures(fixtures().filter(function (f) { return !f.missing && !f.service && allowedFixture(f.id); }).map(function (f) { return f.id; }));
     }}, 'Все сценические'), h('button', {class: 'btn small ghost', type: 'button', disabled: !ready || !state.selection.length, onclick: function () { selectFixtures([]); }}, 'Снять выбор'))));
@@ -159,36 +181,71 @@ SECTIONS.light = function (el) {
   add(box, ctl);
   var sel = selected();
   if (!sel.length) {
-    add(ctl, h('div', {class: 'empty-sec span'}, icon('light', 40), h('b', {}, 'Ничего не выбрано'),
-      h('span', {class: 'note'}, 'Выберите группу, приборы или нажмите их на плане слева. Здесь сразу появятся яркость, цвет, позиция и стробоскоп.')));
+    var home = h('div',{class:'selection-home span'},h('div',{class:'home-heading'},icon('select',24),
+      h('h1',{},'Выберите свет')),h('p',{class:'note'},'Коснитесь прибора на плане или выберите группу.'));
+    var groups = (cfg.groups || []).filter(function(g) { return !('n' in g); });
+    if (groups.length) {
+      add(home,h('h2',{},'Быстрый выбор'));
+      var quickGroups = h('div',{class:'home-groups'});
+      groups.forEach(function(g) {
+        add(quickGroups,h('button',{class:'home-group',type:'button',disabled:!ready || !g.fixtures.every(allowedFixture),onclick:function() {
+          cancelSlider('dim');cancelSlider('color');
+          if(send({a:'select_group',id:g.id})) { state.selection=g.fixtures.slice();state.group=g.id;render(); }
+        }},icon('group',20),h('span',{class:'grow'},h('b',{},g.label),h('span',{class:'note'},g.fixtures.length+' '+plural(g.fixtures.length,'прибор','прибора','приборов'))),icon('chevron',18)));
+      });
+      add(home,quickGroups);
+    }
+    var liveScenes=h('div',{'aria-live':'polite'}),liveKey;
+    updaters.push(function() {
+      var active=(cfg.scenes || []).filter(function(scene) { return sceneEvidence(scene.id).value === true; });
+      var key=JSON.stringify(active.map(function(scene){return [scene.id,scene.label];}));
+      if(key===liveKey)return;liveKey=key;liveScenes.textContent='';
+      add(liveScenes,active.length ? active.map(function(scene) { return h('div',{class:'home-live'},h('span',{class:'dot on'}),h('b',{},scene.label),h('span',{class:'note'},'Активна')); }) : h('p',{class:'note'},'Нет подтверждённой активной сцены'));
+    });
+    add(home,h('div',{class:'home-scenes'},h('div',{class:'home-section-title'},h('h2',{},'Сцены'),
+      h('button',{class:'btn small ghost',type:'button',onclick:function(){go('scenes');}},'Открыть',icon('chevron',16))),
+      liveScenes,
+      h('p',{class:'src'},(cfg.scenes || []).length+' сцен в шоу')));
+    add(home,h('div',{class:'home-shortcuts'},h('button',{class:'btn ghost',type:'button',onclick:function(){lightUI.tab='fixtures';render();}},icon('search',18),'Найти прибор'),
+      h('a',{class:'btn ghost',href:'settings.html#interface'},'Настроить инструменты')));
+    add(ctl,home);
     return;
+  }
+  var chosenGroup=(cfg.groups || []).filter(function(g){return g.id===state.group;})[0];
+  var groupLabel=chosenGroup && chosenGroup.label;
+  if(!groupLabel && String(state.group).indexOf('ma2:')===0) {
+    var consoleGroup=(cfg.ma2groups || []).filter(function(g){return 'ma2:'+g.n===state.group;})[0];
+    groupLabel=consoleGroup && consoleGroup.name;
   }
   var names = sel.slice(0, 6).map(fxName).join(', ') + (sel.length > 6 ? ' и ещё ' + (sel.length - 6) : '');
   add(ctl, h('div', {class: 'selbar span'},
-    h('div', {class: 'who'}, h('b', {}, sel.length + ' ' + plural(sel.length, 'прибор', 'прибора', 'приборов')), h('span', {class: 'note', title: names}, names)),
+    h('div', {class: 'who'}, h('b', {}, groupLabel || (sel.length === 1 ? fxName(sel[0]) : sel.length + ' ' + plural(sel.length, 'прибор', 'прибора', 'приборов'))), h('span', {class: 'note', title: names}, sel.length === 1 ? '№ '+sel[0].id+' · '+sel[0].type : (groupLabel ? sel.length+' приб. · ' : '')+names)),
     h('div', {class: 'fade', role: 'group', 'aria-label': 'Плавный переход для кнопок яркости и образцов цвета',
       title: 'Кнопки 0–100 %, образцы цвета и касание круга меняют свет плавно за это время. Перетаскивание ползунка или круга всегда сразу: свет идёт за пальцем.'},
       h('span', {class: 'note'}, 'Плавно'), [0, 1, 3, 5].map(function (sec) {
       return h('button', {class: 'btn small', type: 'button', 'aria-pressed': String(sec === fadeSeconds),
         onclick: function () { fadeSeconds = sec; render(); }}, sec ? sec + ' с' : 'сразу');
     })),
+    h('button', {class:'btn small ghost clear-selection',type:'button',onclick:function() { selectFixtures([]); }}, 'Снять выбор'),
     h('button', {class: 'btn small', type: 'button', disabled: !ready || !!featureReason('store'), onclick: function () {
       var pages = ((cfg.scenes || []).map(pageOf));
       openStore(pages.length ? Math.max.apply(null, pages) : 1);
     }}, icon('save', 18), 'В сцену…')));
   // Updated in place: a rebuild here would cut a wheel or slider gesture short.
-  var lost = h('p', {class: 'note warn span'}, 'После запуска сцены панель не знает текущих значений: показывает «неизвестно».');
+  var lost = h('p', {class: 'note warn span'}, 'После сцены текущие значения неизвестны.');
   updaters.push(function () { lost.hidden = state.tracked !== false; });
   add(ctl, lost);
-  add(ctl, h('div', {class: 'control-tabs span seg'}, ['light', 'movement'].map(function(tab) {
+  add(ctl, h('div', {class: 'control-tabs span seg'}, (split('pos').yes.length && toolVisible('pos') ? ['light', 'movement'] : ['light']).map(function(tab) {
     return h('button', {type:'button', 'aria-pressed':String(lightUI.controlTab === tab), onclick:function() {
       moveStop(); lightUI.controlTab = tab; render();
     }}, tab === 'light' ? 'Свет' : 'Движение');
   })));
   if (lightUI.controlTab === 'movement') { add(ctl, moveCard()); return; }
-  add(ctl, sliderCard('dim', 'Яркость', '%', true));
-  if (attributeVisible('strobe')) add(ctl, sliderCard('strobe', 'Стробоскоп', '%'));
-  add(ctl, colorCard());
+  if (toolVisible('dim')) add(ctl, sliderCard('dim', 'Яркость', '%', true));
+  if (toolVisible('strobe') && attributeVisible('strobe') && split('strobe').yes.length) add(ctl, sliderCard('strobe', 'Стробоскоп', '%'));
+  if (toolVisible('color')) add(ctl, colorCard());
+  ['zoom','focus'].forEach(function(attr) { if (toolVisible(attr) && attributeVisible(attr) && split(attr).yes.length && (!split('pos').yes.length || !toolVisible('pos'))) add(ctl,sliderCard(attr,attr === 'zoom' ? 'Zoom' : 'Focus','%')); });
+  if (!['dim','color','strobe','zoom','focus'].some(toolVisible) && !toolVisible('pos')) add(ctl,h('p',{class:'note span'},'Инструменты скрыты. Включите их в разделе «Интерфейс» настроек.'));
 };
 function plural(n, one, few, many) {
   var m10 = n % 10, m100 = n % 100;
@@ -328,7 +385,7 @@ function colorCard() {
     var busyNow = cp.drag !== null || !!(sliderChannels.color || {}).latest;
     now.textContent = busyNow ? 'Отправляется…' : v === null ? (state.tracked === false ? 'Неизвестен после сцены' : 'Текущий цвет неизвестен') :
       v === 'mixed' ? 'У выбранных разные цвета' : 'R ' + rgb[0] + ' · G ' + rgb[1] + ' · B ' + rgb[2];
-    nowSrc.textContent = busyNow ? '' : v === null ? (sentStale('rgb') ? 'Отправленный цвет устарел · текущий неизвестен' : 'MA2 не сообщает цвет. Выберите оттенок на круге или образец.') : v === 'mixed' ? 'Новый выбор задаст один цвет всем.' : sentSource();
+    nowSrc.textContent = busyNow ? '' : v === null ? (sentStale('rgb') ? 'Отправленный цвет устарел · текущий неизвестен' : 'Текущий цвет MA2 неизвестен') : v === 'mixed' ? 'Новый выбор задаст один цвет всем.' : sentSource();
     swatches.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.rgb === v)); });
   }
   updaters.push(function () {
@@ -353,7 +410,7 @@ function colorCard() {
       h('label', {class: 'mini'}, h('span', {class: 'vrow'}, h('span', {}, 'Насыщенность'), satOut), satIn),
       h('label', {class: 'mini'}, h('span', {class: 'vrow'}, h('span', {}, 'Светлота цвета'), valOut), valIn),
       h('div', {class: 'swatches', role: 'group', 'aria-label': 'Быстрые цвета'}, swatches),
-      h('p', {class: 'src'}, 'Круг меняет только цвет. Яркость прибора — отдельный регулятор «Яркость».' +
+      h('p', {class: 'src'}, 'Цвет и яркость регулируются отдельно.' +
         (fadeSeconds ? ' Образцы и касание круга — плавно за ' + fadeSeconds + ' с, перетаскивание — сразу.' : '')))),
     presetRow(ready), reason ? h('p', {class: 'note warn'}, reason) : null, unsupportedNote('color'));
 }

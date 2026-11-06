@@ -17,11 +17,13 @@
     #error { color: var(--bad-text); }
     #error.sent { color: var(--ink-2); }
   </style>
+  <script src="/command-feedback.js" defer></script>
   <script src="/simple.js" defer></script>
 </head>
 <body>
   <main>
     <header><h1>Сцены</h1><p id="connection" role="status">Подключение…</p></header>
+    <p id="operation-status" class="operation-status" role="status" aria-live="polite" hidden></p>
     <div id="errors" class="error-messages" role="region" aria-label="Ошибки операций" aria-live="polite" hidden></div>
     <p id="error" role="alert" hidden></p>
     <div id="scenes"><p class="muted">Загружаю сцены…</p></div>

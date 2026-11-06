@@ -63,7 +63,7 @@ const context = vm.createContext({document, WebSocket, console, location: {proto
   setTimeout: () => 0, clearTimeout() {}, setInterval: (fn, delay) => { timers.push({fn, delay}); return timers.length; },
   clearInterval: id => { if (timers[id - 1]) timers[id - 1].cleared = true; }, confirm: () => true, prompt: () => null,
   Object, JSON, Math, Array, Number, String});
-for (const path of ['static/app.js', 'static/light.js', 'static/plan.js', 'static/move.js']) vm.runInContext(fs.readFileSync(path, 'utf8'), context, {filename: path});
+for (const path of ['static/command-feedback.js', 'static/app.js', 'static/light.js', 'static/plan.js', 'static/move.js']) vm.runInContext(fs.readFileSync(path, 'utf8'), context, {filename: path});
 vm.runInContext('connect()', context);
 const ws = () => context.state.ws;
 // Semantic assertions omit transport fields; protocol-panel.cjs checks their exact lifecycle.
@@ -276,6 +276,7 @@ let simpleSocket;
 const simpleReply = message => ({...message,request_id:simpleSocket.sent.slice().reverse().find(action=>action.a===message.a).request_id});
 class SimpleSocket extends WebSocket { constructor(){super();simpleSocket=this;} }
 const simpleContext=vm.createContext({document:simpleDoc,WebSocket:SimpleSocket,location:{protocol:'http:',host:'localhost'},setTimeout:()=>0,setInterval:(fn,delay)=>{timers.push({fn,delay});return timers.length;},confirm:()=>true});
+vm.runInContext(fs.readFileSync('static/command-feedback.js','utf8'),simpleContext);
 vm.runInContext(fs.readFileSync(process.env.MA2_SIMPLE_SCRIPT || 'static/simple.js','utf8'),simpleContext);
 simpleSocket.onmessage({data:JSON.stringify({status:{ma2:'logged_in',safety:{mode:'full'}}})});
 simpleSocket.onmessage({data:JSON.stringify({config:{scenes:[{id:'z',exec:'2.105',label:'Финал'},{id:'a',exec:'1.101',label:'Рояль'}]}})});
@@ -330,7 +331,7 @@ page.all().find(n=>n.tagName==='BUTTON' && n.dataset.scene==='evidence').click()
 reply({ok:true,a:'scene_go'});
 assert.notEqual(context.state.scenes.evidence,true);
 assert.match(page.textContent,/неизвест/i);
-assert.equal(document.getElementById('notice').textContent,'Команда отправлена');
+assert.match(document.getElementById('operation-status').textContent,/Обработка завершена.*не подтверждено/);
 context.receive({running:{evidence:true},running_meta:{evidence:{source:'ma2',freshness:'fresh',updated_at:1}}});
 assert.match(page.textContent,/Идёт/);
 context.receive({running:{evidence:null},running_meta:{evidence:{source:'ma2',freshness:'stale',updated_at:1}}});
@@ -492,6 +493,16 @@ require('./rdm-search-ui.cjs');
 
 require('./durable-feedback.cjs');
 require('./plan-keyboard.cjs');
+require('./plan-scroll.cjs');
 require('./show-file-busy.cjs');
 
 require('./plan-beams.cjs');
+
+require('./command-feedback.cjs');
+
+require('./topbar-stability.cjs');
+
+require('./selection-stability.cjs');
+require('./original-panel.cjs');
+
+require('./stage-atlas.cjs');

@@ -169,7 +169,8 @@ jobs:
 
   windows-mock:
     name: Windows delivered ZIP, runtime, BAT, rollback and mock
-    needs: [windows-tests]
+    # Validate the delivered embedded runtime even if a separate venv diagnostic fails.
+    needs: [tests]
     if: github.event_name != 'push'
     runs-on: windows-latest
     timeout-minutes: 20

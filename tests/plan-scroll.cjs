@@ -1,0 +1,28 @@
+// Fixture navigation must scroll the local list, never the page or toolbar.
+const assert = require('node:assert/strict'), fs = require('node:fs');
+const prefix = fs.readFileSync('tests/panel-v4.cjs', 'utf8').split('// Empty workspace:')[0];
+const {context:c, document, ws} = new Function('require', prefix + '\nreturn {context,document,ws};')(require);
+c.receive({status:{ma2:'logged_in',safety:{mode:'full'}}});
+c.receive({config:{fixtures:[{id:1,label:'Первый',x:.2,y:.2},{id:2,label:'Полное имя второго',x:.7,y:.7}],hall:{w:18,d:14,stage:'top'},groups:[],scenes:[],presets:[],attrs:{}}});
+let tasks=[], outerScrolls=0;
+c.setTimeout=fn=>{tasks.push(fn);return 0;};
+const create=document.createElement;document.createElement=tag=>{const n=create(tag);n.scrollIntoView=()=>{outerScrolls++;};return n;};
+c.planState.cur=1;c.planState.tab='place';
+const root=document.createElement('div');c.SECTIONS.hall(root);
+const side=root.all().find(n=>n.className==='side');
+const row=side.children.find(n=>n.getAttribute('aria-pressed')==='true');
+side.scrollTop=20;side.clientHeight=100;
+side.getBoundingClientRect=()=>({top:0,bottom:100});
+row.getBoundingClientRect=()=>({top:140,bottom:192});
+row.scrollIntoView=()=>{outerScrolls++;};
+const before=ws().sent.length;
+tasks.forEach(fn=>fn());
+assert.equal(outerScrolls,0,'fixture navigation must not scroll page ancestors');
+assert.equal(side.scrollTop,112,'selected fixture becomes visible inside the list');
+row.getBoundingClientRect=()=>({top:-40,bottom:12});
+tasks.forEach(fn=>fn());assert.equal(side.scrollTop,72,'scroll upwards within the list');
+row.getBoundingClientRect=()=>({top:10,bottom:62});
+tasks.forEach(fn=>fn());assert.equal(side.scrollTop,72,'visible row does not move the list');
+assert.equal(ws().sent.length,before,'list scrolling sends no actions');
+assert(root.textContent.includes('Полное имя второго'));
+console.log('plan scroll: local list only, full name and no actions passed');

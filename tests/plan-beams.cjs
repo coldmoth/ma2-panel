@@ -4,7 +4,7 @@ const prefix = fs.readFileSync('tests/panel-v4.cjs', 'utf8').split('// Empty wor
 const {context:c, document} = new Function('require', prefix + '\nreturn {context,document};')(require);
 c.receive({status:{ma2:'logged_in',safety:{mode:'full'}}});
 const f = {id:1,label:'Head',moves:true,x:.25,y:.5,beam:{home:50,invert:false}};
-c.state.config = {fixtures:[f,{id:2,moves:false,x:.5,y:.5}],hall:{w:20,d:10,stage:'top'},attrs:{pan:{min:-270,max:270}}};
+c.receive({config:{fixtures:[f,{id:2,moves:false,x:.5,y:.5}],hall:{w:20,d:10,stage:'top'},attrs:{pan:{min:-270,max:270}}}});
 c.state.shown = {1:{pan:50}};
 const close=(actual,expected)=>assert(Math.abs(actual-expected)<1e-8, `${actual} != ${expected}`);
 for(const [stage,x,y] of [['top',10,1.5],['bottom',10,8.5],['left',1.5,5],['right',18.5,5]]) {

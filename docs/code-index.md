@@ -148,27 +148,28 @@
   - 2778 `update_stop`
   - 2783 `perform_action_inner`
   - 2820 `operation_reply`
-  - 2831 `finish_operation`
-  - 2847 `perform_action`
-  - 2891 `handle_load`
-  - 2900 `ws_endpoint`
-  - 2903 `simple_ws_endpoint`
-  - 2906 `serve_ws`
-    - 2916 `worker`
-    - 2920 `spawn`
-  - 2971 `no_cache`
-  - 2992 `simple_index`
-  - 2996 `simple_style`
-  - 3000 `simple_script`
-  - 3004 `simple_health`
-  - 3008 `update_health`
-- 3020 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
-- 3042 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
-- 3054 `local_addresses`
-- 3061 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
-- 3081 `stop_running`
-- 3093 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
-- 3106 `main`
+  - 2832 `finish_operation`
+  - 2848 `perform_action`
+  - 2892 `handle_load`
+  - 2901 `ws_endpoint`
+  - 2904 `simple_ws_endpoint`
+  - 2907 `serve_ws`
+    - 2917 `worker`
+    - 2921 `spawn`
+  - 2972 `no_cache`
+  - 2993 `simple_index`
+  - 2997 `simple_style`
+  - 3001 `simple_script`
+  - 3005 `simple_feedback_script`
+  - 3009 `simple_health`
+  - 3013 `update_health`
+- 3025 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
+- 3047 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
+- 3059 `local_addresses`
+- 3066 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
+- 3086 `stop_running`
+- 3098 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
+- 3111 `main`
 
 ## browser_update.py
 - 29 `trusted_url`
@@ -380,13 +381,13 @@
 ## mock.py
 - 14 `MockMA2`
   - 15 `__init__`
-  - 61 `_handle`
-  - 93 `_wire`
-  - 98 `_reply`
-  - 104 `_answer`
-  - 228 `_real_list` — Rows as the hall console printed them; executor rows were never captured, so those keep th
-  - 244 `drop`
-- 249 `start_mock`
+  - 63 `_handle`
+  - 102 `_wire`
+  - 107 `_reply`
+  - 113 `_answer`
+  - 241 `_real_list` — Rows as the hall console printed them; executor rows were never captured, so those keep th
+  - 257 `drop`
+- 262 `start_mock`
 
 ## onboarding.py
 - 11 `tablet_urls`
@@ -545,64 +546,75 @@
 - 547 `main`
 
 ## static/app.js
-- 16 `captureRevision`
-- 24 `pumpConfigQueue`
-- 43 `on`
-- 49 `h`
-- 64 `add`
-- 81 `icon`
-- 88 `pageOf`
-- 89 `bridgeUp`
-- 91 `linkReady`
-- 92 `connected`
-- 93 `fixtures`
-- 94 `fixture`
-- 96 `canMove`
-- 97 `hasFixtures`
-- 98 `safe`
-- 105 `linkLine`
-- 116 `send`
-- 134 `sendRaw`
-- 141 `busy`
-- 143 `feedback`
-- 147 `notice`
-- 165 `actionFeature`
-- 169 `featureReason`
-- 175 `go`
-- 185 `render`
-- 226 `renderBanners`
-- 253 `renderSection`
-- 295 `readFromMa2`
-- 296 `fixtureImportComplete`
-- 307 `fixtureImportChoices`
-- 337 `SECTIONS.start`
-- 386 `setupSteps`
-- 402 `safetyText`
-- 409 `ma2Card`
-- 433 `pagesList`
-- 437 `SECTIONS.scenes`
-- 478 `masterControl`
-- 499 `setFill`
-- 504 `openSceneEdit`
-- 531 `cancelStore`
-- 535 `openStore`
-- 572 `SECTIONS.history`
-- 584 `SECTIONS.shows`
-- 645 `discardPending`
-- 654 `clearEvidence`
-- 659 `sceneAllowed`
-- 662 `sceneEvidence`
-- 669 `valueFreshness`
-- 672 `sentSource`
-- 675 `sentStale`
-- 678 `observeEvidence`
-- 686 `expireEvidence`
-- 706 `receive`
-- 819 `connect`
-- 847 `cancelSlider`
-- 854 `flushSliders`
-- 863 `throttleSlider`
-- 878 `selectFixtures`
+- 11 `selectionIdentity`
+- 20 `rememberSelection`
+- 25 `validateSelectionIntent`
+- 48 `captureRevision`
+- 56 `pumpConfigQueue`
+- 80 `on`
+- 86 `h`
+- 101 `add`
+- 121 `icon`
+- 128 `pageOf`
+- 129 `bridgeUp`
+- 131 `linkReady`
+- 132 `connected`
+- 133 `fixtures`
+- 134 `fixture`
+- 136 `canMove`
+- 137 `hasFixtures`
+- 138 `safe`
+- 145 `linkLine`
+- 156 `send`
+- 187 `sendRaw`
+- 201 `busy`
+- 203 `feedback`
+- 207 `renderOperationFeedback`
+- 218 `notice`
+- 236 `actionFeature`
+- 240 `featureReason`
+- 246 `go`
+- 256 `render`
+- 304 `renderBanners`
+- 331 `renderSection`
+- 375 `readFromMa2`
+- 376 `fixtureImportComplete`
+- 387 `fixtureImportChoices`
+- 417 `SECTIONS.start`
+- 466 `setupSteps`
+- 482 `safetyText`
+- 489 `ma2Card`
+- 513 `pagesList`
+- 517 `SECTIONS.scenes`
+- 558 `masterControl`
+- 579 `setFill`
+- 584 `openSceneEdit`
+- 611 `cancelStore`
+- 615 `openStore`
+- 652 `SECTIONS.history`
+- 664 `SECTIONS.shows`
+- 725 `discardPending`
+- 739 `clearEvidence`
+- 744 `sceneAllowed`
+- 747 `sceneEvidence`
+- 754 `valueFreshness`
+- 757 `sentSource`
+- 760 `sentStale`
+- 763 `observeEvidence`
+- 771 `expireEvidence`
+- 792 `receive`
+- 926 `connect`
+- 954 `cancelSlider`
+- 961 `flushSliders`
+- 970 `throttleSlider`
+- 985 `selectConsoleGroup`
+- 994 `selectFixtures`
+
+## static/command-feedback.js
+- 2 `commandOperationName`
+- 20 `commandFeedback`
+- 47 `commandWaiting`
+- 58 `commandWaitMs`
 
 ## static/diag-upload.js
 
@@ -617,27 +629,33 @@
 - 76 `runExport`
 - 82 `guarded`
 
+## static/interface.js
+- 4 `panelReadTools`
+- 8 `panelToolVisible`
+- 10 `panelRefreshTools`
+
 ## static/light.js
-- 15 `colorMode`
-- 16 `supports`
-- 22 `selected`
-- 23 `attributeVisible`
-- 32 `split`
-- 37 `known`
-- 48 `knownText`
-- 53 `lightKey`
-- 57 `unsupportedNote`
-- 63 `fxName`
-- 64 `allowedFixture`
-- 65 `pickRow`
-- 70 `SECTIONS.light`
-- 193 `plural`
-- 198 `sliderCard`
-- 226 `hsv2rgb`
-- 230 `rgb2hsv`
-- 235 `cssRgb`
-- 237 `colorCard`
-- 361 `moveCard`
+- 4 `toolVisible`
+- 16 `colorMode`
+- 17 `supports`
+- 23 `selected`
+- 24 `attributeVisible`
+- 33 `split`
+- 38 `known`
+- 49 `knownText`
+- 54 `lightKey`
+- 58 `unsupportedNote`
+- 64 `fxName`
+- 65 `allowedFixture`
+- 66 `pickRow`
+- 71 `SECTIONS.light`
+- 250 `plural`
+- 255 `sliderCard`
+- 283 `hsv2rgb`
+- 287 `rgb2hsv`
+- 292 `cssRgb`
+- 294 `colorCard`
+- 418 `moveCard`
 
 ## static/move.js
 - 9 `moveHeads`
@@ -673,27 +691,27 @@
 - 191 `SECTIONS.patch`
 
 ## static/plan.js
-- 6 `planKind`
-- 13 `placed`
-- 14 `hallOf`
-- 15 `planKey`
-- 21 `planBeginEdit`
-- 28 `stopPing`
-- 33 `planEndEdit`
-- 41 `highlightOn`
-- 58 `planBeamAngle`
-- 74 `hallPlan`
-- 225 `tapFixture`
-- 246 `planOrder`
-- 247 `planCurrent`
-- 253 `planLight`
-- 258 `planNext`
-- 272 `planStep`
-- 281 `SECTIONS.hall`
-- 356 `hallForm`
-- 374 `groupSide`
-- 400 `openGroupStore`
-- 418 `beamCard`
+- 7 `planKind`
+- 14 `placed`
+- 15 `hallOf`
+- 16 `planKey`
+- 22 `planBeginEdit`
+- 29 `stopPing`
+- 34 `planEndEdit`
+- 42 `highlightOn`
+- 59 `planBeamAngle`
+- 75 `hallPlan`
+- 309 `tapFixture`
+- 330 `planOrder`
+- 331 `planCurrent`
+- 337 `planLight`
+- 342 `planNext`
+- 356 `planStep`
+- 365 `SECTIONS.hall`
+- 445 `hallForm`
+- 463 `groupSide`
+- 489 `openGroupStore`
+- 507 `beamCard`
 
 ## static/settings.js
 - 7 `status`

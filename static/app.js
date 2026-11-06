@@ -4,9 +4,41 @@ var state = {valuesRevision: -1, master: null, readFreshness: {}, ws: null, ma2:
   shown: {}, live: {}, dmx: {}, sceneMeta: {}, valuesMeta: {}, tracked: true, selection: [], group: null, halted: false, safety: null, features: {}, highlight: null,
   showLoad: {state: 'idle'}, show: {name: null}, sec: 'start', blackoutArm: false,
   fetch: null, ma2read: null, showNames: null, showRaw: [], showLocal: [], showPick: null, saveReply: '', history: []};
+// Reconnect restores intent only after fresh fixture identity and bridge-only selection ACK.
+var selectionIntent = null;
+var selectionSync = null;
+var awaitingConfig = true;
+function selectionIdentity(cfg, ids) {
+  if (!cfg || !ids.length) return null;
+  var list = ids.map(function(id) { return (cfg.fixtures || []).filter(function(f) { return f.id === id && !f.missing; })[0]; });
+  if (list.some(function(f) { return !f; })) return null;
+  return JSON.stringify([cfg.show, cfg.attrs, cfg.dmx_map, list.map(function(f) {
+    // Layout/name and movement calibration do not replace the fixture's identity.
+    var copy = {}; Object.keys(f).sort().forEach(function(k) { if (['x','y','label','name','rot','icon','flip_pan','flip_tilt','beam'].indexOf(k) < 0) copy[k] = f[k]; }); return copy;
+  })]);
+}
+function rememberSelection() {
+  if (state.selection.length) selectionIntent = {ids:state.selection.slice(), group:state.group, show:state.show.name, identity:selectionIdentity(state.config,state.selection)};
+  state.selection = []; state.group = null; selectionSync = null;
+  awaitingConfig = true;
+}
+function validateSelectionIntent() {
+  if (!selectionIntent || awaitingConfig || !bridgeUp() || !linkReady()) return;
+  var intent = selectionIntent; selectionIntent = null;
+  if (!intent.show || intent.show !== state.show.name || !intent.identity || intent.identity !== selectionIdentity(state.config,intent.ids) ||
+      state.show.name && state.config.show && state.show.name !== state.config.show ||
+      intent.ids.some(function(id) { return typeof allowedFixture === 'function' && !allowedFixture(id); })) {
+    notice('Выбор снят: шоу или состав приборов изменились. Выберите приборы заново.', 'warning'); return;
+  }
+  state.selection = intent.ids; state.group = intent.group;
+  // This existing action updates the bridge session only; it emits no MA2 lines.
+  if (send({a:'select_fixtures',ids:intent.ids.slice()})) selectionSync = requestPrefix + ':' + requestSerial;
+  else { selectionIntent = intent; state.selection = []; state.group = null; }
+}
 var evidenceReceipts = {scenes: {}, values: {}};
 var listeners = {};
 var pending = {};
+var operationFeedback = null;
 var configQueue = [];
 var configActive = null;
 var actionRevision;
@@ -25,7 +57,11 @@ function pumpConfigQueue() {
   if (configActive || !configQueue.length || !bridgeUp()) return;
   var entry = configQueue.shift();
   configActive = entry.action.request_id;
-  try { state.ws.send(JSON.stringify(entry.action)); }
+  try {
+    state.ws.send(JSON.stringify(entry.action));
+    pending[entry.action.request_id].sent = true;
+    pending[entry.action.request_id].sentAt = Date.now();
+  }
   catch (error) { discardPending(); }
 }
 var requestSerial = 0;
@@ -35,6 +71,7 @@ var SLIDER_ACTIONS = ['master', 'dim', 'color', 'move', 'jog', 'zoom', 'focus', 
 var sceneFade = 0;  // scene crossfade, seconds; the scenes running now always go Off (at once or when it ends)
 var fadeSeconds = 0;  // fade for jumps (quick % buttons, colour swatches, a tap on the wheel); drags never fade
 var reconnectTimer = null;
+var sectionDisposers = [];
 var updaters = [];     // value refreshers of the current section; rebuilt with it
 var sectionKey = null;
 var SECTIONS = {};     // name -> function (el); light.js and plan.js add theirs
@@ -76,6 +113,9 @@ var ICON = {
   alert: '<path d="M12 3l10 18H2zM12 10v5M12 18v.5"/>', file: '<path d="M6 3h8l5 5v13H6zM14 3v5h5"/>', save: '<path d="M5 3h11l3 3v15H5zM8 3v6h8M8 21v-7h8v7"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>', back: '<path d="M15 6l-6 6 6 6"/>', chevron: '<path d="M9 6l6 6-6 6"/>',
   group: '<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><circle cx="12" cy="16" r="3"/>',
+  select: '<path d="m4 3 7 18 2-8 8-2z"/>', hand: '<path d="M8 13V6a2 2 0 0 1 4 0v6M12 10V4a2 2 0 0 1 4 0v8M16 10a2 2 0 0 1 4 0v6a6 6 0 0 1-6 6h-2c-2 0-4-2-5-4l-3-5a2 2 0 0 1 3-2l2 3"/>',
+  fit: '<path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/>',
+  search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/>',
   light: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z"/>'
 };
 function icon(name, size) {
@@ -89,7 +129,7 @@ function pageOf(scene) { return parseInt(String(scene.exec).split('.')[0], 10) |
 function bridgeUp() { return !!state.ws && state.ws.readyState === WebSocket.OPEN; }
 // Commands go out only after the bridge confirmed the login (ListVar returned the configured user).
 function linkReady() { return state.ma2 === 'logged_in'; }
-function connected() { return bridgeUp() && linkReady() && !state.halted && !state.showFileActive && !(state.showLoad && state.showLoad.state === 'loading'); }
+function connected() { return bridgeUp() && linkReady() && !awaitingConfig && !selectionSync && !state.halted && !state.showFileActive && !(state.showLoad && state.showLoad.state === 'loading'); }
 function fixtures() { return (state.config && state.config.fixtures) || []; }
 function fixture(id) { return fixtures().filter(function (f) { return f.id === id; })[0] || null; }
 // A head: marked by the operator (moves), or Pan/Tilt among the attribute names from MA2. Same rule as commands.can_move.
@@ -112,7 +152,7 @@ function linkLine() {
   return {dot:state.ma2 === 'logged_in' ? 'on' : state.ma2 === 'down' ? '' : 'wait',text:short[state.ma2] || state.ma2};
 }
 
-// Optional button gets "· готово" or the error after the reply.
+// Busy is processing, never proof that the desk applied a change.
 function send(action, button) {
   if (!connected() || featureReason(actionFeature(action.a))) return false;
   if (button && button.getAttribute('aria-busy') === 'true') return false;
@@ -121,33 +161,64 @@ function send(action, button) {
   var revision = actionRevision === undefined ? state.config && state.config.revision : actionRevision;
   if (state.sec === 'hall' && typeof planState !== 'undefined' && planState.editing) revision = planState.revision;
   action = Object.assign({config_revision: revision}, action, {request_id: requestPrefix + ':' + (++requestSerial)});
-  pending[action.request_id] = {a: action.a, button: button || null, revision: action.config_revision};
+  pending[action.request_id] = {a: action.a, request_id: action.request_id, serial: requestSerial,
+    label: commandOperationName(action, state.config), sent: false, waitMs: commandWaitMs(action),
+    button: button || null, revision: action.config_revision};
+  operationFeedback = null;
   if (CONFIG_WRITES.indexOf(action.a) >= 0) {
     configQueue.push({action: action});
     pumpConfigQueue();
   } else {
-    try { state.ws.send(JSON.stringify(action)); } catch (error) { delete pending[action.request_id]; return false; }
+    try {
+      state.ws.send(JSON.stringify(action));
+      pending[action.request_id].sent = true; pending[action.request_id].sentAt = Date.now();
+    } catch (error) {
+      delete pending[action.request_id];
+      notice('Запрос не отправлен: нет связи с мостом.', 'error', true, commandOperationName(action, state.config));
+      renderOperationFeedback();
+      return false;
+    }
   }
+  if (!pending[action.request_id]) return false;
   if (button) { button.setAttribute('aria-busy', 'true'); button.classList.add('waiting'); }
+  renderOperationFeedback();
   return true;
 }
 function sendRaw(action) {  // halt / resume / link: work without a console link
   if (bridgeUp()) {
     action = Object.assign({}, action, {request_id: requestPrefix + ':' + (++requestSerial)});
-    state.ws.send(JSON.stringify(action));
-    pending[action.request_id] = {a: action.a, button: null};
+    pending[action.request_id] = {a: action.a, request_id: action.request_id, serial: requestSerial,
+      label: commandOperationName(action, state.config), sent: true, sentAt: Date.now(), waitMs: commandWaitMs(action), button: null};
+    operationFeedback = null;
+    try { state.ws.send(JSON.stringify(action)); }
+    catch (error) {
+      delete pending[action.request_id];
+      notice('Запрос не отправлен: нет связи с мостом.', 'error', true, commandOperationName(action, state.config));
+    }
+    renderOperationFeedback();
   }
 }
 function busy(a) { return Object.keys(pending).some(function (id) { return pending[id].a === a; }); }
 
 function feedback(button, ok, error, operation) {
   if (button) { button.removeAttribute('aria-busy'); button.classList.remove('waiting'); }
-  notice(ok ? 'Команда отправлена' : (error || 'Ошибка команды'), ok ? 'success' : 'error', !ok, operation);
+  notice(ok ? 'Обработка завершена. Изменение состояния MA2 не подтверждено.' : (error || 'Ошибка команды'), ok ? 'info' : 'error', !ok, operation);
 }
-function notice(text, kind, sticky, operation) {
+function renderOperationFeedback() {
+  var el = document.getElementById('operation-status');
+  var requests = Object.keys(pending).map(function (id) { return pending[id]; }).filter(function(r) { return ['select_fixtures','select_group','clear'].indexOf(r.a)<0; });
+  requests.sort(function (a, b) { return b.serial - a.serial; });
+  var current = requests[0], result = current ? commandWaiting(current, state.operations, Date.now()) : operationFeedback;
+  var text = result && !result.sticky ? (current ? current.label + ': ' : '') + result.text +
+    (requests.length > 1 ? ' · Ожидают: ' + requests.length : '') : '';
+  if (el.textContent !== text) el.textContent = text;
+  el.className = 'operation-status ' + (result ? result.kind : '');
+  el.hidden = !text;
+}
+function notice(text, kind, sticky, operation, requestId) {
   if (text && ((!kind || kind === 'error') || sticky)) {
     var errors = document.getElementById('errors');
-    var row = h('div', {class: 'error-entry'}, h('span', {}, (operation ? operation + ': ' : '') + text));
+    var row = h('div', {class: 'error-entry ' + (kind || 'error'), title: requestId || ''}, h('span', {}, (operation ? operation + ': ' : '') + text));
     add(row, h('button', {type: 'button', class: 'btn small', 'aria-label': 'Закрыть сообщение: ' + (operation || text), onclick: function () {
       errors.removeChild(row); errors.hidden = !errors.children.length;
     }}, 'Закрыть'));
@@ -210,15 +281,22 @@ function render() {
   pill.hidden = !state.selection.length || setup;
   document.getElementById('selpill-text').textContent = 'Выбрано: ' + state.selection.length;
   var halt = document.getElementById('halt');
-  halt.textContent = '';
-  add(halt, [icon(state.halted ? 'play' : 'pause'), state.halted ? 'Возобновить передачу' : 'Стоп передачи']);
+  var haltLabel = state.halted ? 'Возобновить передачу' : 'Стоп передачи';
+  if (halt.textContent !== haltLabel) {
+    halt.textContent = '';
+    add(halt, [icon(state.halted ? 'play' : 'pause'), haltLabel]);
+  }
   halt.setAttribute('aria-pressed', String(!!state.halted));
   halt.disabled = !bridgeUp();
   var bo = document.getElementById('blackout');
-  bo.textContent = '';
-  add(bo, [icon('power'), state.blackoutArm ? 'Ещё раз — погасить' : 'Погасить свет']);
+  var blackoutLabel = state.blackoutArm ? 'Ещё раз — погасить' : 'Погасить свет';
+  if (bo.textContent !== blackoutLabel) {
+    bo.textContent = '';
+    add(bo, [icon('power'), blackoutLabel]);
+  }
   bo.disabled = !connected() || !!featureReason('scenes');
   renderBanners();
+  renderOperationFeedback();
   renderSection();
   updaters.forEach(function (fn) { fn(); });
 }
@@ -253,8 +331,9 @@ function renderBanners() {
 function renderSection() {
   var el = document.getElementById('page');
   var hl = state.highlight || {};
-  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, state.configN, state.selection, state.ma2, state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
-    state.show, state.scenes, state.sceneMeta, state.safety, state.features, state.readFreshness, state.fetch, state.ma2read, state.showNames, state.showPick, state.saveReply, state.page, sceneFade,
+  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, connected(), state.configN, state.selection, state.ma2, state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
+    // Poll timestamps must not replace live controls between pointerdown/up.
+    state.show, state.sec === 'scenes' ? ((state.config || {}).scenes || []).map(function (s) { return sceneEvidence(s.id); }) : null, state.safety, state.features, state.readFreshness, state.fetch, state.ma2read, state.showNames, state.showPick, state.saveReply, state.page, sceneFade,
     state.sec === 'start' ? state.last : null, // «Последняя команда» on Площадка; elsewhere a command must not redraw the sliders
     state.sec === 'history' ? state.history : null,
     typeof planKey === 'function' ? planKey() : '', state.sec === 'patch' && typeof patchKey === 'function' ? patchKey() : '', typeof lightKey === 'function' ? lightKey() : '']);
@@ -274,6 +353,7 @@ function renderSection() {
   var scroll = {page: el.scrollTop};
   el.querySelectorAll('[data-scroll]').forEach(function (n) { scroll[n.getAttribute('data-scroll')] = n.scrollTop; });
   var sameSec = renderSection.sec === state.sec;
+  sectionDisposers.forEach(function(fn){fn();}); sectionDisposers=[];
   el.textContent = '';
   updaters = [];
   el.className = 'page' + (state.sec === 'light' || state.sec === 'hall' ? ' fill' : '');
@@ -643,12 +723,17 @@ SECTIONS.shows = function (el) {
 
 /* ---------- link ---------- */
 function discardPending() {
-  var unfinished = Object.keys(pending).length;
+  if (selectionSync) { selectionSync=null; selectionIntent=null; state.selection=[]; state.group=null; }
+  var unfinished = Object.keys(pending).filter(function (id) { return pending[id].sent; }).length;
+  var unsent = Object.keys(pending).length - unfinished;
   Object.keys(pending).forEach(function (id) { var b = pending[id].button; if (b) { b.removeAttribute('aria-busy'); b.classList.remove('waiting'); } });
   if (unfinished) notice('Связь прервана: результат незавершённых запросов неизвестен. Команды не повторены.', 'warning', true);
+  if (unsent) notice('Запросы из очереди панели не отправлены: ' + unsent + '. Очередь отменена.', 'warning', true);
   pending = {};
+  operationFeedback = null;
   configQueue = []; configActive = null;
   Object.keys(sliderChannels).forEach(cancelSlider);
+  renderOperationFeedback();
 }
 
 function clearEvidence() {
@@ -684,6 +769,7 @@ function observeEvidence(meta, receipts) {
   });
 }
 function expireEvidence() {
+  renderOperationFeedback();
   var changed = false;
   [[state.sceneMeta, evidenceReceipts.scenes, true], [state.valuesMeta, evidenceReceipts.values, false]].forEach(function (group) {
     Object.keys(group[1]).forEach(function (id) {
@@ -717,8 +803,13 @@ function receive(message) {
     state.readFreshness = message.status.read_freshness || {};
     state.highlight = message.status.highlight || {state: 'idle', available: []};
     state.showLoad = message.status.show_load || {state: 'idle'};
-    if (state.showLoad.state === 'loading') { Object.keys(sliderChannels).forEach(cancelSlider); state.selection = []; state.group = null; clearEvidence(); }
-    state.show = message.status.show || {name: null, source: 'unknown'};
+    if (state.showLoad.state === 'loading') { selectionIntent = null; selectionSync = null; Object.keys(sliderChannels).forEach(cancelSlider); state.selection = []; state.group = null; clearEvidence(); }
+    var nextShow = message.status.show || {name: null, source: 'unknown'};
+    if (state.show.name && nextShow.name && state.show.name !== nextShow.name) {
+      state.selection = []; state.group = null; selectionIntent = null; selectionSync = null;
+      Object.keys(sliderChannels).forEach(cancelSlider); if (typeof moveStop === 'function') moveStop();
+    }
+    state.show = nextShow;
     state.ma2 = message.status.ma2; state.login = message.status.login;
     if (!linkReady()) clearEvidence();
     state.mock = message.status.mock;
@@ -733,6 +824,12 @@ function receive(message) {
   }
   if (message.last) state.last = message.last;
   if (message.config) {
+    var priorIdentity = selectionIdentity(state.config, state.selection);
+    if (priorIdentity && priorIdentity !== selectionIdentity(message.config,state.selection)) {
+      state.selection = []; state.group = null; selectionSync = null;
+      Object.keys(sliderChannels).forEach(cancelSlider); if (typeof moveStop === 'function') moveStop();
+      notice('Выбор снят: изменился состав или адреса приборов.', 'warning');
+    }
     if (state.config && state.config.show !== message.config.show) {
       if (storeUI) { cancelStore(); var sd = document.getElementById('dlg'); if (sd.open) sd.close(); }
       // Another show's plan: old selection and values never carry over.
@@ -742,6 +839,7 @@ function receive(message) {
     }
     state.config = message.config;
     state.configN++;
+    awaitingConfig = false;
   }
   if ('master' in message) state.master = message.master;
   if (message.shown) state.shown = message.shown;
@@ -756,6 +854,10 @@ function receive(message) {
   if ('ok' in message) {
     var request = pending[message.request_id];
     if (message.request_id && !request) return;  // an old socket/reply cannot finish another action
+    if (message.request_id === selectionSync) {
+      selectionSync = null;
+      if (!message.ok) { state.selection = []; state.group = null; }
+    }
     var button = request && request.button;
     delete pending[message.request_id];
     if (configActive === message.request_id) {
@@ -769,6 +871,8 @@ function receive(message) {
         });
         if (typeof planState !== 'undefined' && planState.revision === request.revision) planState.revision = message.config_revision;
       } else if (!message.ok) {
+        if (configQueue.length) notice('Запросы из очереди панели не отправлены: ' + configQueue.length +
+          '. Очередь отменена после отказа предыдущей операции.', 'warning', true);
         configQueue.forEach(function (entry) {
           var b = pending[entry.action.request_id] && pending[entry.action.request_id].button;
           if (b) { b.removeAttribute('aria-busy'); b.classList.remove('waiting'); }
@@ -780,17 +884,19 @@ function receive(message) {
     }
     var a = message.a;
     if (message.conflict) notice('План изменён другим клиентом. Проверьте новые данные и повторите правку.', 'warning', true);
-    if (message.outcome === 'partial' || message.outcome === 'unknown') {
-      message.err = (message.outcome === 'partial' ? 'Выполнена только часть операции. ' : 'Результат неизвестен. ') + (message.err || '') + ' Автоматического повтора нет.';
-    }
     if (a === 'fixtures_fetch' && !message.ok && message.ambiguous) {
       if (button) { button.removeAttribute('aria-busy'); button.classList.remove('waiting'); }
       state.fetch = {state: 'ambiguous', items: message.ambiguous, request_token: message.request_token, choices: {}};
       render();
       return;
     }
-    var operation = (a === 'master' ? 'Общая яркость' : a) + (message.request_id ? ' · ' + message.request_id : '');
-    if (button || !message.ok) feedback(button, message.ok, message.err || 'ошибка', operation);
+    var result = commandFeedback(message);
+    var operation = request ? request.label : commandOperationName({a: a}, state.config);
+    if (button) { button.removeAttribute('aria-busy'); button.classList.remove('waiting'); }
+    if (result.sticky) notice(result.text, result.kind, true, operation, message.request_id);
+    if ((!message.ok || ['select_fixtures','select_group','clear'].indexOf(a)<0) && (!request || !operationFeedback || request.serial >= operationFeedback.serial)) {
+      operationFeedback = {text: operation + ': ' + result.text, kind: result.kind, sticky: result.sticky, serial: request ? request.serial : requestSerial};
+    }
     if (message.ok && ['scene_create','scene_rename','scene_delete'].indexOf(a) >= 0) { var dialog = document.getElementById('dlg'); if (dialog.open) dialog.close(); }
     if (a === 'fixtures_fetch') state.fetch = message.ok ? {state: 'done', added: message.added, missing: message.missing, total: message.total} : {state: 'error', err: message.err || 'ошибка чтения'};
     if (a === 'import_confirm_merge') {
@@ -810,6 +916,7 @@ function receive(message) {
       ((message.no_id || []).length ? 'Без Fixture ID, панель ими не управляет: ' + message.no_id.join(', ') + '. Дайте им Fixture ID в патче MA2.' : ''));
     if (!message.ok && (a === 'select_group' || a === 'select_fixtures' || a === 'clear')) { state.selection = []; state.group = null; }
   }
+  validateSelectionIntent();
   render();
   Object.keys(message).forEach(function (type) {
     (listeners[type] || []).slice().forEach(function (fn) { fn(message[type], message); });
@@ -821,7 +928,7 @@ function connect() {
   discardPending();
   if (typeof planEndEdit === 'function' && state.sec === 'hall') planEndEdit();
   if (state.ws) state.ws.close();
-  clearEvidence(); state.selection = []; state.group = null; state.ma2 = 'down';
+  rememberSelection(); clearEvidence(); state.ma2 = 'down';
   var ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   state.ws = ws;
   state.valuesRevision = -1;
@@ -836,7 +943,7 @@ function connect() {
     if (state.ws !== ws) return;
     if (typeof moveStop === 'function') moveStop();
     if (storeUI) { cancelStore(); var sd = document.getElementById('dlg'); if (sd.open) sd.close(); }
-    state.ma2 = 'down'; clearEvidence(); state.readFreshness = {};
+    rememberSelection(); state.ma2 = 'down'; clearEvidence(); state.readFreshness = {};
     discardPending();
     render();
     reconnectTimer = setTimeout(connect, 2000);
@@ -875,9 +982,19 @@ function throttleSlider(action) {
   if (wait === 0) flush(); else channel.timer = setTimeout(flush, Math.ceil(wait));
 }
 
+function selectConsoleGroup(group, button) {
+  if (!connected() || !(group.ids || []).length) return false;
+  if (typeof moveStop === 'function') moveStop();
+  Object.keys(sliderChannels).forEach(cancelSlider);
+  if (!send({a:'ma2_group_go',n:group.n},button)) return false;
+  state.selection=group.ids.slice();state.group='ma2:'+group.n;
+  selectionSync=requestPrefix+':'+requestSerial;
+  render();return true;
+}
 function selectFixtures(ids) {
   if (!connected()) return false;
-  cancelSlider('dim'); cancelSlider('color');
+  if (typeof moveStop === 'function') moveStop();
+  Object.keys(sliderChannels).forEach(cancelSlider);
   // The bridge rejects an empty select_fixtures list; clear removes the last selection.
   if (!send(ids.length ? {a: 'select_fixtures', ids: ids.slice()} : {a: 'clear'})) return false;
   state.selection = ids.slice();

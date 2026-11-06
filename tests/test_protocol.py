@@ -23,6 +23,7 @@ def test_same_request_is_not_replayed(bridge_cfg):
         action = {"a": "scene_go", "id": "pianist", "request_id": "once"}
         r = ask(ws, action)
         assert r["outcome"] == "completed"
+        assert r["command_evidence"] == ["sent", "sent"]
         before = len(mock.received)
         r = ask(ws, action)
         assert not r["ok"] and r["request_id"] == "once"
@@ -60,6 +61,7 @@ def test_multiline_failure_stops_and_reports_evidence(bridge_cfg, monkeypatch, f
         monkeypatch.setattr(MA2Link, "send", injected)
         r = ask(ws, {"a": "blackout", "request_id": "blackout1"})
         assert not r["ok"] and r["outcome"] == outcome
+        assert r["command_evidence"] == ["sent", failure]
         assert len(calls) == 2
 
 
@@ -79,6 +81,31 @@ def test_slider_terminal_reply_is_after_actual_send(bridge_cfg):
         ws.send_json({"a": "dim", "v": 42, "request_id": "slider"})
         r = until(ws, lambda m: m.get('request_id') == 'slider' and 'ok' in m)
         assert r['outcome'] == 'completed' and 'At 42' in mock.received
+        assert r['command_evidence'] == ['sent', 'sent']
+
+
+def test_evidence_is_request_scoped_and_legacy_shape_unchanged(bridge_cfg):
+    with bridge_cfg() as (ws, _, _):
+        assert ask(ws, {"a": "scene_off", "id": "pianist", "request_id": "write"})["command_evidence"] == ["sent"]
+        # A read and a refusal must not inherit the preceding write's evidence.
+        assert ask(ws, {"a": "shows_list", "request_id": "read"})["command_evidence"] == []
+        assert ask(ws, {"a": "not_an_action", "request_id": "refused"})["command_evidence"] == []
+        legacy = ask(ws, {"a": "clear"})
+        assert legacy == {"a": "clear", "ok": True}
+
+
+def test_not_sent_evidence_is_exposed_without_retry(bridge_cfg, monkeypatch):
+    with bridge_cfg() as (ws, mock, _):
+        original = MA2Link.send
+        async def refused(self, cmd, *args, **kwargs):
+            monkeypatch.setattr(self, "guard", lambda line: "test refusal")
+            return await original(self, cmd, *args, **kwargs)
+        monkeypatch.setattr(MA2Link, "send", refused)
+        before = len(mock.received)
+        r = ask(ws, {"a": "scene_off", "id": "pianist", "request_id": "not-sent"})
+        assert not r["ok"] and r["outcome"] == "failed"
+        assert r["command_evidence"] == ["not_sent"]
+        assert len(mock.received) == before
 
 
 def test_disconnect_does_not_replay_on_new_socket(tmp_path):

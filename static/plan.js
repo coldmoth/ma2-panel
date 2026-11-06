@@ -1,6 +1,7 @@
 /* Hall plan drawn from config.hall, and the Зал section: hall shape, step-by-step placement with highlight, panel groups, beam calibration. */
 var planState = {fixtureSettings: false,editing: false, ping: null, tab: 'place', cur: 0, newGroup: '', snap: false};
 try { planState.snap = localStorage.getItem('ma2.snap') === '1'; } catch (error) {}
+var planView = {key:null,zoom:1,x:0,y:0,mode:'select',auto:true};
 var HALL_DEFAULT = {w: 18, d: 14, stage: 'top', stageDepth: 4};
 
 function planKind(f) {
@@ -75,32 +76,85 @@ function hallPlan(root, mode) {
   var hc = hallOf() || HALL_DEFAULT;
   var wrap = h('div', {class: 'hall-wrap' + (mode === 'edit' ? ' edit' : '')});
   var hall = h('div', {class: 'hall', role: 'group', 'aria-label': 'Схема зала'});
+  var viewKey = JSON.stringify([state.config && state.config.show,hc]);
+  if (mode === 'control' && planView.key !== viewKey) planView = {key:viewKey,zoom:1,x:0,y:0,mode:'select',auto:true};
+  var zoomReadout;
+  if (mode === 'control') {
+    wrap.classList.add('plan-viewport'); wrap.setAttribute('tabindex','0');
+    wrap.dataset.mode=planView.mode;
+    zoomReadout=h('output',{'aria-label':'Масштаб плана'},Math.round(planView.zoom*100)+'%');
+    var toolbar=h('div',{class:'plan-toolbar',role:'group','aria-label':'Вид плана'},
+      h('button',{class:'btn small',type:'button','aria-label':'Уменьшить план',onclick:function(){zoomTo(planView.zoom/1.35);}},'−'),zoomReadout,
+      h('button',{class:'btn small',type:'button','aria-label':'Увеличить план',onclick:function(){zoomTo(planView.zoom*1.35);}},'+'),
+      h('button',{class:'btn small',type:'button',title:'Вписать план',onclick:function(){planView.x=planView.y=0;zoomTo(1);}},icon('fit',18),'Вписать'));
+    var modeButtons=[];
+    add(toolbar,h('div',{class:'seg'},[['select','Выделение'],['pan','Перемещение']].map(function(pair){
+      var b=h('button',{type:'button','aria-label':pair[1],title:pair[1], 'aria-pressed':String(planView.mode===pair[0]),onclick:function(){
+        planView.mode=pair[0];wrap.dataset.mode=pair[0];modeButtons.forEach(function(btn){btn.setAttribute('aria-pressed',String(btn===b));});
+      }},icon(pair[0]==='select'?'select':'hand',18),h('span',{},pair[1]));modeButtons.push(b);return b;
+    })));
+    add(root,toolbar);
+    wrap.addEventListener('scroll',function(){planView.x=wrap.scrollLeft;planView.y=wrap.scrollTop;});
+    wrap.addEventListener('wheel',function(e){if(!e.ctrlKey && !e.metaKey)return;e.preventDefault();zoomTo(planView.zoom*Math.exp(-e.deltaY*.008),e.clientX,e.clientY);},{passive:false});
+    wrap.addEventListener('keydown',function(e){
+      if(e.target!==wrap)return;
+      if(e.key==='+' || e.key==='='){e.preventDefault();zoomTo(planView.zoom*1.35);}
+      if(e.key==='-'){e.preventDefault();zoomTo(planView.zoom/1.35);}
+      if(e.key==='0'){e.preventDefault();zoomTo(1);}
+      var delta={ArrowLeft:[-80,0],ArrowRight:[80,0],ArrowUp:[0,-80],ArrowDown:[0,80]}[e.key];
+      if(delta){e.preventDefault();wrap.scrollLeft+=delta[0];wrap.scrollTop+=delta[1];}
+    });
+  }
   add(wrap, hall);
   add(root, wrap);
-  var outputSource = mode === 'control' ? h('p', {class: 'note'}) : null;
-  if (outputSource) add(root, outputSource);
+  var outputSource = mode === 'control' ? h('summary', {class:'note'}) : null;
+  if (outputSource) add(root,h('details',{class:'plan-source'},outputSource,h('p',{class:'note'},'Расчётное направление по Pan панели · не измерение луча; Tilt не проецируется. Масштаб — кнопками, Ctrl/Command + колесо или двумя пальцами.')));
+  var restoreView = true;
   function size() {
     var W = wrap.clientWidth, H = wrap.clientHeight, ratio = hc.w / hc.d;
     if (!W || !H) return;
     var hw = W, hh = W / ratio;
     if (hh > H) { hh = H; hw = H * ratio; }
-    hall.style.width = Math.floor(hw) + 'px';
-    hall.style.height = Math.floor(hh) + 'px';
+    if(mode==='control' && planView.auto) {
+      var points=fixtures().filter(placed), nearest=Infinity;
+      points.forEach(function(a,i){points.slice(i+1).forEach(function(b){var d=Math.hypot((a.x-b.x)*hw,(a.y-b.y)*hh);if(d>0)nearest=Math.min(nearest,d);});});
+      planView.zoom=Math.min(5,Math.max(1,60/nearest));planView.auto=false;
+    }
+    var z=mode==='control'?planView.zoom:1;
+    hall.style.width = Math.floor(hw*z) + 'px';
+    hall.style.height = Math.floor(hh*z) + 'px';
+    if(mode==='control') {
+      hall.style.marginLeft=Math.max(0,(W-hw*z)/2)+'px';hall.style.marginTop=Math.max(0,(H-hh*z)/2)+'px';
+      zoomReadout.textContent=Math.round(z*100)+'%';
+      if(restoreView){wrap.scrollLeft=planView.x;wrap.scrollTop=planView.y;restoreView=false;}
+    }
   }
-  if (typeof ResizeObserver === 'function') new ResizeObserver(size).observe(wrap);
+  function zoomTo(value,cx,cy) {
+    var z=planView.zoom, next=Math.max(1,Math.min(5,value)),r=wrap.getBoundingClientRect(),hr=hall.getBoundingClientRect();
+    var px=cx===undefined?r.left+r.width/2:cx,py=cy===undefined?r.top+r.height/2:cy;
+    var x=(px-hr.left)/hr.width,y=(py-hr.top)/hr.height;
+    planView.auto=false;planView.zoom=next;size();
+    var nr=hall.getBoundingClientRect();
+    wrap.scrollLeft+=nr.left+x*nr.width-px;wrap.scrollTop+=nr.top+y*nr.height-py;
+    planView.x=wrap.scrollLeft;planView.y=wrap.scrollTop;
+  }
+  if (typeof ResizeObserver === 'function') {
+    var observer=new ResizeObserver(size);observer.observe(wrap);
+    if(typeof sectionDisposers!=='undefined')sectionDisposers.push(function(){observer.disconnect();});
+  }
   add(hall, h('div', {class: 'grid' + (mode === 'edit' && planState.snap ? ' snap' : '')}));
   var across = hc.stage === 'top' || hc.stage === 'bottom';
   var depth = Math.min(45, (hc.stageDepth || 3) / (across ? hc.d : hc.w) * 100) + '%';
   var sp = {top: {left: '0', top: '0', width: '100%', height: depth}, bottom: {left: '0', bottom: '0', width: '100%', height: depth},
     left: {left: '0', top: '0', height: '100%', width: depth}, right: {right: '0', top: '0', height: '100%', width: depth}}[hc.stage] || {};
-  add(hall, h('div', {class: 'stage', style: sp}, 'СЦЕНА'));
-  add(root, h('p', {class: 'note'}, 'Расчётное направление по Pan панели · не измерение луча; Tilt не проецируется'));
+  add(hall, h('div', {class: 'stage', 'data-edge':hc.stage, style: sp}, 'Сцена'));
+  if(mode!=='control') add(root, h('p', {class: 'note'}, 'Расчётное направление по Pan панели · не измерение луча; Tilt не проецируется'));
   var beamLayer = h('div', {class: 'plan-beams', 'aria-hidden': 'true'});
   add(hall, beamLayer);
   var dots = {};
   fixtures().forEach(function (f) {
     if (!placed(f)) return;
-    var b = h('button', {class: 'fx k-' + planKind(f), type: 'button', 'data-id': f.id, 'aria-label': f.id + ' ' + (f.label || f.name) + (f.missing ? ', нет в шоу' : '') + (f.service ? ', служебный' : ''),
+    var b = h('button', {class: 'fx k-' + planKind(f), type: 'button', 'data-id': f.id, title:f.id+' '+(f.label || f.name || ''), 'aria-label': f.id + ' ' + (f.label || f.name) + (f.missing ? ', нет в шоу' : '') + (f.service ? ', служебный' : ''),
       style: {left: f.x * 100 + '%', top: f.y * 100 + '%'}, onclick: function (ev) {
         // Native keyboard/assistive activation has detail=0. Pointer taps finish below.
         if (ev.detail === 0 && !b.disabled && connected()) tapFixture(f.id, mode);
@@ -148,7 +202,7 @@ function hallPlan(root, mode) {
       else if (active && hl.target && zone.indexOf(f.id) >= 0) cls.push('hl-dark');
       d.el.className = cls.join(' ');
       d.el.setAttribute('aria-pressed', String(cls.indexOf('sel') >= 0 || cls.indexOf('cur') >= 0));
-      d.el.disabled = !connected() || !!f.missing && mode === 'control';
+      d.el.disabled = !connected() || mode === 'control' && (!!f.missing || !allowedFixture(f.id));
     });
     if (hint) {
       hint.hidden = !cur || placed(cur);
@@ -157,6 +211,35 @@ function hallPlan(root, mode) {
   });
 
   var drag = null, lasso = null;
+  if(mode==='control') {
+    var pointers={},nav=null;
+    function clearPick(){drag=null;if(lasso && lasso.el.parentNode)lasso.el.parentNode.removeChild(lasso.el);lasso=null;}
+    wrap.addEventListener('pointerdown',function(e){
+      if(e.button>0)return;
+      pointers[e.pointerId]={x:e.clientX,y:e.clientY};
+      var pts=Object.values(pointers);
+      if(pts.length===2 || planView.mode==='pan'){
+        clearPick();
+        nav=pts.length===2?{pinch:true,d:Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y),z:planView.zoom}:
+          {x:e.clientX,y:e.clientY,left:wrap.scrollLeft,top:wrap.scrollTop};
+        try{wrap.setPointerCapture(e.pointerId);}catch(error){}
+        e.preventDefault();e.stopPropagation();
+      }
+    },true);
+    wrap.addEventListener('pointermove',function(e){
+      if(!pointers[e.pointerId])return;pointers[e.pointerId]={x:e.clientX,y:e.clientY};
+      if(!nav)return;
+      var pts=Object.values(pointers);
+      if(nav.pinch && pts.length===2)zoomTo(nav.z*Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y)/Math.max(1,nav.d),(pts[0].x+pts[1].x)/2,(pts[0].y+pts[1].y)/2);
+      else if(!nav.pinch){wrap.scrollLeft=nav.left+nav.x-e.clientX;wrap.scrollTop=nav.top+nav.y-e.clientY;}
+      e.preventDefault();e.stopPropagation();
+    },true);
+    ['pointerup','pointercancel','lostpointercapture'].forEach(function(type){wrap.addEventListener(type,function(e){
+      delete pointers[e.pointerId];
+      if(nav){clearPick();e.stopPropagation();if(!Object.keys(pointers).length)nav=null;}
+      planView.x=wrap.scrollLeft;planView.y=wrap.scrollTop;
+    },true);});
+  }
   function pct(ev) {
     var r = hall.getBoundingClientRect();
     // Snap: to the 5 % dots of the grid, so fixtures in one row line up.
@@ -167,6 +250,7 @@ function hallPlan(root, mode) {
     if (!connected() || ev.button > 0) return;
     var btn = ev.target.closest('.fx');
     var p = pct(ev);
+    if (btn && btn.disabled) return;
     if (btn) {
       drag = {id: Number(btn.dataset.id), el: btn, start: p, moved: false, pointer: ev.pointerId};
       btn.setPointerCapture(ev.pointerId);
@@ -213,7 +297,7 @@ function hallPlan(root, mode) {
       if (l.el.parentNode) l.el.parentNode.removeChild(l.el);
       if (!commit || !l.end) return;
       var x1 = Math.min(l.start.x, l.end.x), x2 = Math.max(l.start.x, l.end.x), y1 = Math.min(l.start.y, l.end.y), y2 = Math.max(l.start.y, l.end.y);
-      var ids = fixtures().filter(function (f) { return placed(f) && !f.missing && f.x >= x1 && f.x <= x2 && f.y >= y1 && f.y <= y2; }).map(function (f) { return f.id; });
+      var ids = fixtures().filter(function (f) { return placed(f) && !f.missing && allowedFixture(f.id) && f.x >= x1 && f.x <= x2 && f.y >= y1 && f.y <= y2; }).map(function (f) { return f.id; });
       if (ids.length) selectFixtures(state.selection.concat(ids.filter(function (id) { return state.selection.indexOf(id) < 0; })));
     }
   }
@@ -326,7 +410,12 @@ SECTIONS.hall = function (el) {
     add(side, row);
   });
   // The current fixture stays in view when it was picked on the plan or by «Следующий».
-  if (curRow && curRow.scrollIntoView) setTimeout(function () { curRow.scrollIntoView({block: 'nearest'}); }, 0);
+  if (curRow) setTimeout(function () {
+    // scrollIntoView also moves #page on phones, hiding the tools above the plan.
+    var rowBounds = curRow.getBoundingClientRect(), listBounds = side.getBoundingClientRect();
+    if (rowBounds.top < listBounds.top) side.scrollTop += rowBounds.top - listBounds.top;
+    else if (rowBounds.bottom > listBounds.bottom) side.scrollTop += rowBounds.bottom - listBounds.bottom;
+  }, 0);
   var done = order.filter(placed).length;
   var sameType = cur && cur.type ? fixtures().filter(function (f) { return f.type === cur.type; }).length : 0;
   var card = h('div', {class: 'now-card'});
