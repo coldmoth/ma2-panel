@@ -1,5 +1,7 @@
 name: Fixture import hotfix acceptance
 on:
+  push:
+    branches: [codex/hotfix-3.2.1]
   workflow_dispatch:
 permissions:
   contents: read
