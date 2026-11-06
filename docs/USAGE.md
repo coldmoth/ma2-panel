@@ -1,77 +1,47 @@
-# Как пользоваться панелью
+# User guide
 
-## Для учителя: простой режим
+The interface is currently in Russian. This guide describes the controls in English. Before controlling lighting, complete [First connection](FIRST-CONNECTION.md) and the [supervised first test](ONPC-HALL-TEST-3.2.md).
 
-Откройте адрес, выданный оператором, с портом **8090**. Нажмите нужную сцену в общем списке с номерами и именами. «Погасить всё» останавливает сцены и гасит приборы плана в пределах настроенных разрешений. Этот экран не даёт доступ к редактированию приборов, шоу и патча.
+## Simple scene view
 
-Если соединение потеряно или результат неизвестен, обратитесь к оператору. Не рассчитывайте, что повторное нажатие безопасно: состояние панели и пульта нужно проверить.
+Use the address provided by the operator, normally port **8090**. Select a scene by its number and name. This view does not provide fixture, patch or show editing.
 
-## Для оператора: полная панель
+The all-off control stops configured, permitted scenes and sets eligible fixtures in the venue plan to zero. It is not a global MA2 master and does not guarantee complete darkness. Other executors, the Programmer and complex fixture types need separate verification.
 
-Откройте порт **8080**. Начните с состояния соединения и правильного шоу. «Концерт» даёт основные органы управления, «Подготовка» — настройку; точный набор доступных действий зависит от прав моста.
+If the connection drops or a result is unknown, ask the operator to check the panel and onPC before trying again.
 
-- **Сцены:** выберите сцену из общего списка. Настройте переход при необходимости. Добавление, запись и удаление выполняйте только в выделенных исполнителях; проверьте номер executor перед подтверждением.
-- **Свет:** выберите приборы или группу, затем яркость и цвет. Для голов доступны джойстик, абсолютные ползунки Pan/Tilt и пресеты позиции. Неизвестные и разные значения показаны явно. Набор остальных параметров зависит от данных типа прибора; неподдерживаемые слайдеры скрыты.
-- **Зал:** получите приборы из MA2 или импортируйте XML, расставьте их на схеме, проверьте группы, тип и направление головы. Highlight требует разрешения и может менять свет на сцене.
-- **Шоу:** проверьте имя активного шоу и соответствие плана. Загрузка и сохранение реального шоу требуют отдельных разрешений; локальный план не заменяет файл шоу MA2.
-- **Патч:** просмотрите адреса и пересечения. Изменение адреса и RDM — отдельная операция на реальных устройствах; выполняйте её с оператором вне выступления.
-- **История:** просмотрите изменения и доступный откат. Это история поддерживаемых действий панели, а не полная резервная копия пульта.
+## Full control panel
 
-Остановка передачи команд мостом и «Погасить всё» имеют разный смысл: остановка моста сама по себе не гарантирует темноту. Для аварийного управления используйте проверенные органы управления MA2.
+Open the main address, normally port **8080**. Check the connection and active show first. Available actions depend on the bridge permissions and fixture data.
 
-## Если что-то не работает
+- **Scenes and executors:** select a scene and adjust its transition if needed. Record or delete only on allocated executors; check the executor number before confirming. Starting a scene sends ClearAll to the panel user's Programmer, so use a dedicated User Profile.
+- **Fixture control:** select fixtures or a group, then adjust dimmer and color. Moving heads have a joystick, independent Pan/Tilt sliders and position presets. Unknown and mixed values are shown explicitly; additional controls depend on the fixture type.
+- **Venue layout:** read fixtures from MA2 or import XML, place them on the plan, then check groups, types and head orientation. Highlight requires permission and can affect live lighting.
+- **Groups and presets:** use an existing group or preset only after checking its intended fixtures and values. Writing requires the relevant permissions.
+- **Shows:** check the active MA2 show and the local plan. A local plan is not an MA2 show file. Real MA2 show saving and loading require separate permissions and hardware acceptance.
+- **Patch and RDM:** inspect addresses and conflicts. Address changes and RDM affect real devices; test them separately with the operator, outside a performance.
+- **History:** inspect supported panel changes and available undo operations. This is not a complete backup of the console.
 
-На ПК откройте `/diag.html` и журнал `/log.html`. Проверьте адрес MA2, Telnet Remote, пользователя, пароль, активное шоу и разрешения. Настройки `/settings.html` доступны локально с ПК. Отказ защиты сначала разберите по диагностике.
+## Read status carefully
 
-Диагностический архив может содержать план площадки, имена шоу, адреса и сырые ответы. Перед отправкой проверьте его вручную. Не выкладывайте его в публичный issue.
+An accepted command is not confirmation of a physical lighting result. Running scene status is polled, normally every two seconds; an unknown or stale response stays unknown. The last pressed button is not a readback from MA2. Do not blindly repeat a command whose result is uncertain.
 
-Физически проверенные сценарии и оставшиеся вопросы: [план проверки в зале](hall-test-plan.md). Для воспроизведения интерфейсной ошибки можно использовать `--mock` с копиями настроек и конфигурации.
+Venue icons show the most recently read MA2 output. Head direction is calculated from the last known Pan value and home/invert calibration, rather than physically measured. Without known Pan and calibration it is not shown; Tilt is not projected. Fixture ranges, multi-instance types, color/gobo wheels and individual channels require verification on the actual equipment.
 
-## Что проверено и что требует приёмки
+Stopping command transmission, disconnecting and stopping the bridge do not turn off lighting already set in MA2. Use the operator's verified MA2 controls for emergency handling.
 
-Локальные pytest, Node и desktop Chromium/WebKit mock проверяют протокол, состояния
-интерфейса и работу на временных данных. Они не измеряют свет и не заменяют Windows,
-Android, iPad или MA2. Датированные аудиты/pre-hall описывают прошлый срез; текущий
-контракт — [spec](spec.md), аппаратные сценарии — [план зала](hall-test-plan.md).
-Номер версии в README не подтверждает публикацию или готовность площадки.
+## Settings, diagnostics and data
 
-Схема в полной панели («Свет → План», «Зал») показывает свежий выход MA2 яркостью
-значков. Направление головы — расчёт по последнему известному Pan панели и
-калибровке home/invert, не физическое измерение. Без калибровки/известного Pan
-направления нет. Tilt не проецируется; индивидуальные диапазоны сложных голов,
-multi-instance, колёса цвета/гобо и каналы конкретных типов требуют проверки экспорта
-и реального прибора. Наличие слайдера не доказывает поддержку команды данным типом.
-В простой панели схемы и движения нет.
+On the Windows computer, open [Settings](http://127.0.0.1:8080/settings.html), [Diagnostics](http://127.0.0.1:8080/diag.html) or the [command log](http://127.0.0.1:8080/log.html). Refusals should be investigated before changing permissions.
 
-«Погасить всё» отправляет Off только настроенным разрешённым сценам и At 0
-приборам плана, кроме служебных/пропавших. Это не общий Master и не гарантия полной
-темноты: чужие executors, общий Programmer и сложные типы проверяются отдельно.
-Запуск сцены сначала отправляет ClearAll в Programmer пользователя панели.
-Опрос running включён по умолчанию (2 с); неизвестный/устаревший ответ остаётся
-неизвестным, а последнее нажатие не считается прочитанным статусом пульта.
+Saving or loading a real show is separate from saving the local venue plan. Back up the MA2 show and installation folder before write operations. Check an uncertain operation on MA2 before repeating it.
 
-Поиск с RDM и его журнал реализованы, но реальные команды/выключение RDM ждут MA2.
-При pending/неизвестном результате не считайте RDM выключенным, не удаляйте
-rdm-search.json; проверьте состояние на пульте с оператором. Фоновое восстановление
-не является физическим подтверждением RDM Off.
+If RDM is pending or its result is unknown, do not assume it is off. Preserve `program/rdm-search.json` and have the operator check the console. Background recovery is not physical confirmation that RDM is off.
 
-## Данные, восстановление и Windows
+Diagnostics may contain venue layouts, show names, addresses and raw console replies. Inspect archives before sharing them; do not attach sensitive data to a public issue. The diagnostic upload feature queues a sanitized report through the support relay without a GitHub account on the user's computer. Server acceptance and confirmed delivery are different states; an offline report can remain queued.
 
-Локальный план (`config.json`, `shows/`) не заменяет файл шоу MA2. Загрузка и
-скачивание файлов шоу в разделе «Шоу» реализованы локально; реальные SaveShow,
-резервное сохранение и LoadShow требуют отдельной приёмки и разрешений. Перед
-операциями сохраняйте действующее шоу и папку установки. При неизвестном результате
-проверьте состояние операции, не повторяйте запись/загрузку вслепую.
+## Validation status
 
-Обновление сохраняет config/settings/secret, планы шоу, журналы Highlight/RDM и
-диагностику; backups, previous и .updates нельзя удалять до проверки восстановления.
-Если прерванное обновление лишило установку start.bat, используйте стабильный внешний
-start.bat комплекта либо процедуру recovery из [инструкции USB](update-usb.txt).
-Не восстанавливайте пользовательскую папку заменой шаблонами. Логи/архивы диагностики
-могут содержать пользовательские данные; очередь обезличенных отчётов не гарантирует
-доставку без подтверждённого статуса.
+Version **3.2.0 is a pre-release**. Automated tests and Windows package checks cover software behavior, not the light output, target laptop or physical tablet. Remaining hardware checks include scene transitions, Programmer isolation, Pan/Tilt accuracy, fixture-specific attributes, RDM, all-off behavior and real show saving/loading.
 
-Windows x64 embedded Python, BAT и exit codes, нестандартные порты, пути с пробелами
-и кириллицей, firewall, locked files/ACL, прерывание update и rollback пока требуют
-запуска доставляемого ZIP на Windows. Локальные имитации ошибок файловой системы
-этого не подтверждают. Проверки выполняйте на копии установки, сначала с --mock.
+[Backups and recovery](ADVANCED.md#back-up-and-move-an-existing-installation) · [Troubleshooting](TROUBLESHOOTING.md) · [Release notes](RELEASE-3.2.md)

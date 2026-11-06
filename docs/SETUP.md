@@ -1,121 +1,42 @@
-# Установка ma2-panel 3.2.0 — Pre-release
+# Install on Windows
 
-Краткий сценарий для этой версии: [проверка в зале 3.2.0](ONPC-HALL-TEST-3.2.md).
-Новая установка имеет адрес `ma2-unconfigured.invalid`: подключение настраивается явно в мастере.
-Windows x64, Windows 10/11; в ZIP встроен CPython 3.12.10. Исходники: Python 3.12+ и uv.
+**[Download for Windows](https://github.com/coldmoth/ma2-panel/releases/download/v3.2.0/ma2-panel-win.zip)** · [Release notes](RELEASE-3.2.md)
 
-## 1. Выберите способ установки
+Version **3.2.0 is a pre-release for supervised testing**. Validation with real grandMA2 hardware is not yet complete.
 
-**Исходники:** установите Git, Python 3.12+ и [uv](https://docs.astral.sh/uv/getting-started/installation/). Клонируйте репозиторий и выполните `uv sync --frozen`. Node.js нужен только для JS-тестов.
+## Before you start
 
-**Windows-комплект:** скачайте `ma2-panel-win.zip` из релиза, распакуйте всю папку `ma2-panel`. Снаружи находятся только `start.bat` и папка `program`. Открывайте внешний `start.bat`; Python и зависимости уже внутри, отдельно устанавливать uv не нужно. Все настройки, шоу, журналы и служебные батники находятся в `program` — далее пути для комплекта указаны относительно этой папки. Не переносите внешний батник отдельно от `program`.
+You need Windows 10/11 x64, grandMA2 onPC 3.9 and a modern browser such as Chrome or Edge. The ZIP includes Python 3.12.10 x64 and all application dependencies. You do not need Git, Python, uv or a terminal.
 
-При установке из исходников создайте локальные файлы (не перезаписывайте их при обновлении):
+For an existing installation, [back up your data first](ADVANCED.md#back-up-and-move-an-existing-installation). Install 3.2.0 in a separate folder; no update ZIP is published for this release.
 
-```powershell
-Copy-Item config.example.json config.json
-Copy-Item settings.example.json settings.json
-Copy-Item secret.env.example secret.env
-```
+## Install and launch
 
-В macOS/Linux используйте `cp`. В готовом Windows-комплекте config/settings уже есть;
-пароль можно сохранить через мастер, копировать шаблон secret.env не обязательно.
+1. Download **ma2-panel-win.zip** using the link above. The GitHub **Source code** archives are for developers and do not include the Windows runtime.
+2. In File Explorer, right-click the ZIP and choose **Extract All**. Extract the entire `ma2-panel` folder to a writable location, for example `C:\ma2-panel-3.2`. Keep it outside Program Files, OneDrive and any older installation.
+3. Open the extracted `ma2-panel` folder. It contains **`start.bat`** and **`program`**. Keep them together.
+4. Open grandMA2 onPC yourself, then double-click the outer **`start.bat`**. Keep the launcher window open while using the panel.
+5. The setup wizard opens in your browser. If it does not, open [http://localhost:8080/setup.html](http://localhost:8080/setup.html).
 
-В Windows сначала откройте grandMA2 onPC, затем внешний `start.bat`. После запуска
-моста откроется локальный мастер `http://localhost:8080/setup.html` (при другом порте
-используется он). Мастер объясняет ручную подготовку пользователя, отдельного профиля
-и Telnet внутри MA2, сохраняет параметры подключения и включение доступа LAN.
-Для применения нажмите «Перезапустить мост». Ниже видны действующее подключение,
-адреса и QR полного интерфейса; QR создаётся без интернета и обновляется после смены сети.
-Сохранение параметров само по себе не подтверждает вход в MA2. Мастер можно повторно
-открыть из «Настроек». Настоящий пульт автоматически не запускается.
+There is no separate **MA2 Panel.exe** in this release.
 
-## Переход со старой установки и обновления
+## Complete setup
 
-При переходе с 3.0 на 3.1 установите полный комплект в отдельную папку, сохранив старую. ZIP обновления не подходит для старого runtime. После остановки
-старого моста перенесите в новую папку `program` собственные config.json, settings.json, secret.env, highlight.json,
-shows/, diag/, diagnostic-upload.json, field-data/, rdm-search.json и update_url.txt при наличии. Не заменяйте
-их публичными шаблонами. `rdm-search.json` — состояние незавершённого RDM, включая
-исходный target: переносите файл целиком, даже если он повреждён или target неизвестен.
-Не удаляйте и не исправляйте журнал для снятия предупреждения. Перед переносом сохраните
-старую папку целиком; старые backups/ и логи можно сохранить отдельно. При ручном
-восстановлении из backups/before-update-* сначала остановите мост и сохраните текущую
-папку целиком. Не заменяйте более новое неизвестное RDM-состояние старой копией:
-сохраните обе версии для отдельной проверки оператором. Копирование не подтверждает RDM Off.
-runtime.json/runtime-files.json, Python и lib должны оставаться
-из одного полного комплекта. После смены пути или портов повторите `program/firewall-open.bat`
-от имени администратора.
+Follow [First connection](FIRST-CONNECTION.md). You must create or select a dedicated grandMA2 user with a separate User Profile and enable Telnet Remote **inside grandMA2**. The panel wizard saves connection settings; it does not create the MA2 account or enable Telnet for you.
 
-Совместимые следующие релизы: на самом ПК открыть настройки через localhost,
-«Проверить обновления» → «Обновить». Проверка/загрузка выполняются до остановки;
-панель откажет при текущих действиях. Ошибки и результат отката показываются на странице.
-USB/LAN остаются: docs/update-usb.txt и update.bat. Копии обновления не очищаются автоматически.
-Если updater принудительно завершён после остановки моста и до старта новой версии,
-выполните start.bat вручную: сначала запустится recovery. Если BAT отсутствует после
-прерванной замены, из папки установки выполните `python\python.exe .updates\recovery.py --recover .`,
-затем start.bat. Автозапуск после выключения ПК не настраивается.
+After saving and restarting the bridge, open the full panel at [http://127.0.0.1:8080](http://127.0.0.1:8080). The simple scene view is at [http://127.0.0.1:8090](http://127.0.0.1:8090). These are the default ports.
 
-Для чтения приборов укажите в настройках ma2.export_dir — фактический каталог
-экспорта используемой MA2. Без него мост запускается с локальным importexport,
-но доступность экспорта реального onPC нужно проверить. Для mock используйте отдельную папку.
+A new installation has an empty venue plan and restricted permissions. This is expected. Complete a [supervised first test](ONPC-HALL-TEST-3.2.md) before using real lighting.
 
-## 2. Сначала проверьте mock
+## Stop the application
 
-Из исходников: `uv run python bridge.py --mock`. В Windows-комплекте: `program/start-mock.bat`.
+Press **Ctrl+C** in the launcher window, or open **`program/stop.bat`**. Stopping the bridge does not turn off lights or stop scenes already running in MA2. Check the lighting state in onPC.
 
-На этом ПК откройте `http://127.0.0.1:8080` и `http://127.0.0.1:8090`. Начальный план пустой. Настройки — `http://127.0.0.1:8080/settings.html`, диагностика — `/diag.html`. Остановите mock перед обычным запуском.
+## Next steps
 
-## 3. Настройте MA2 с оператором
+- [Connect a tablet](TABLET.md)
+- [Read the user guide](USAGE.md)
+- [Resolve a startup or connection problem](TROUBLESHOOTING.md)
+- [Install from source or use mock mode](ADVANCED.md)
 
-Мост обычно работает на том же Windows-ПК, что и grandMA2 onPC. В MA2 включите Telnet Remote и подготовьте отдельного пользователя с подходящими правами. В `settings.json` укажите `ma2.host` (обычно `127.0.0.1`), `ma2.port` (обычно `30000`) и `ma2.user` — точное имя существующего пользователя. Пример использует `Remote`, но не создаёт такого пользователя в MA2.
-
-В `secret.env` рядом с `settings.json` задайте пароль:
-
-```dotenv
-MA2_PASSWORD=ваш_пароль
-```
-
-Пароль не хранится в JSON. Переменная окружения `MA2_PASSWORD`, если задана, имеет приоритет над файлом.
-
-Стартовые настройки используют `safety.mode: "test"`, пустые списки разрешённых приборов и сцен и отключённые опасные разрешения. С оператором заполните `allowed_fixtures` (Fixture ID) и `allowed_scenes` (например, `"1.101"`). Запись сцен требует отдельной настройки режима `store` и `store_execs`. Не включайте `full` для обхода непонятного отказа; проверьте диагностику и разрешения.
-
-Импорт приборов, highlight, запись групп, загрузка/сохранение шоу, патч и RDM включаются отдельными разрешениями. Вначале оставьте их выключенными. RDM и изменение DMX-адресов проверяйте отдельно с оператором.
-
-## 4. Запуск и планшет
-
-Из исходников: `uv run python bridge.py`. Комплект: `start.bat`. Теперь мост подключается к реальному MA2.
-
-Для планшета задайте `bind: "0.0.0.0"` в настройках, закрепите IP Windows в DHCP и подключите устройства к одной доверенной сети. Откройте `http://<IP Windows>:8080` для оператора или `http://<IP Windows>:8090` для простого режима.
-
-В комплекте `program/firewall-open.bat` открывает порты в частной сети (требует администратора), `program/firewall-close.bat` закрывает их. Не настраивайте проброс портов в интернет. Настройки доступны с самого ПК; после их сохранения перезапустите мост. Windows `start.bat` поддерживает перезапуск с кодом 3; при прямом запуске из исходников запустите команду снова.
-
-Перед работой со светом пройдите [план проверки в зале](hall-test-plan.md), особенно разделы 12–13. Планшетная проверка без пульта не заменяет эту процедуру.
-
-## 5. Обновление и резервные копии
-
-Сохраните `config.json`, `settings.json`, `secret.env` и `shows/` вне папки программы. Автоматические копии конфигурации лежат в `backups/`.
-
-Для установленного Windows-комплекта используйте `ma2-panel-update-usb.zip`: распакуйте на USB и следуйте [инструкции](update-usb.txt). Обновление заменяет программу и сохраняет локальные настройки и шоу; предыдущая программа — в `previous/`, откат — `rollback.bat`. Обновляйте только при свободном мосте, вне работы со светом.
-
-Для исходников: остановите мост, обновите код, выполните `uv sync --frozen`, сохраните свои config/settings и запустите снова. Не копируйте примеры поверх действующих файлов.
-
-## 6. Сборка Windows-комплекта
-
-На macOS/Linux с uv, curl, zip/unzip и доступом в интернет:
-
-```sh
-bash scripts/build_win.sh
-```
-
-Результат: `dist/ma2-panel-win.zip` (новая установка), `dist/ma2-panel-update-usb.zip` (обновление), `dist/update/ma2-panel-update.zip` и SHA256. Сборка берёт публичные примеры, а не настройки текущей площадки. Архив содержит Windows x64 Python 3.12; запуск Windows-комплекта на Windows проверяется отдельно.
-
-### CLI selfcheck
-
-При работающем мосте запустите `program/selfcheck.bat`; по умолчанию проверяется
-основной порт 8080. При другом основном порте передайте его URL явно:
-`selfcheck.bat http://127.0.0.1:8180` (из исходников —
-`uv run python selfcheck.py http://127.0.0.1:8180`). Простой порт не имеет API диагностики.
-Отчёт `selfcheck-report.txt` сохраняется рядом со скриптом. Код процесса 0 означает,
-что все проверки успешны; 1 — отрицательную проверку, сбой проверки или записи отчёта.
-BAT возвращает этот код после pause. Проверки действий выполняются только в режиме test;
-selfcheck не заменяет приёмку реального MA2.
+[All documentation](README.md)

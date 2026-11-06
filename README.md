@@ -1,83 +1,52 @@
-# ma2-panel · 3.2.0 — Pre-release
+# ma2-panel
 
-Планшетная веб-панель для управления светом через **grandMA2 onPC 3.9** в локальной сети. Простой экран со сценами для учителей и персонала, полноценная панель подготовки для оператора.
+A web-based lighting control interface for grandMA2 onPC. Control scenes, fixtures and your venue layout from a computer or tablet.
 
-**[Установка](docs/SETUP.md) · [Инструкция](docs/USAGE.md) · [История версий](CHANGELOG.md) · [Релиз 3.2.0](docs/RELEASE-3.2.md)**
+**[Download for Windows](https://github.com/coldmoth/ma2-panel/releases/download/v3.2.0/ma2-panel-win.zip)**
 
-## Возможности
+[Documentation](docs/README.md) · [Releases](https://github.com/coldmoth/ma2-panel/releases) · [Source code](https://github.com/coldmoth/ma2-panel)
 
-- **Сцены:** единый список с номерами и именами, запуск и остановка, плавные переходы, подписи и порядок сцен; запись и удаление с проверками и разрешениями.
-- **Свет:** выбор приборов и групп, яркость, цвет, Pan/Tilt, джойстик и пресеты позиции; Zoom, Focus и стробоскоп при поддержке типа прибора.
-- **Зал:** схема с расстановкой приборов, группами и расчётным направлением по Pan панели (не измерение луча), подсветка прибора при настройке.
-- **Шоу:** чтение списка, локальные планы для шоу, загрузка и сохранение при явном разрешении.
-- **Патч:** таблица адресов, пересечения DMX и инструменты RDM за отдельными разрешениями.
-- **История:** журнал изменений и откат поддерживаемых действий.
-- **Простой режим:** отдельный порт 8090, только сцены и «Погасить всё»; ограничения проверяет мост.
-- **Обслуживание:** настройки с ПК, диагностика, импорт XML, резервные копии, Windows-комплект и обновление с USB с откатом.
-- **Mock:** проверка интерфейса без настоящего пульта.
+**3.2.0 is a pre-release for supervised testing. Validation with real grandMA2 hardware is not yet complete.**
 
-**[Скачать v3.2.0](https://github.com/coldmoth/ma2-panel/releases/tag/v3.2.0) · [Первый запуск в зале](docs/ONPC-HALL-TEST-3.2.md)**
+## Getting started
 
-Новый интерфейс «Сценический атлас» использует настоящий мост MA2. Прототипы и демонстрационные адаптеры в релиз не входят. На новой установке адрес `ma2-unconfigured.invalid` нужно явно заменить адресом своего onPC в мастере; режим test и пустые разрешения сохраняются.
+1. Download the Windows package above.
+2. Extract the entire `ma2-panel` folder to a writable location.
+3. Open the outer **`start.bat`**, next to the `program` folder. Keep its window open.
+4. Follow the setup wizard. Prepare a dedicated user and enable Telnet Remote in grandMA2, then enter those connection details in the wizard.
+5. Open the control panel at [http://127.0.0.1:8080](http://127.0.0.1:8080).
 
-## Быстрый старт без пульта
+Python and dependencies are included; no terminal or separate Python installation is needed. The interface is currently in Russian. Start with the [installation guide](docs/SETUP.md) and a supervised test of one fixture.
 
-Нужны Python **3.12+** и [uv](https://docs.astral.sh/uv/getting-started/installation/).
+## Features
 
-```sh
-git clone https://github.com/coldmoth/ma2-panel.git
-cd ma2-panel
-uv sync --frozen
-cp config.example.json config.json
-cp settings.example.json settings.json
-uv run python bridge.py --mock
-```
+- Scenes and executors.
+- Fixture control: dimmer, color and Pan/Tilt.
+- Interactive venue layout with search, zoom and fixture selection.
+- Groups and presets.
+- Local show plans and permission-controlled MA2 show management.
+- Settings and diagnostics.
+- Tablet-friendly interface and a simple scene view.
 
-В PowerShell вместо `cp` можно использовать `Copy-Item`. Откройте [полную панель](http://127.0.0.1:8080) или [простой режим](http://127.0.0.1:8090). Стартовый план пустой: это не готовое шоу площадки. Остановить мост — `Ctrl+C`.
+Available controls depend on the fixture type and configured permissions.
 
-Для работы с пультом следуйте [настройке Windows и MA2](docs/SETUP.md). `--mock` заменяет соединение с MA2 имитацией; без этого флага мост подключается к указанному пульту.
+## Requirements
 
-## Стек и устройство
+- Windows 10/11 x64.
+- grandMA2 onPC 3.9 with Telnet Remote configured.
+- A modern browser, such as Chrome or Edge.
+- A trusted local network for tablet access.
 
-```text
-Браузер планшета → WebSocket → Python / FastAPI / Uvicorn → Telnet → grandMA2 onPC
-```
+## Documentation
 
-Python 3.12+, asyncio, FastAPI и Uvicorn; интерфейс — HTML, CSS и JavaScript без фреймворка и сборки. JSON хранит план шоу и настройки; XML используется для импорта данных MA2. Зависимости закреплены в `uv.lock`. Разработка: pytest, httpx и Node.js для DOM-проверок.
+- [Installation](docs/SETUP.md)
+- [User guide](docs/USAGE.md)
+- [First connection](docs/FIRST-CONNECTION.md)
+- [Tablet connection](docs/TABLET.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
 
-Браузер передаёт действия, `commands.py` строит строки MA2, `safety.make_guard` проверяет каждую исходящую строку. `action_lock` упорядочивает команды; throttle ограничивает частоту слайдеров. Неопределённый результат команды не вызывает автоматическую повторную отправку.
+## License
 
-## Данные и доступ
+[GNU GPL v3](LICENSE), **GPL-3.0-only**.
 
-`config.json`, `settings.json`, `secret.env`, `.env`, шоу, резервные копии, диагностика и логи остаются локальными и исключены из Git. В репозитории — только пустой конфиг и безопасные примеры настроек. Пароль MA2 задаётся в `secret.env` (`MA2_PASSWORD=...`) или переменной окружения; шаблон пароля пустой. Не пересылайте диагностические архивы без проверки содержимого.
-
-Кнопка «Отправить диагностику» на ПК моста сохраняет обезличенный отчёт и отправляет
-его через `diag.shmyrev52.ru` в закрытый репозиторий поддержки. Аккаунт GitHub и
-токен на пользовательском ПК не нужны. Без интернета отчёт ждёт в очереди;
-статус «принят сервером» отличается от подтверждённой доставки с номером Issue.
-Инструкция владельца сервера находится в исходниках: `relay/README.md`.
-
-Панель предназначена для доверенной локальной сети. Пользовательской авторизации в веб-интерфейсе нет. Не публикуйте её порты в интернете. По умолчанию HTTP слушает только `127.0.0.1`; доступ планшета включается отдельно.
-
-## Проверки и статус
-
-Действующие инструкции: [USAGE](docs/USAGE.md), [SETUP](docs/SETUP.md), [spec](docs/spec.md). Датированные аудиты и pre-hall — исторические отчёты, а не подтверждение приёмки или публикации.
-
-```sh
-uv sync --frozen
-uv run pytest -q -p no:cacheprovider
-node tests/panel-v4.cjs
-```
-
-Есть mock и тесты протокола, защиты, сцен, импорта, состояния UI и обновлений. Успех тестов не подтверждает физическое поведение света. Часть ответов проверялась на onPC 3.9.60.68; неподтверждённые сценарии, включая отдельные переходы, типы приборов и RDM, перечислены в [плане проверки в зале](docs/hall-test-plan.md).
-
-Текущая версия — **3.2.0 Pre-release**. [Список изменений](CHANGELOG.md) и [заметки релиза](docs/RELEASE-3.2.md). Проверки Windows-комплекта, реальных планшетов и MA2 остаются обязательными перед использованием в зале. Исторические обозначения v1–v4 в коде и документах — этапы разработки и версии схемы данных; их нумерация отличается от GitHub-релизов.
-
-[Спецификация](docs/spec.md) · [Карта кода](docs/CODEMAP.md) · [Команды MA2](docs/outgoing-commands.md)
-
-Независимый проект, не официальный продукт MA Lighting. grandMA2 и MA Lighting принадлежат своим правообладателям.
-
-## Лицензия
-
-Код проекта распространяется под [GNU GPL версии 3](LICENSE), **GPL-3.0-only**.
-Разрешение автоматически применять более поздние версии GPL не предоставляется.
+An independent project, not an official MA Lighting product. grandMA2 and MA Lighting are trademarks of their respective owners.

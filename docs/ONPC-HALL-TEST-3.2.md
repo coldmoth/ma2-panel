@@ -1,114 +1,41 @@
-# Первый сеанс с grandMA2 onPC — 3.2.0
+# Supervised first session — 3.2.0
 
-Версия **Pre-release**. Физическая приёмка MA2 ещё не пройдена.
-Работайте с оператором, копией шоу и одним выбранным безопасным прибором.
+**Pre-release: real grandMA2 hardware acceptance is not complete.** Work with the MA2 operator, a copy of the show and one selected safe test fixture.
 
-## 1. Скачать и установить на Windows
+[Install on Windows](SETUP.md) · [First connection](FIRST-CONNECTION.md) · [Tablet connection](TABLET.md)
 
-Страница: [ma2-panel v3.2.0](https://github.com/coldmoth/ma2-panel/releases/tag/v3.2.0).
-Windows 10/11 x64, актуальный Chrome/Edge, grandMA2 onPC 3.9 с Telnet Remote.
-Нужны права записи в папку программы. Администратор нужен только для firewall.
+## Prepare the session
 
-Если в Assets есть `ma2-panel-win.zip`, скачайте ZIP и его `.sha256`. Этот файл
-публикуется только после сборки и smoke-проверки на Windows runner.
-Сравнить хеш: `Get-FileHash .\ma2-panel-win.zip -Algorithm SHA256`.
-Распакуйте **всю** папку `ma2-panel`, например в `C:\ma2-panel-3.2`, вне Program Files,
-OneDrive и старой установки. Сохраните старую установку отдельно.
-В ZIP включён Python 3.12.10 x64 с закреплёнными зависимостями; uv не требуется.
+Install the full package in a separate folder and open the outer `start.bat`. Keep the launcher window open. The setup wizard is at [http://localhost:8080/setup.html](http://localhost:8080/setup.html), the full panel at [http://127.0.0.1:8080](http://127.0.0.1:8080), and the simple view at [http://127.0.0.1:8090](http://127.0.0.1:8090).
 
-Если Windows ZIP отсутствует, используйте исходники с Git, Python 3.12+ x64 и
-[uv](https://docs.astral.sh/uv/getting-started/installation/). В PowerShell:
+Prepare the dedicated MA2 user, separate User Profile and Telnet Remote **inside onPC**, then enter the same credentials in the wizard. Replace `ma2-unconfigured.invalid` with the actual onPC address, save and restart. Saving settings does not prove login. A new installation uses test mode, empty permissions and local-only browser access. Mock is off by default; `program/start-mock.bat` is a separate simulation.
 
-```powershell
-git clone --branch v3.2.0 --depth 1 https://github.com/coldmoth/ma2-panel.git ma2-panel-3.2
-cd ma2-panel-3.2
-uv sync --locked --no-dev
-Copy-Item config.example.json config.json
-Copy-Item settings.example.json settings.json
-uv run --no-sync python bridge.py --open-browser
-```
+## Check one fixture first
 
-Копирование шаблонов относится только к новой папке. Не перезаписывайте ими свои
-настройки, шоу и секреты. Первый `uv sync` требует интернет; после установки
-`uv run --no-sync` работает с установленными зависимостями. Исходники не содержат
-Python runtime; корневой старый `start.bat` предназначен для embedded-комплекта.
+1. Save a copy of the show in MA2. Clear people from the test fixture's beam and movement area. Starting the bridge must not change dimmer, position or executor state; stop if it does.
+2. Confirm successful login and the intended user, User Profile and MA2 version in the wizard and Diagnostics. A TCP connection or mock status does not prove MA2 login.
+3. Check reading one scene, group and Fixture ID. Fixture reading/XML import needs its own permission. Set the actual onPC export directory if required. An empty venue plan is not an automatic import of the active show. Keep logs if the response format is unrecognized.
+4. In Settings, keep **test** mode and allow only that Fixture ID in `safety.allowed_fixtures`. Leave scenes, master control, recording, Highlight, RDM and show loading disabled. Save and restart the bridge.
+5. Select the fixture and check its ID in the panel and the dedicated MA2 profile's Programmer. Selection alone must not change dimmer or position.
+6. With the operator's agreement, set a small, safe dimmer value. Compare the command log, onPC Programmer/DMX and physical fixture. A command accepted without error is not proof of a physical change. Stop on an unknown result; do not retry blindly.
+7. Only after checking that fixture type's Pan/Tilt range, try one **±1°** step on a safe axis. Check the direction, amount and stop on release. Then test the joystick, separate sliders, color and return to the agreed state.
+8. Test multi-selection and relative movement later, using two explicitly permitted heads with verified ranges. Use known targets for presets/groups and a dedicated executor for a test scene.
+9. With the lighting in a safe stationary state, disconnect and restore the onPC connection. Status should become stale and controls should block; earlier movements or scenes must not replay after reconnect. Check saved settings after a restart. Inspect the plan and patch before permitting writes.
 
-## 2. Запустить и настроить соединение
+Do not begin with all-off/Blackout, sudden movement, all fixtures, Highlight, RDM, patch changes or real show saving/loading. User Profile Programmer isolation and global all-off behavior need separate acceptance. Automated tests cannot confirm physical results.
 
-В ZIP запустите внешний `start.bat`. Окно оставьте открытым.
-Мастер: **http://localhost:8080/setup.html**. Панель: **http://127.0.0.1:8080**.
-Простой экран: http://127.0.0.1:8090. По умолчанию доступ только с этого ПК.
+## Stop and record problems
 
-Пустая новая установка использует `ma2-unconfigured.invalid`, режим `test` и пустые
-списки разрешённых приборов/сцен: реальный адрес нужно выбрать явно.
-Mock по умолчанию выключен. Для отдельной проверки без пульта в копии установки
-используйте `program/start-mock.bat` или `uv run --no-sync python bridge.py --mock`.
-При mock интерфейс явно показывает имитацию; это не подтверждение связи с MA2.
+Stopping command transmission does not turn lights off. To end the process, press **Ctrl+C** in its window or open `program/stop.bat`. Verify lighting in onPC; disconnecting the bridge does not undo values or stop running scenes.
 
-На onPC оператор включает **Telnet Remote**, создаёт отдельного пользователя
-(пример: `Remote`) с отдельным UserProfile и нужными правами. Уточните в своей версии
-onPC расположение настройки и порт; обычный Telnet — **30000**, это не HTTP-порт 8080.
+Record the time, onPC version, Fixture ID/executor, action and observed status. Logs are in `program/bridge.log` and `.1`–`.3`; the Diagnostics page can save an archive. Raw replies are in `program/field-data/auto`, diagnostics in `program/diag`, and configuration backups in `program/backups`.
 
-В мастере укажите:
+Keep `.updates`, `previous` and RDM state intact if recovery or operation state is uncertain. Inspect diagnostics for passwords and private show data before sharing them.
 
-- адрес **127.0.0.1**, если onPC работает на этом же ноутбуке;
-- IPv4 компьютера onPC, если он в доверенной локальной сети;
-- порт Telnet (обычно 30000), точное имя пользователя и его пароль.
+## Remaining acceptance
 
-Сохраните и нажмите «Перезапустить мост». Из исходников после остановки с кодом 3
-повторите команду запуска. Мастер показывает действующее подключение отдельно от
-сохранённых полей. Настройки — `program/settings.json` (или корень исходников),
-пароль — соседний `secret.env`. Для планшета включите LAN в мастере и используйте
-показанный адрес/QR; firewall открывайте только для доверенной частной сети.
+Verify actual MA2 response formats, scene Running/Off status and transitions, Programmer isolation, fixture ranges and Pan/Tilt accuracy, relative movement, CMY/Shutter, RDM shutdown, all-off behavior, real show saving/loading and touch operation on the target devices.
 
-## 3. Первая безопасная проверка
+The Windows package passed its delivered-runtime checks, but the target laptop, real onPC connection and physical touch have not been validated. A Windows virtual-environment browser updater test has a known PID mismatch. Use a separate full installation, with no updates during lighting operation.
 
-1. До управления сохраните копию шоу средствами MA2. Уберите людей из зоны луча и
-   движения выбранного тестового прибора. Проверьте, что включение моста не меняет
-   Dimmer, позицию и состояние Executor. При изменении остановитесь.
-2. Дождитесь **подтверждённого входа**, проверьте пользователя/профиль/версию MA2 в
-   мастере и диагностике. «TCP подключён», mock и нажатие кнопки не доказывают вход.
-3. Проверьте чтение сцены, группы и одного Fixture ID. Импорт XML/чтение приборов
-   включается отдельным разрешением; согласуйте с оператором. Пустой план не является
-   автоматическим импортом рабочего шоу. Если формат не распознан — сохраните логи.
-4. В «Настройках» оставьте `test`. В `safety.allowed_fixtures` разрешите только ID
-   одного тестового прибора. Сцены, master, запись, Highlight, RDM и загрузку шоу пока
-   не разрешайте. После сохранения перезапустите мост.
-5. Выберите этот прибор. Убедитесь в совпадении ID в панели и Programmer отдельного
-   профиля MA2. После выбора значение яркости или позиция не должны меняться.
-6. С разрешения оператора задайте небольшое безопасное значение Dimmer. Сравните
-   команду и результат в журнале, Programmer/DMX onPC и на самом приборе. Ответ
-   «отправлено без ошибки» не доказывает физическое изменение. «Неизвестно» — повод
-   остановиться и проверить onPC; не повторяйте команду автоматически.
-7. Только после проверки диапазонов Pan/Tilt данного типа попробуйте один шаг
-   **±1°** на безопасной оси. Проверьте знак, величину и остановку после отпускания.
-   Затем джойстик/отдельные ползунки, цвет и возврат к согласованному значению.
-8. Мультивыбор/относительные шаги проверьте позднее на двух заранее разрешённых
-   тестовых головах с проверенными диапазонами. Пресеты и группы — только с известной
-   целью; тестовую сцену — только на специально выделенном Executor.
-9. При неподвижном безопасном состоянии отключите связь с onPC и восстановите её.
-   Статусы должны устареть, управление блокироваться; прежние движения/сцены не
-   должны отправляться после reconnect. После перезапуска проверьте сохранение
-   настроек. План, патч и остальные разделы сначала осматривайте без записи.
-
-Не начинайте с Blackout, резких движений, всех приборов, Highlight, RDM, изменения
-патча или загрузки/сохранения рабочего шоу. Programmer отдельного профиля и реальный
-общий Blackout требуют отдельной приёмки; см. [план зала, разделы 12–13](hall-test-plan.md#12-что-зависит-от-ещё-неизвестного-ответа-пульта).
-
-## 4. Отключиться и собрать ошибки
-
-«Стоп передачи» в панели прекращает отправку; это **не гашение света**.
-Для разрыва соединения используйте «Разорвать связь» в панели; для завершения процесса —
-`Ctrl+C` в его окне либо `program/stop.bat`. Проверяйте состояние света в onPC:
-остановка моста не отменяет уже применённые значения и запущенные сцены.
-
-Логи: `program/bridge.log` и `bridge.log.1`–`.3` (в исходниках — корень проекта).
-Страница `/diag.html` позволяет сохранить диагностический ZIP, `/log.html` — журнал.
-Сырые ответы: `field-data/auto/`, диагностика: `diag/`, резервные копии: `backups/`.
-Обновление: `.updates/` и `previous/`; при отказе не удаляйте их.
-Запишите время, Fixture ID/Executor, действие, статус и версию onPC.
-Перед передачей проверьте архив на пароли и данные рабочего шоу.
-
-Известное ограничение Windows venv: браузерное обновление может отвергнуть PID
-перезапущенного процесса. Перед залом используйте отдельную полную установку;
-не обновляйте программу во время управления. Подробный статус: [релиз 3.2.0](RELEASE-3.2.md).
+[Release status and evidence](RELEASE-3.2.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Backups and recovery](ADVANCED.md)
