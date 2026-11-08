@@ -11,6 +11,8 @@ import tempfile
 import threading
 import uuid
 
+from diagnostic_readback import build_readback
+
 REPOSITORY = 'coldmoth/ma2-panel-diagnostics'
 BASE = '/repos/' + REPOSITORY
 UNKNOWN = 'неизвестно'
@@ -68,18 +70,23 @@ def build_report(diag, cfg, private=(), mock=False):
     diag = diag if isinstance(diag, dict) else {}
     cfg = cfg if isinstance(cfg, dict) else {}
     secrets = tuple(p for p in private if isinstance(p, str) and p)
-    def clean(value):
+    def clean(value, min_private=0):
         text = value[:8192] if isinstance(value, str) else ''
         for p in sorted(secrets, key=len, reverse=True):
-            text = text.replace(p, '_')
+            if len(p) >= min_private:
+                text = text.replace(p, '_')
         return text
+    # Typed allowlists below never copy free text or login echoes. Like local
+    # redaction, do not erase every digit merely because the password is "1".
+    def typed(value):
+        return clean(value, min_private=6)
     def choice(value, allowed):
         return value if isinstance(value, str) and value in allowed and clean(value) == value else UNKNOWN
     login = diag.get('login_vars')
-    version = clean(login.get('VERSION')) if isinstance(login, dict) else ''
+    version = typed(login.get('VERSION')) if isinstance(login, dict) else ''
     if not re.fullmatch(r'[0-9]{1,4}(?:\.[0-9]{1,4}){1,5}', version):
         version = UNKNOWN
-    panel = clean(diag.get('version'))
+    panel = typed(diag.get('version'))
     if not re.fullmatch(PANEL_VERSION_PATTERN, panel):
         panel = UNKNOWN
     commands = ('List Executor', 'List Fixture', 'List Group', 'List Sequence',
@@ -129,6 +136,8 @@ def build_report(diag, cfg, private=(), mock=False):
         report['replies'].append({'command': command,
             'status': choice(item.get('status'), ('sent', 'ok', 'error', 'timeout', 'received', 'failed')),
             'reply': reply})
+    if isinstance(diag.get('export'), dict):
+        report['readback'] = build_readback(diag, cfg, typed)
     while len(json.dumps(report, ensure_ascii=False)) > LIMIT:
         report['replies'].pop(0)
         report['truncated'] = True
@@ -136,9 +145,11 @@ def build_report(diag, cfg, private=(), mock=False):
 
 
 
-def collect_report(diag, cfg, private=(), mock=False, root=None):
+def collect_report(diag, cfg, private=(), mock=False, root=None, readback=None):
     """Reuse startup captures as explicitly historical evidence; never run a probe."""
     report = build_report(diag, cfg, private, mock=mock)
+    if readback is not None:
+        report['readback'] = readback
     report.update(cached_replies=[], cached_current=False, cached_available=False,
                   selfcheck={'available': False, 'current': False})
     if root is None:

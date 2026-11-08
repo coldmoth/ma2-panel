@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from diagnostic_upload import Github, LIMIT, UNKNOWN, PANEL_VERSION_PATTERN, Uploader, UploadError
+from diagnostic_readback import valid_readback
 
 MAX_BYTES = 65536
 _FIXED_REPLY_LINES = ('[command echo]', '[prompt]>', '[unrecognized line]') + tuple(
@@ -38,10 +39,12 @@ _REPLY = re.compile(r'(?:Error #[0-9]{1,4}|\$(?:USER|USERPROFILE|USERRIGHTS|VERS
 def _valid_report(report):
     """Accept exactly the automatic vocabulary produced by build/collect_report."""
     required = {'schema', 'mock', 'console_version', 'panel_version', 'counts', 'ma2', 'mode', 'replies', 'truncated'}
-    optional = {'cached_replies', 'cached_current', 'cached_available', 'selfcheck', 'description', 'captured_at'}
+    optional = {'cached_replies', 'cached_current', 'cached_available', 'selfcheck', 'description', 'captured_at', 'readback'}
     if not isinstance(report, dict) or not required <= report.keys() or report.keys() - required - optional:
         return False
     if type(report['schema']) is not int or report['schema'] != 1:
+        return False
+    if 'readback' in report and not valid_readback(report['readback']):
         return False
     if any(type(report[k]) is not bool for k in ('mock', 'truncated')):
         return False

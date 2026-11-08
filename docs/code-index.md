@@ -13,17 +13,17 @@
   - 122 `put_settings`
   - 161 `restart`
   - 171 `export_report` — Everything about reading the fixtures that is already known, without sending anything to t
-  - 182 `diagnostics`
-  - 194 `upload_status`
-  - 201 `upload_diagnostics`
-    - 232 `private_names`
-    - 250 `collect`
-  - 263 `link_test` — Read-only: the connection attempts so far, who holds port 30000 on this PC, and one bare T
-  - 304 `export_probe`
-  - 323 `probe_console`
-  - 340 `diagnostic_package` — Only reads what is already on disk or in memory: nothing is sent to the console. One faili
-    - 344 `part`
-    - 350 `read`
+  - 183 `diagnostics`
+  - 195 `upload_status`
+  - 202 `upload_diagnostics`
+    - 233 `private_names`
+    - 252 `collect`
+  - 266 `link_test` — Read-only: the connection attempts so far, who holds port 30000 on this PC, and one bare T
+  - 307 `export_probe`
+  - 326 `probe_console`
+  - 343 `diagnostic_package` — Only reads what is already on disk or in memory: nothing is sent to the console. One faili
+    - 347 `part`
+    - 353 `read`
 
 ## bridge.py
 - 69 `is_loopback`
@@ -272,6 +272,13 @@
 - 640 `type_no`
 - 645 `parse_rdm_list` — RdmList feedback -> [{uid, line}]. ponytail: the 3.9 manual gives no column layout, so onl
 
+## diagnostic_readback.py
+- 6 `_number`
+- 12 `_errors`
+- 16 `build_readback`
+- 107 `_valid`
+- 129 `valid_readback`
+
 ## diagnostic_relay.py
 - 11 `Relay`
   - 12 `put`
@@ -282,38 +289,39 @@
 - 53 `main`
 
 ## diagnostic_upload.py
-- 38 `UploadError`
-  - 39 `__init__`
-- 45 `_uuid`
-- 56 `marker`
-- 60 `_number`
-- 67 `build_report`
-  - 71 `clean`
-  - 76 `choice`
-- 139 `collect_report` — Reuse startup captures as explicitly historical evidence; never run a probe.
-- 187 `Github`
-  - 188 `__init__`
-  - 191 `request`
-  - 232 `check_private`
-  - 237 `find`
-  - 261 `create`
-- 270 `Uploader`
-  - 271 `__init__`
-  - 277 `_credentials`
-  - 291 `_load`
-  - 317 `_save`
-  - 341 `_process_lock`
-  - 369 `_result`
-  - 386 `enqueue` — Persist explicit consent and a snapshot without making any network request.
-  - 425 `retry` — Deliver only explicitly queued reports; uncertain POSTs remain GET-only.
-  - 455 `wake`
-  - 459 `run`
-  - 468 `status`
-  - 485 `submit`
-  - 504 `_uses_relay`
-  - 510 `_direct_credentials`
-  - 518 `_submit_relay`
-  - 551 `_submit`
+- 40 `UploadError`
+  - 41 `__init__`
+- 47 `_uuid`
+- 58 `marker`
+- 62 `_number`
+- 69 `build_report`
+  - 73 `clean`
+  - 81 `typed`
+  - 83 `choice`
+- 148 `collect_report` — Reuse startup captures as explicitly historical evidence; never run a probe.
+- 198 `Github`
+  - 199 `__init__`
+  - 202 `request`
+  - 243 `check_private`
+  - 248 `find`
+  - 272 `create`
+- 281 `Uploader`
+  - 282 `__init__`
+  - 288 `_credentials`
+  - 302 `_load`
+  - 328 `_save`
+  - 352 `_process_lock`
+  - 380 `_result`
+  - 397 `enqueue` — Persist explicit consent and a snapshot without making any network request.
+  - 436 `retry` — Deliver only explicitly queued reports; uncertain POSTs remain GET-only.
+  - 466 `wake`
+  - 470 `run`
+  - 479 `status`
+  - 496 `submit`
+  - 515 `_uses_relay`
+  - 521 `_direct_credentials`
+  - 529 `_submit_relay`
+  - 562 `_submit`
 
 ## exports.py
 - 23 `bind`
