@@ -157,7 +157,7 @@ def collect_report(diag, cfg, private=(), mock=False, root=None, readback=None):
     try:
         with (Path(root) / 'selfcheck-report.txt').open('rb') as stream:
             summary = stream.read(4096).decode('utf-8', errors='replace')
-        found = re.search(r'^Ошибок: ([0-9]{1,6}) из ([0-9]{1,6})$', summary, re.M)
+        found = re.search(r'^Ошибок: ([0-9]{1,6}) из ([0-9]{1,6})\r?$', summary, re.M)
         if found:
             report['selfcheck'].update(available=True, errors=int(found[1]), checks=int(found[2]))
     except OSError:

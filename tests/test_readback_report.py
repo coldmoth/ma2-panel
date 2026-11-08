@@ -121,6 +121,13 @@ def test_old_reports_remain_valid():
     assert _valid_report(report)
 
 
+@pytest.mark.parametrize('newline', ['\n', '\r\n'])
+def test_saved_selfcheck_survives_windows_line_endings(tmp_path, newline):
+    (tmp_path / 'selfcheck-report.txt').write_bytes(('Ошибок: 2 из 19' + newline).encode('utf-8'))
+    report = collect_report({}, {}, root=tmp_path)
+    assert report['selfcheck'] == {'available': True, 'errors': 2, 'checks': 19, 'current': False}
+
+
 @pytest.mark.parametrize('password', ['0', '1', '2'])
 def test_short_password_does_not_destroy_typed_measurements_or_versions(password):
     diag, cfg = snapshot()
