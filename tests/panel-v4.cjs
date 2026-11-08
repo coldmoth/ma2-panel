@@ -545,3 +545,5 @@ require('./original-panel.cjs');
 require('./stage-atlas.cjs');
 
 require('./plan-view.cjs');
+
+require('./live-output.cjs');

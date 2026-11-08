@@ -203,7 +203,7 @@ function hallPlan(root, mode) {
       if (mode === 'control' && shown && (shown.rgb || shown.dim > 0) && shown.dim !== 0) {
         cls.push('lit');
         d.el.style.setProperty('--c', 'rgba(' + (shown.rgb || [92, 90, 86]).map(function (v) { return Math.round(v * 2.55); }).join(',') + ',' +
-          (typeof shown.dim === 'number' ? Math.max(.25, shown.dim / 100) : .7) + ')');
+          (typeof shown.dim === 'number' ? Math.max(0, Math.min(1, shown.dim / 100)) : .7) + ')');
       }
       if (active && hl.target === f.id) cls.push('hl-target');
       else if (active && hl.target && zone.indexOf(f.id) >= 0) cls.push('hl-dark');

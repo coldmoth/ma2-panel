@@ -34,12 +34,19 @@ function split(p) {
   var sel = selected();
   return {yes: sel.filter(function (f) { return supports(f, p); }), no: sel.filter(function (f) { return !supports(f, p); })};
 }
-// What the panel knows: a number it sent, 'mixed', or null (never sent, or lost after a scene).
+function liveValues(p) {
+  var meta = state.valuesMeta.live;
+  return (p === 'dim' || p === 'color') && meta && meta.source === 'ma2' && meta.freshness === 'fresh';
+}
+function valueSource(p) { return liveValues(p) ? 'прочитано с MA2' : sentSource(); }
+// Prefer measured dim/RGB; other attributes retain explicitly labelled panel history.
 function known(p) {
   var sel = split(p).yes;
-  if (!sel.length || valueFreshness('shown') === 'unknown' || state.tracked === false && (p === 'dim' || p === 'color')) return null;
+  var live = liveValues(p);
+  if (!sel.length || !live && (valueFreshness('shown') === 'unknown' || state.tracked === false && (p === 'dim' || p === 'color'))) return null;
   var vals = sel.map(function (f) {
-    var s = state.shown[f.id] || state.shown[String(f.id)];
+    var values = live ? state.live : state.shown;
+    var s = values[f.id] || values[String(f.id)];
     if (!s) return null;
     return p === 'color' ? (s.rgb ? s.rgb.join(',') : null) : typeof s[p] === 'number' ? s[p] : null;
   });
@@ -232,8 +239,8 @@ SECTIONS.light = function (el) {
       openStore(pages.length ? Math.max.apply(null, pages) : 1);
     }}, icon('save', 18), 'В сцену…')));
   // Updated in place: a rebuild here would cut a wheel or slider gesture short.
-  var lost = h('p', {class: 'note warn span'}, 'После сцены текущие значения неизвестны.');
-  updaters.push(function () { lost.hidden = state.tracked !== false; });
+  var lost = h('p', {class: 'note warn span'}, 'После сцены значения неизвестны до нового чтения MA2.');
+  updaters.push(function () { lost.hidden = state.tracked !== false || liveValues('dim'); });
   add(ctl, lost);
   add(ctl, h('div', {class: 'control-tabs span seg'}, (split('pos').yes.length && toolVisible('pos') ? ['light', 'movement'] : ['light']).map(function(tab) {
     return h('button', {type:'button', 'aria-pressed':String(lightUI.controlTab === tab), onclick:function() {
@@ -267,7 +274,7 @@ function sliderCard(p, title, unit, quick) {
     if (document.activeElement !== input) setFill(input, v);
     out.textContent = p === 'strobe' && v === 0 ? 'выкл' : knownText(v, unit);
     out.classList.toggle('unknown', v === null || v === 'mixed');
-    src.textContent = v === null ? (sentStale(p) ? 'Отправленное значение устарело · текущее неизвестно' : 'MA2 не сообщает текущее значение') : v === 'mixed' ? 'у выбранных разные значения' : sentSource();
+    src.textContent = v === null ? (sentStale(p) ? 'Отправленное значение устарело · текущее неизвестно' : 'Текущее значение MA2 неизвестно') : v === 'mixed' ? 'у выбранных разные значения · ' + valueSource(p) : valueSource(p);
   });
   var card = h('div', {class: 'card c-' + p + (s.yes.length ? '' : ' dis')}, h('div', {class: 'vrow'}, h('h2', {}, title), out), input, src);
   if (quick) add(card, h('div', {class: 'quick', title: fadeSeconds ? 'Плавно за ' + fadeSeconds + ' с' : ''}, [0, 25, 50, 75, 100].map(function (v) {
@@ -385,7 +392,7 @@ function colorCard() {
     var busyNow = cp.drag !== null || !!(sliderChannels.color || {}).latest;
     now.textContent = busyNow ? 'Отправляется…' : v === null ? (state.tracked === false ? 'Неизвестен после сцены' : 'Текущий цвет неизвестен') :
       v === 'mixed' ? 'У выбранных разные цвета' : 'R ' + rgb[0] + ' · G ' + rgb[1] + ' · B ' + rgb[2];
-    nowSrc.textContent = busyNow ? '' : v === null ? (sentStale('rgb') ? 'Отправленный цвет устарел · текущий неизвестен' : 'Текущий цвет MA2 неизвестен') : v === 'mixed' ? 'Новый выбор задаст один цвет всем.' : sentSource();
+    nowSrc.textContent = busyNow ? '' : v === null ? (sentStale('rgb') ? 'Отправленный цвет устарел · текущий неизвестен' : 'Текущий цвет MA2 неизвестен') : v === 'mixed' ? 'Новый выбор задаст один цвет всем. · ' + valueSource('color') : valueSource('color');
     swatches.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.rgb === v)); });
   }
   updaters.push(function () {
