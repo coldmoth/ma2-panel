@@ -24,6 +24,7 @@ jobs:
           node-version: '24'
           package-manager-cache: false
       - run: uv sync --locked
+      - run: python -c "from pathlib import Path; Path('test-results').mkdir(exist_ok=True)"
       - run: uv run --no-sync pytest -q -p no:cacheprovider tests/test_v3.py tests/test_hall_fixes.py tests/test_real_ma2.py tests/test_release.py tests/test_update.py tests/test_browser_update.py tests/test_read_recovery.py tests/test_field02_pan.py tests/test_dmx_freshness.py tests/test_dmx_intervals.py tests/test_dmx_scheduling.py --basetemp=test-results/venv-pytest -k "not test_real_worker_update_restart_and_both_ports"
       - run: node tests/panel-v4.cjs
       - name: Build compatible patch and verify migration from published 3.2.1
