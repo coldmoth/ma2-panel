@@ -76,7 +76,7 @@ function hallPlan(root, mode) {
   var hc = hallOf() || HALL_DEFAULT;
   var wrap = h('div', {class: 'hall-wrap' + (mode === 'edit' ? ' edit' : '')});
   var hall = h('div', {class: 'hall', role: 'group', 'aria-label': 'Схема зала'});
-  var viewKey = JSON.stringify([state.config && state.config.show,hc]);
+  var viewKey = JSON.stringify([state.config && state.config.show,hc.w,hc.d,hc.stage,hc.stageDepth]);
   if (mode === 'control' && planView.key !== viewKey) planView = {key:viewKey,zoom:1,x:0,y:0,mode:'select',auto:true};
   var zoomReadout;
   if (mode === 'control') {
@@ -86,7 +86,7 @@ function hallPlan(root, mode) {
     var toolbar=h('div',{class:'plan-toolbar',role:'group','aria-label':'Вид плана'},
       h('button',{class:'btn small',type:'button','aria-label':'Уменьшить план',onclick:function(){zoomTo(planView.zoom/1.35);}},'−'),zoomReadout,
       h('button',{class:'btn small',type:'button','aria-label':'Увеличить план',onclick:function(){zoomTo(planView.zoom*1.35);}},'+'),
-      h('button',{class:'btn small',type:'button',title:'Вписать план',onclick:function(){planView.x=planView.y=0;zoomTo(1);}},icon('fit',18),'Вписать'));
+      h('button',{class:'btn small',type:'button',title:'Вписать план',onclick:function(){fit();}},icon('fit',18),'Вписать'));
     var modeButtons=[];
     add(toolbar,h('div',{class:'seg'},[['select','Выделение'],['pan','Перемещение']].map(function(pair){
       var b=h('button',{type:'button','aria-label':pair[1],title:pair[1], 'aria-pressed':String(planView.mode===pair[0]),onclick:function(){
@@ -94,32 +94,35 @@ function hallPlan(root, mode) {
       }},icon(pair[0]==='select'?'select':'hand',18),h('span',{},pair[1]));modeButtons.push(b);return b;
     })));
     add(root,toolbar);
-    wrap.addEventListener('scroll',function(){planView.x=wrap.scrollLeft;planView.y=wrap.scrollTop;});
+    wrap.addEventListener('scroll',function(){
+      planView.x=wrap.scrollLeft;planView.y=wrap.scrollTop;
+      if(planView.x || planView.y)planView.auto=false;
+    });
     wrap.addEventListener('wheel',function(e){if(!e.ctrlKey && !e.metaKey)return;e.preventDefault();zoomTo(planView.zoom*Math.exp(-e.deltaY*.008),e.clientX,e.clientY);},{passive:false});
     wrap.addEventListener('keydown',function(e){
       if(e.target!==wrap)return;
       if(e.key==='+' || e.key==='='){e.preventDefault();zoomTo(planView.zoom*1.35);}
       if(e.key==='-'){e.preventDefault();zoomTo(planView.zoom/1.35);}
-      if(e.key==='0'){e.preventDefault();zoomTo(1);}
+      if(e.key==='0'){e.preventDefault();fit();}
       var delta={ArrowLeft:[-80,0],ArrowRight:[80,0],ArrowUp:[0,-80],ArrowDown:[0,80]}[e.key];
       if(delta){e.preventDefault();wrap.scrollLeft+=delta[0];wrap.scrollTop+=delta[1];}
     });
   }
   add(wrap, hall);
   add(root, wrap);
-  var outputSource = mode === 'control' ? h('summary', {class:'note'}) : null;
-  if (outputSource) add(root,h('details',{class:'plan-source'},outputSource,h('p',{class:'note'},'Расчётное направление по Pan панели · не измерение луча; Tilt не проецируется. Масштаб — кнопками, Ctrl/Command + колесо или двумя пальцами.')));
+  var disclaimer = 'Расчётное направление по Pan панели · не измерение луча; Tilt не проецируется';
+  var outputSource = mode === 'control' ? h('summary', {class: 'note'}) : null;
+  if (outputSource) add(root, h('details', {class: 'plan-source'}, outputSource,
+    h('p', {class: 'note'}, disclaimer + '. Масштаб — кнопками, Ctrl/Command + колесо или двумя пальцами. «Вписать» включает автоподгонку.')));
   var restoreView = true;
   function size() {
-    var W = wrap.clientWidth, H = wrap.clientHeight, ratio = hc.w / hc.d;
-    if (!W || !H) return;
+    if (wrap.isConnected === false) { if (observer) observer.disconnect(); return; }
+    var gutter = mode === 'control' ? 64 : 0;
+    var W = wrap.clientWidth - gutter, H = wrap.clientHeight - gutter, ratio = hc.w / hc.d;
+    if (W <= 0 || H <= 0) return;
     var hw = W, hh = W / ratio;
     if (hh > H) { hh = H; hw = H * ratio; }
-    if(mode==='control' && planView.auto) {
-      var points=fixtures().filter(placed), nearest=Infinity;
-      points.forEach(function(a,i){points.slice(i+1).forEach(function(b){var d=Math.hypot((a.x-b.x)*hw,(a.y-b.y)*hh);if(d>0)nearest=Math.min(nearest,d);});});
-      planView.zoom=Math.min(5,Math.max(1,60/nearest));planView.auto=false;
-    }
+    if(mode==='control' && planView.auto) planView.zoom=1;
     var z=mode==='control'?planView.zoom:1;
     hall.style.width = Math.floor(hw*z) + 'px';
     hall.style.height = Math.floor(hh*z) + 'px';
@@ -128,6 +131,10 @@ function hallPlan(root, mode) {
       zoomReadout.textContent=Math.round(z*100)+'%';
       if(restoreView){wrap.scrollLeft=planView.x;wrap.scrollTop=planView.y;restoreView=false;}
     }
+  }
+  function fit() {
+    planView.auto=true;planView.zoom=1;planView.x=planView.y=0;
+    size();wrap.scrollLeft=wrap.scrollTop=0;
   }
   function zoomTo(value,cx,cy) {
     var z=planView.zoom, next=Math.max(1,Math.min(5,value)),r=wrap.getBoundingClientRect(),hr=hall.getBoundingClientRect();

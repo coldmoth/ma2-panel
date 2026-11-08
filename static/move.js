@@ -123,6 +123,7 @@ function moveShell(el) {
   settingsTitle.appendChild(els.inversions); settings.appendChild(settingsTitle);
   settings.addEventListener('toggle', function () { moveState.settingsOpen = settings.open; });
   var flips = moveEl('div', 'move-steps'); settings.appendChild(flips);
+  els.flipHint = moveEl('p', 'note'); settings.appendChild(els.flipHint);
   // Hung upside down: the bridge flips the sign of every step for these heads (joystick and arrows).
   [['flip_pan', 'Pan наоборот'], ['flip_tilt', 'Tilt наоборот']].forEach(function (pair) {
     var button = moveEl('button', '', pair[1]);
@@ -349,11 +350,17 @@ function renderMove(el) {
   els.fine.disabled = off;
   els.mirror.setAttribute('aria-pressed', String(moveState.mirror));
   els.mirror.disabled = off || heads.length < 2;
+  var flipReason = !ready ? (state.halted ? 'Аварийная остановка: возобновите управление.' :
+    state.showFileActive || (state.showLoad && state.showLoad.state === 'loading') ? 'Дождитесь завершения операции с шоу.' : 'Нет связи с пультом: дождитесь подтверждённого входа.') :
+    !heads.length ? 'Выберите голову; если прибор не распознан, отметьте «Голова» в «Зале» → «Расстановка».' :
+    featureReason('move') || (busy('fixture_flag') ? 'Сохраняются настройки приборов; дождитесь ответа моста.' : '');
+  els.flipHint.textContent = flipReason; els.flipHint.hidden = !flipReason;
   Object.keys(els.flips).forEach(function (k) {
     els.flips[k].setAttribute('aria-pressed', String(!!heads.length && heads.every(function (f) { return f[k] === true; })));
     var count = heads.filter(function(f) { return f[k] === true; }).length;
     els.flips[k].textContent = (k === 'flip_pan' ? 'Pan наоборот' : 'Tilt наоборот') + (count && count < heads.length ? ' · Разные' : '');
-    els.flips[k].disabled = off || busy('fixture_flag');
+    els.flips[k].disabled = !!flipReason;
+    els.flips[k].title = flipReason;
   });
   els.inversions.textContent = ['flip_pan','flip_tilt'].filter(function(k) { return heads.some(function(f) { return f[k]; }); }).map(function(k) { return k === 'flip_pan' ? 'Pan ↔' : 'Tilt ↕'; }).join(' · ');
   els.chips.textContent = '';

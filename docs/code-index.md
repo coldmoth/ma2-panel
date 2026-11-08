@@ -26,150 +26,152 @@
     - 350 `read`
 
 ## bridge.py
-- 67 `is_loopback`
-- 86 `create_app`
-  - 104 `get_config_attrs`
-  - 107 `refresh_attr_names`
-  - 115 `add_strobe_attrs`
-  - 163 `revision_token`
-  - 166 `ActionLock`
-    - 167 `__aenter__`
-    - 181 `__aexit__`
-  - 213 `status_msg`
-  - 221 `config_revision`
-  - 228 `config_msg`
-  - 242 `scenes_msg`
-  - 246 `values_meta`
-  - 256 `known_shown` — Only unexpired panel-sent attributes; this is never output readback.
-  - 266 `invalidate_evidence`
-  - 279 `shown_msg`
-  - 285 `session_msg`
-  - 290 `broadcast`
-  - 306 `spawn_broadcast`
-  - 311 `history_context`
-  - 314 `history_reason`
-  - 327 `history_msg`
-  - 332 `add_history` — kind: "config" (before = changed config keys) or "light" (before = {fid: values}); None: n
-  - 351 `light_diff` — {fid: the old values of what changed since the snapshot}; a value the panel did not know b
-  - 360 `light_what`
-  - 365 `undo_light` — Send the old values back, fixture by fixture; the first refusal stops it.
-  - 379 `forget_positions`
-  - 386 `highlight_zone`
-  - 391 `highlight_status`
-  - 396 `highlight_stuck`
-  - 400 `highlight_record`
-  - 406 `highlight_lines`
-  - 432 `release_highlight` — Caller holds action_lock; only the recorded zone and known panel values may leave here.
-  - 478 `highlight_action`
-  - 534 `highlight_disconnect`
-  - 543 `highlight_lease`
-  - 553 `show_from`
-  - 562 `invalidate_profiles`
-  - 582 `update_show`
-  - 596 `identify_show`
-  - 614 `capture_replies` — Read-only lines whose reply format the code still guesses; replies go to field-data/auto/
-  - 635 `spawn_capture`
-  - 640 `on_state`
-  - 669 `blocked` — Reason an action is refused in the current mode, else None. link.guard repeats this for ev
-  - 698 `check_ids`
-  - 705 `check_scene`
-  - 709 `heads`
-  - 715 `selected`
-  - 721 `remember`
-  - 753 `lines_for` — MA2 lines for the action and the head values they set: {id: {attr: 0-100}}.
-  - 863 `action_ticket`
-  - 866 `ticket_valid`
-  - 871 `execute` — Send the action's lines; None on success, else the error text.
-  - 978 `no_attribute` — Error #14 OBJECT DOES NOT EXIST on Zoom/Focus/Strobe: this fixture type has no such attrib
-  - 990 `swap_off`
-  - 1003 `throttled`
-  - 1029 `fade_starts` — [(start, ids)] for a fade the bridge plays itself, or None when a start is unknown (then t
-  - 1041 `play_fade` — Values from each start to the target, one per throttle tick; the throttle sends them like
-  - 1071 `layout_save`
-  - 1080 `new_id`
-  - 1084 `mover`
-  - 1090 `config_edit` — New values for the changed config keys; raises ActionError before anything changes.
-  - 1155 `scene_pages`
-  - 1158 `list_cmd`
-  - 1161 `list_execs` — onPC 3.9.60 answers "List Executor 1.1 Thru 1.250" with Error #9: NUMBER TOO LARGE (hall 2
-  - 1181 `poll_running` — One shared reader. Exact configured addresses avoid guessed range boundaries.
-  - 1227 `expire_evidence`
-  - 1243 `poll_dmx` — What the desk outputs, read by a Lua line every dmx_seconds: the plan shows every lit fixt
-  - 1260 `expire_dmx`
-  - 1276 `read_dmx` — One read; returns the wait before the next one, None when the desk refused the line.
-  - 1360 `require_scene_context`
-  - 1365 `confirm_scene_show`
-  - 1374 `read_scenes` — Existing scenes_import reader; caller holds action_lock and saves atomically.
-  - 1402 `read_ma2` — Read all three pools under action_lock; raw replies also stay in link diagnostics.
-  - 1421 `send_ma2_lines`
-  - 1431 `ma2_action`
-  - 1541 `invalidate_scene_offers`
-  - 1547 `offer_context`
-  - 1550 `find_scene_slot`
-    - 1555 `emit`
-  - 1604 `store_checked` — Check fresh console data while the caller holds action_lock, in every write mode.
-  - 1619 `record`
-  - 1632 `show_name`
-  - 1638 `plan_path`
-  - 1641 `check_show`
-  - 1648 `import_context`
-  - 1651 `import_xml`
-  - 1671 `confirm_import`
-  - 1686 `commit_import`
-  - 1707 `open_show_plan`
-  - 1753 `follow_desk_show` — Caller holds action_lock. A show made or loaded on the desk since: read its name now and m
-  - 1765 `plan_copy` — Placement and marks from another show's plan for fixtures with the same number here. Nothi
-  - 1795 `fetch_fixtures`
-    - 1800 `apply`
-  - 1812 `read_types` — Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureT
-    - 1834 `send`
-    - 1878 `commit`
-  - 1893 `require_patch_context`
-  - 1897 `send_planned` — One write line of a confirmed patch/RDM plan: the guard lets out exactly this line, once.
-  - 1919 `rdm_read`
-  - 1934 `patch_offer`
-  - 1941 `patch_action` — Раздел «Патч» (spec 21). Every write needs its flag, a fresh plan token and the action loc
-  - 2077 `list_shows`
-  - 2096 `load_show`
-  - 2195 `handle`
-  - 2644 `on_result`
-  - 2661 `rdm_busy`
-  - 2676 `ProtocolThrottle`
-    - 2677 `clear`
-  - 2692 `lifespan`
-  - 2719 `mask`
-  - 2722 `safe_data`
-  - 2734 `DiagnosticHandler`
-    - 2735 `emit`
-  - 2750 `updating`
-  - 2760 `update_busy`
-  - 2767 `update_gate`
-  - 2774 `update_reopen`
-  - 2778 `update_stop`
-  - 2783 `perform_action_inner`
-  - 2820 `operation_reply`
-  - 2832 `finish_operation`
-  - 2848 `perform_action`
-  - 2892 `handle_load`
-  - 2901 `ws_endpoint`
-  - 2904 `simple_ws_endpoint`
-  - 2907 `serve_ws`
-    - 2917 `worker`
-    - 2921 `spawn`
-  - 2972 `no_cache`
-  - 2993 `simple_index`
-  - 2997 `simple_style`
-  - 3001 `simple_script`
-  - 3005 `simple_feedback_script`
-  - 3009 `simple_health`
-  - 3013 `update_health`
-- 3025 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
-- 3047 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
-- 3059 `local_addresses`
-- 3066 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
-- 3086 `stop_running`
-- 3098 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
-- 3111 `main`
+- 69 `is_loopback`
+- 88 `create_app`
+  - 106 `get_config_attrs`
+  - 109 `refresh_attr_names`
+  - 117 `add_strobe_attrs`
+  - 166 `revision_token`
+  - 169 `ActionLock`
+    - 170 `__aenter__`
+    - 184 `__aexit__`
+  - 216 `status_msg`
+  - 224 `config_revision`
+  - 231 `config_msg`
+  - 245 `scenes_msg`
+  - 249 `values_meta`
+  - 259 `known_shown` — Only unexpired panel-sent attributes; this is never output readback.
+  - 269 `invalidate_evidence`
+  - 282 `shown_msg`
+  - 288 `session_msg`
+  - 293 `broadcast`
+  - 309 `spawn_broadcast`
+  - 314 `history_context`
+  - 317 `history_reason`
+  - 330 `history_msg`
+  - 335 `add_history` — kind: "config" (before = changed config keys) or "light" (before = {fid: values}); None: n
+  - 354 `light_diff` — {fid: the old values of what changed since the snapshot}; a value the panel did not know b
+  - 363 `light_what`
+  - 368 `undo_light` — Send the old values back, fixture by fixture; the first refusal stops it.
+  - 382 `forget_positions`
+  - 389 `highlight_zone`
+  - 394 `highlight_status`
+  - 399 `highlight_stuck`
+  - 403 `highlight_record`
+  - 409 `highlight_lines`
+  - 435 `release_highlight` — Caller holds action_lock; only the recorded zone and known panel values may leave here.
+  - 481 `highlight_action`
+  - 537 `highlight_disconnect`
+  - 546 `highlight_lease`
+  - 556 `show_from`
+  - 565 `invalidate_profiles`
+  - 587 `update_show`
+  - 601 `identify_show`
+  - 619 `capture_replies` — Read-only lines whose reply format the code still guesses; replies go to field-data/auto/
+  - 640 `spawn_capture`
+  - 645 `on_state`
+  - 674 `blocked` — Reason an action is refused in the current mode, else None. link.guard repeats this for ev
+  - 703 `check_ids`
+  - 710 `check_scene`
+  - 714 `heads`
+  - 720 `selected`
+  - 726 `remember`
+  - 758 `lines_for` — MA2 lines for the action and the head values they set: {id: {attr: 0-100}}.
+  - 868 `action_ticket`
+  - 871 `ticket_valid`
+  - 876 `execute` — Send the action's lines; None on success, else the error text.
+  - 983 `no_attribute` — Error #14 OBJECT DOES NOT EXIST on Zoom/Focus/Strobe: this fixture type has no such attrib
+  - 995 `swap_off`
+  - 1008 `throttled`
+  - 1034 `fade_starts` — [(start, ids)] for a fade the bridge plays itself, or None when a start is unknown (then t
+  - 1046 `play_fade` — Values from each start to the target, one per throttle tick; the throttle sends them like
+  - 1076 `layout_save`
+  - 1085 `new_id`
+  - 1089 `mover`
+  - 1095 `config_edit` — New values for the changed config keys; raises ActionError before anything changes.
+  - 1160 `scene_pages`
+  - 1163 `list_cmd`
+  - 1166 `list_execs` — onPC 3.9.60 answers "List Executor 1.1 Thru 1.250" with Error #9: NUMBER TOO LARGE (hall 2
+  - 1186 `poll_running` — One shared reader. Exact configured addresses avoid guessed range boundaries.
+  - 1232 `expire_evidence`
+  - 1248 `poll_dmx` — What the desk outputs, read by Lua chunks with dmx_seconds idle time per sweep: the plan s
+  - 1262 `expire_dmx`
+  - 1278 `read_dmx` — One read; refusals back off and stop sending after READ_ATTEMPTS until a context reset.
+  - 1388 `require_scene_context`
+  - 1393 `confirm_scene_show`
+  - 1402 `read_scenes` — Existing scenes_import reader; caller holds action_lock and saves atomically.
+  - 1430 `read_ma2` — Read all three pools under action_lock; raw replies also stay in link diagnostics.
+  - 1449 `send_ma2_lines`
+  - 1459 `ma2_action`
+  - 1569 `invalidate_scene_offers`
+  - 1575 `offer_context`
+  - 1578 `find_scene_slot`
+    - 1583 `emit`
+  - 1632 `store_checked` — Check fresh console data while the caller holds action_lock, in every write mode.
+  - 1647 `record`
+  - 1660 `show_name`
+  - 1666 `plan_path`
+  - 1669 `check_show`
+  - 1676 `import_context`
+  - 1679 `import_xml`
+  - 1699 `confirm_import`
+  - 1714 `commit_import`
+  - 1735 `open_show_plan`
+  - 1781 `follow_desk_show` — Caller holds action_lock. A show made or loaded on the desk since: read its name now and m
+  - 1793 `plan_copy` — Placement and marks from another show's plan for fixtures with the same number here. Nothi
+  - 1823 `fetch_fixtures`
+    - 1828 `apply`
+  - 1840 `read_types` — Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureT
+    - 1862 `send`
+    - 1871 `can_retry`
+    - 1875 `failed`
+    - 1920 `commit`
+  - 1935 `require_patch_context`
+  - 1939 `send_planned` — One write line of a confirmed patch/RDM plan: the guard lets out exactly this line, once.
+  - 1961 `rdm_read`
+  - 1976 `patch_offer`
+  - 1983 `patch_action` — Раздел «Патч» (spec 21). Every write needs its flag, a fresh plan token and the action loc
+  - 2119 `list_shows`
+  - 2138 `load_show`
+  - 2237 `handle`
+  - 2686 `on_result`
+  - 2703 `rdm_busy`
+  - 2718 `ProtocolThrottle`
+    - 2719 `clear`
+  - 2734 `lifespan`
+  - 2761 `mask`
+  - 2764 `safe_data`
+  - 2776 `DiagnosticHandler`
+    - 2777 `emit`
+  - 2792 `updating`
+  - 2802 `update_busy`
+  - 2809 `update_gate`
+  - 2816 `update_reopen`
+  - 2820 `update_stop`
+  - 2825 `perform_action_inner`
+  - 2862 `operation_reply`
+  - 2874 `finish_operation`
+  - 2890 `perform_action`
+  - 2934 `handle_load`
+  - 2943 `ws_endpoint`
+  - 2946 `simple_ws_endpoint`
+  - 2949 `serve_ws`
+    - 2959 `worker`
+    - 2963 `spawn`
+  - 3014 `no_cache`
+  - 3035 `simple_index`
+  - 3039 `simple_style`
+  - 3043 `simple_script`
+  - 3047 `simple_feedback_script`
+  - 3051 `simple_health`
+  - 3055 `update_health`
+- 3067 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
+- 3089 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
+- 3101 `local_addresses`
+- 3108 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
+- 3128 `stop_running`
+- 3140 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
+- 3153 `main`
 
 ## browser_update.py
 - 29 `trusted_url`
@@ -669,8 +671,8 @@
 - 56 `moveAxisSend`
 - 70 `moveStop`
 - 87 `moveShell`
-- 273 `movePresets`
-- 309 `renderMove`
+- 274 `movePresets`
+- 310 `renderMove`
 
 ## static/patch.js
 - 5 `patchKey`
@@ -701,17 +703,17 @@
 - 42 `highlightOn`
 - 59 `planBeamAngle`
 - 75 `hallPlan`
-- 309 `tapFixture`
-- 330 `planOrder`
-- 331 `planCurrent`
-- 337 `planLight`
-- 342 `planNext`
-- 356 `planStep`
-- 365 `SECTIONS.hall`
-- 445 `hallForm`
-- 463 `groupSide`
-- 489 `openGroupStore`
-- 507 `beamCard`
+- 316 `tapFixture`
+- 337 `planOrder`
+- 338 `planCurrent`
+- 344 `planLight`
+- 349 `planNext`
+- 363 `planStep`
+- 372 `SECTIONS.hall`
+- 452 `hallForm`
+- 470 `groupSide`
+- 496 `openGroupStore`
+- 514 `beamCard`
 
 ## static/settings.js
 - 7 `status`
