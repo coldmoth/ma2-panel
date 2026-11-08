@@ -90,11 +90,14 @@ jobs:
           subprocess.run([str(program/'python/python.exe'),'-c',textwrap.dedent(code),str(archive),str(previous)],cwd=program,check=True,timeout=120)
           # The delivered embedded interpreter is a real process, unlike Windows venv's redirector.
           worker_test="import pathlib,sys;repo=pathlib.Path.cwd();sys.path.insert(0,str(repo));sys.path.append(str(repo/'.venv/Lib/site-packages'));import pytest;sys.exit(pytest.main(['-q','-p','no:cacheprovider','--basetemp=test-results/embedded-worker','tests/test_browser_update.py::test_real_worker_update_restart_and_both_ports']))"
-          subprocess.run([str(program/'python/python.exe'),'-c',worker_test],cwd=root,check=True,timeout=120)
           subprocess.run(['uv','run','--no-sync','python','scripts/ci_smoke.py','--bundle',str(program),'--log','test-results/hotfix-mock.log'],check=True,timeout=120)
           evidence={'version':version,'runtime':installed,'sha256':digest,'commit':commit,'baseline_sha256':hashlib.sha256(baseline.read_bytes()).hexdigest(),'windows_install_rollback_user_data':'passed','mock_http_ws':'passed'}
+          result=subprocess.run([str(program/'python/python.exe'),'-c',worker_test],cwd=root,check=False,timeout=120)
+          evidence['browser_worker']='passed' if result.returncode==0 else 'failed'
           (output/'verification-3.2.2.json').write_text(json.dumps(evidence,indent=2)+chr(10))
+          if result.returncode: raise SystemExit(result.returncode)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: patch-3.2.2
           path: |
@@ -106,4 +109,5 @@ jobs:
         if: always()
         with:
           name: fixture-hotfix-logs
+          include-hidden-files: true
           path: test-results/
