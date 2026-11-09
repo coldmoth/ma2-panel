@@ -28,6 +28,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      - name: Source recovery bootstrap regression
+        run: uv run --no-sync pytest -q -p no:cacheprovider tests/test_repository_structure.py
       - name: Build delivered Windows x64 and USB bundles
         run: uv run --no-sync python -m scripts.build_windows --verify-reproducible
       - name: Delivered embedded Python, BAT and update rollback

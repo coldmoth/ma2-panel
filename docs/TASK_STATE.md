@@ -1,0 +1,22 @@
+# TASK_STATE — 2026-11-09 (МСК)
+- Копия: /tmp/ma2-panel-pr1-20261109; ветка refactor/repository-structure.
+- База PR: 94ddfca; main: a1ccfae; включён tag v3.2.4 (2e6eb0e).
+- Цель: завершить PR #1, 13 элементов корня, сохранить исправления 3.2.1–3.2.4.
+- Основная рабочая копия/codex/token-workflow и её dirty tree не изменялись.
+- v3.2.4: опубликован 08.11, только update ZIP, не полный Windows-комплект.
+- Корневой launcher: recovery ищется в папке приложения, до backend imports.
+- Исправления bridge/exports/readback и UI перенесены с адаптацией импортов.
+- commands/safety/link сверены с реальным опубликованным ZIP v3.2.4.
+- Старый updater 3.2.0–3.2.4 отвергает ma2panel/: нужен внешний USB updater.
+- Windows acceptance: полный 3.2.0 runtime + реальный update 3.2.4 → USB → rollback.
+- Обе опубликованные ZIP закреплены SHA256; runtime guard не ослаблен.
+- Metadata/lock 3.2.0 сохранены ради runtime identity; это не номер актуального релиза.
+- Проверки 09.11: recovery regression RED→GREEN; адресный pytest PASS (1 skip).
+- Node panel-v4.cjs PASS; локальные ссылки README существуют.
+- Download for Windows указывает на существующий полный ZIP; v3.2.4 обозначен отдельно.
+- Индекс функций обновлён; diff --check PASS.
+- Следующий шаг: push PR, один полный CI и Windows acceptance, проверка результатов.
+- Субагенты, Clodex и настоящий MA2 не использовались; квота здесь недоступна.
+- Независимый review помощником не проводился: пользователь запретил субагентов.
+- CI/mock не доказывают MA2-приёмку: остаются проверки зала, разделы 12–13 hall-test-plan.
+- Существующие Releases не изменять; новый релиз не создавать; force push запрещён.

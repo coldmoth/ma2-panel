@@ -194,6 +194,21 @@ def test_export_search_freshness(bridge_cfg, tmp_path, fresh):
         assert sum(c.startswith(EXPORT[:-1] + '_') for c in mock.received) == 1
 
 
+def test_export_search_finds_console_fixtures_folder(bridge_cfg, tmp_path):
+    install = tmp_path / 'grandma' / 'gma2_V_3.9.63'
+    (install / 'importexport').mkdir(parents=True)
+    fixtures = install / 'fixtures'
+    fixtures.mkdir()
+    settings = {**READ, 'ma2': {'export_search': [str(install.parent / '*' / 'importexport')]}}
+    with bridge_cfg(settings=settings) as (ws, mock, path):
+        mock.fixture_dir = str(fixtures)
+        result = ask(ws, {'a': 'fixtures_fetch'})
+        assert result['ok'], result
+        assert Path(result['file']).parent == fixtures
+        assert json.loads(path.read_text())['fixtures_read']['source'] == 'ma2'
+        assert sum(c.startswith(EXPORT[:-1] + '_') for c in mock.received) == 1
+
+
 def test_delayed_export_is_awaited(bridge_cfg, monkeypatch):
     import asyncio
     from ma2panel.mock import MockMA2

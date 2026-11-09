@@ -6,11 +6,11 @@ import sys
 
 # Run the stable recovery copy before importing any replaceable application module.
 if __name__ == '__main__':
-    recovery = Path(__file__).parent.parent / '.updates/recovery.py'
+    recovery = Path(__file__).resolve().parent / '.updates/recovery.py'
     if recovery.exists():
-        version_file = Path(__file__).parent.parent / 'VERSION'
+        version_file = Path(__file__).resolve().parent / 'VERSION'
         before_recovery = version_file.read_bytes() if version_file.exists() else b''
-        subprocess.run([sys.executable, str(recovery), '--recover', str(Path(__file__).parent.parent)], check=True)
+        subprocess.run([sys.executable, str(recovery), '--recover', str(Path(__file__).resolve().parent)], check=True)
         after_recovery = version_file.read_bytes() if version_file.exists() else b''
         if before_recovery != after_recovery:
             os.execv(sys.executable, [sys.executable, *sys.argv])

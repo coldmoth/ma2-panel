@@ -69,10 +69,10 @@ workers. Their source of truth is the package. The detached updater loads its
 staged validator explicitly; it never borrows one from the installed program.
 Recovery remains `.updates/recovery.py`, independent of the replaceable package.
 
-**Migration boundary:** the v3.2.0 in-app/LAN updater rejects `ma2panel/` as an
+**Migration boundary:** the v3.2.0–v3.2.4 in-app/LAN updater rejects `ma2panel/` as an
 invalid location. It cannot install this layout directly, and fails validation
 before replacing the program. Do not publish this ZIP as a routine in-app update
-for v3.2.0. Use the **new external USB kit** (`ma2-panel-update-usb.zip`) with its
+for v3.2.0–v3.2.4. Use the **new external USB kit** (`ma2-panel-update-usb.zip`) with its
 `update-usb.bat`, selecting the existing `program` directory, or a separate full
 installation with an explicit data migration. Never copy new updater modules
 into the old installation by hand. The new updater continues to accept the old
@@ -89,11 +89,17 @@ The bounded `repository-structure.yml` workflow builds twice independently and
 compares the three ZIPs, extracts the actual full ZIP, runs embedded Python x64,
 checks BAT exit codes and Unicode paths, and checks update/rollback with data
 preservation. It also downloads the immutable published v3.2.0 Windows ZIP with
-a pinned SHA256 and exercises legacy rejection, external USB migration and rollback.
+a pinned SHA256, installs the actual published v3.2.4 update ZIP (also pinned),
+and exercises rejection by that installed updater, external USB migration and
+rollback to v3.2.4 with user data intact. v3.2.4 is not a full Windows bundle.
 A separate delivered-runtime smoke checks both HTTP/WS listeners, assets, mock
 login, action replies and shutdown. It never connects to MA2.
 
 Before merging, obtain independent review of import/resource paths and the updater
-transition. Before a release, make an explicit decision about the v3.2.0 migration
+transition. Before a release, make an explicit decision about the v3.2.0–v3.2.4 migration
 boundary above. Mock/CI are not physical MA2 acceptance; an operator must still
 check the target Windows laptop, real console connection and existing show.
+
+The existing project/lock metadata remains at 3.2.0 to preserve the published
+runtime identity; this is not the latest release number. The latest release is
+v3.2.4 and its fixes are included. This PR publishes source only, not a release.

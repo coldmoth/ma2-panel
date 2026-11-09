@@ -1221,7 +1221,7 @@ def test_dmx_read_back_takes_channels_from_the_fixture_type(bridge_cfg):
         assert not list((Path(mock.export_dir).parent / "fixture_types").glob("*.xml"))  # our one-off file is removed
 
 
-def test_dmx_read_back_stops_when_the_desk_refuses_lua(bridge_cfg):
+def test_dmx_read_back_backs_off_when_the_desk_refuses_lua(bridge_cfg):
     def edit(cfg):
         for f in cfg["fixtures"]:
             f.update(address=f"1.{f['id'] * 10:03d}", channels=4)

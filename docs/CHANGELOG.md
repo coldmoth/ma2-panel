@@ -1,63 +1,81 @@
-# Changelog
+# История версий
+
+## 3.2.2 — 2026-11-08
+
+- Восстановление чтения dim/RGB после временного отказа профилей или Lua (FIELD-01).
+- Пауза DMX распределена на круг порций; TTL 6 с сохранён, поздний ответ не освежает старые данные (DATA-013).
+- План сам вписывается при открытии и по «Вписать», сохраняет ручной вид при выборе/обновлениях (FIELD-04).
+- Кнопки инверсии показывают причину блокировки. Причина сбоя на установленной версии без её диагностики не подтверждена.
+- FIELD-03 исключён. Независимый review и аппаратная приёмка MA2 ещё не проведены; метрики задержки — модельные.
+
+## 3.2.1 — 2026-11-06
+
+- Исправлено получение приборов: поиск XML проверяет папку `fixtures` рядом с найденной папкой MA2 `importexport`.
+- Hotfix для установленной 3.2.0: зависимости и uv.lock сохранены побайтно; версия ZIP задаётся явно при сборке, чтобы сохранить совместимость runtime.
+- Настройки площадки и пользовательские данные сохраняются; аппаратная проверка после установки необходима.
 
 ## 3.2.0 — 2026-11-06 (Pre-release)
 
-- Stage Atlas interface: graphite palette, venue plan and inspector, tablet/phone layouts, search, groups and zoom.
-- Existing scene/executor, fixture, independent Pan/Tilt, ±1° step, relative movement, preset, patch, RDM and show controls retain their permissions.
-- Fixed selection recovery after reconnect, Zoom/Focus access without Pan/Tilt, overlapping controls and command-result feedback.
-- New installations require an explicit MA2 address. Initial test mode does not permit fixture or scene control.
-- Packaging uses the existing Windows x64 builder, pinned runtime and dependencies. Real MA2 acceptance remains pending.
-- [Release details and verification](RELEASE-3.2.md) · [First-session checklist](ONPC-HALL-TEST-3.2.md).
+- Последний завершённый интерфейс «Сценический атлас»: графитовая палитра, план и инспектор, адаптация к планшету и телефону, поиск, группы и масштабирование.
+- Сохранены настоящие сцены/Executor, свет, независимые оси Pan/Tilt, шаг ±1°, относительное управление несколькими головами, пресеты, патч, RDM и шоу с прежними разрешениями.
+- Исправлены восстановление выбора после reconnect, доступ к Zoom/Focus без Pan/Tilt, перекрытия элементов и достоверность статусов команд.
+- Новая установка требует явно выбрать адрес MA2; исходный test не разрешает управление приборами и сценами.
+- Упаковка использует существующий Windows x64 builder, закреплённый runtime и зависимости; приёмка реального MA2 ещё не пройдена.
+- Подробности, статус Windows и установка: [релиз 3.2.0](docs/RELEASE-3.2.md), [первый сеанс](docs/ONPC-HALL-TEST-3.2.md).
 
-## 3.1.1 — 2026-11-04 (Test build)
+## 3.1.1 — 2026-11-04 (тестовый выпуск)
 
-- Accumulated fixes for scene status, cancellation of stale operations, DMX handling, RDM and data preservation.
-- Online updates from official GitHub Releases: numeric version comparison, explicit release selection, release notes, restricted HTTPS redirects and free-space/platform checks.
-- Retained USB/LAN updates, transactional installation/recovery and exact rollback.
-- Shared Windows x64 packager with pinned embedded Python 3.12.10, dependencies verified against lockfile hashes, reproducible Windows/USB/update ZIPs and recorded build inputs.
-- GitHub Actions checks Python/Node, Chromium/WebKit and the delivered Windows package; release drafts depend on successful jobs.
+- Накопленные исправления статусов сцен, отмены устаревших операций, обработки DMX, RDM и сохранения данных.
+- Онлайн-обновление из официальных GitHub Releases: числовое сравнение версий, подтверждение выбранного релиза, release notes, ограниченные HTTPS redirects и проверки свободного места/платформы.
+- USB/LAN-обновления, транзакционный install/recovery и точный rollback сохранены.
+- Единый Windows x64 упаковщик: закреплённый embedded Python 3.12.10, зависимости по хешам lockfile, воспроизводимые Windows/USB/update ZIP и сведения об исходниках сборки.
+- GitHub Actions проверяет Python/Node, Chromium/WebKit и доставляемый Windows-комплект; draft формируется только после успешных jobs.
 
-This build was intended for isolated testing. Real grandMA2 acceptance, independent updater review and manual Windows checks were not complete. The stable updater does not offer pre-releases. Do not install automatically on a performance computer.
+Выпуск предназначен для изолированного тестирования. Аппаратная приёмка grandMA2,
+независимый review updater и ручные Windows-проверки ещё не завершены.
+Prerelease не предлагается обычным stable-updater. Не устанавливать автоматически на концертный ПК.
 
 ## 3.1.0 — 2026-11-03
 
-- Independent absolute Pan/Tilt axes alongside the joystick, selective DMX range reads and stale-value handling.
-- Request IDs, confirmed operation results, protection against stale shared-plan saves and clearer scene status.
-- Browser updates with manifest checks, transactional installation and exact program rollback.
-- Configuration migration to schema v5, safe show-plan paths and XML import confirmation.
-- Browser transfer of real `.show.gz` files with file checks and console-load confirmation.
-- Explicit RDM fixture search start/stop, shutdown checks and state recovery after a crash.
-- Sanitized diagnostics queued through an HTTPS relay without GitHub keys on the venue computer.
-- Compact Windows package: outer `start.bat`, `program` folder and a connection wizard with offline QR codes and current network addresses.
-- Protocol, HTTP/WebSocket and Chromium/WebKit interface checks; Linux, Windows mock and browser CI jobs.
-- GPL-3.0-only source, Windows x64 package, USB/program update ZIPs and checksums.
+- Независимые абсолютные оси Pan/Tilt наряду с джойстиком; порционное чтение нужных диапазонов DMX и устаревание показаний.
+- ID запросов, подтверждённые результаты операций, защита общего плана от устаревших сохранений и более точные статусы сцен.
+- Обновление через браузер с проверкой манифеста, транзакционной установкой и точным откатом программы.
+- Миграция конфигурации в схему v5, безопасные пути планов шоу и подтверждение импорта XML.
+- Передача настоящих `.show.gz` через браузер с проверкой файла и подтверждением загрузки на пульте.
+- Поиск приборов RDM с явным запуском, остановкой, проверкой выключения и восстановлением состояния после сбоя.
+- Обезличенная диагностика с очередью доставки через HTTPS-приёмник без GitHub-ключей на компьютере площадки.
+- Компактный Windows-комплект: внешний `start.bat`, папка `program`, мастер подключения с офлайн QR и актуальными адресами.
+- Проверки протокола, HTTP/WebSocket и интерфейса в Chromium/WebKit; GitHub Actions для Linux, Windows mock и браузеров.
+- Лицензия GPL-3.0-only; исходники, Windows x64-комплект, USB- и программный ZIP обновления с контрольными суммами.
 
-Automated checks do not replace acceptance on Windows, physical tablets and MA2. General scene behavior and complete all-off behavior awaited venue evidence. Updating 3.0 through an update ZIP was incompatible with its runtime; a separate full installation and preserved local data were required. See the [historical 3.1 notes (Russian)](RELEASE-3.1.md).
+Автоматические проверки не заменяют приёмку на Windows, реальных планшетах и MA2. Общая политика сцен и настоящее общее гашение ожидают данных зала. Переход с 3.0 через ZIP обновления несовместим по runtime: нужна отдельная полная установка с сохранением локальных данных; подробнее в [заметках релиза](docs/RELEASE-3.1.md).
 
 ## 3.0.0 — 2026-11-02
 
-First public GitHub release of the current panel.
+Первый публичный GitHub-релиз текущей панели.
 
-- Tablet interface for scenes, lighting, venue layout, shows and venue setup.
-- Simple scene view for teachers on separate port 8090.
-- Dimmer, color and moving-head controls according to fixture-type capabilities.
-- MA2 fixture/group import, local show plans and change history.
-- Executor checks before recording; protection for uncertain results and concurrent changes.
-- Command filtering, separate permissions for hazardous operations, throttling and serialized transmission.
-- Windows package, USB updates, diagnostics and mock mode.
-- README, installation/user guides and public templates; local user data excluded from publication.
+- Планшетный интерфейс со сценами, светом, схемой зала, шоу и настройкой площадки.
+- Простой экран со сценами для учителей на отдельном порту 8090.
+- Управление яркостью, цветом и движением голов; параметры по возможностям типа прибора.
+- Импорт приборов и групп MA2, локальные планы шоу, история изменений.
+- Проверки исполнителей перед записью; защита неопределённых результатов и параллельных изменений.
+- Фильтрация команд, отдельные разрешения опасных операций, throttle и последовательная передача.
+- Windows-комплект, USB-обновления, диагностика и mock.
+- README, установка, инструкция, публичные шаблоны; локальные данные исключены из публикации.
 
-Application code corresponded to `beb22c7` from 2026-10-30. Release preparation changed documentation, packaging and the package version. No real console was tested during release preparation.
+Код приложения соответствует состоянию `beb22c7` от 2026-10-30; подготовка релиза меняет документацию, упаковку и номер пакета. Настоящий пульт не проверялся в рамках выпуска.
 
-## Before public releases — 2026-10-16 to 2026-10-30
+## До публичных релизов — 2026-10-16–2026-10-30
 
-These were local development stages, not published GitHub tags:
+Это этапы локальной разработки, а не опубликованные теги GitHub:
 
-- **October 16:** initial commands, Telnet bridge, mock, WebSocket, simple UI, XML import and venue layout.
-- **October 17:** internal v2 — moving heads, presets, groups, dark interface, scenes and pages.
-- **October 18:** internal v3 — fixture reads, Highlight and shows; Windows package and command restrictions.
-- **October 18–22:** internal v4 — UI sections, MA2 groups/presets, console fixes, DMX reads, patch/RDM and history.
-- **October 25–29:** simple view on 8090; strobe and parameter visibility by fixture type.
-- **October 30:** tablet lighting/scene control, concurrent-state protection and uncertain scene handling.
+| Период | Этап |
+|---|---|
+| 16 октября | Первые команды, Telnet-мост, mock, WebSocket, простой интерфейс, импорт XML и схема зала |
+| 17 октября | Внутренний v2: движение голов, пресеты, группы, тёмный интерфейс, сцены и страницы |
+| 18 октября | Внутренний v3: получение приборов, highlight и шоу; Windows-комплект и ограничения команд |
+| 18–22 октября | Внутренний v4: разделы интерфейса, группы/пресеты MA2, исправления по пульту, DMX-чтение, патч/RDM и история |
+| 25–29 октября | Простой режим на 8090; стробоскоп и видимость параметров по типу прибора |
+| 30 октября | Планшетное управление светом и сценами, защита параллельного состояния и неопределённых сцен |
 
-The first public release used configuration schema `4`. Test names containing `v3`/`v4` and older plans are retained as development history.
+На момент первого публичного релиза использовалась схема конфигурации `4`. Названия тестов `v3`/`v4` и старые планы сохранены как история разработки.

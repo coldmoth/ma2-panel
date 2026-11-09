@@ -266,3 +266,11 @@ input[type=range]::-moz-range-thumb { width:20px;height:20px; }
  .operation-status { padding:8px 12px; }
 }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important;animation:none!important; } }
+
+/* FIELD-04: edge targets stay inside the fitted viewport. */
+.hall-wrap.plan-viewport { min-height: 80px; padding: 32px; box-sizing: border-box; }
+@media (orientation: landscape) and (max-height: 520px) and (min-width: 600px) {
+  .page.fill { display: block; overflow: auto; }
+  .light, .light.wide { height: auto; min-height: 0; }
+  .light > .pick { height: 380px; }
+}

@@ -1,0 +1,51 @@
+// FIELD-04: view state is independent of selection, config broadcasts and hidden layout.
+'use strict';
+const assert=require('node:assert/strict'), fs=require('node:fs'), vm=require('node:vm');
+const prefix=fs.readFileSync('tests/panel-v4.cjs','utf8').split('// Empty workspace:')[0];
+const {context:c,document,ws}=new Function('require',prefix+'\nreturn {context,document,ws};')(require);
+if(process.env.FIELD04_PLAN_SOURCE) vm.runInContext(fs.readFileSync(process.env.FIELD04_PLAN_SOURCE,'utf8'),c);
+let observers=[];
+c.ResizeObserver=class {constructor(fn){this.fn=fn;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}};
+c.receive({status:{ma2:'logged_in',safety:{mode:'full'}}});
+c.state.config={show:'Show A',hall:{w:18,d:14,stage:'top'},fixtures:[{id:1,label:'Один',x:.3,y:.3},{id:2,label:'Два',x:.31,y:.3}],groups:[],scenes:[],presets:[],attrs:{}};
+const before=ws().sent.length;
+function widget(W=640,H=400){
+ c.updaters=[];
+ const root=document.createElement('div');c.hallPlan(root,'control');
+ const wrap=root.all().find(n=>n.classList.contains('hall-wrap'));
+ const hall=root.all().find(n=>n.classList.contains('hall'));
+ const button=label=>root.all().find(n=>n.getAttribute('aria-label')===label || n.textContent===label);
+ wrap.scrollLeft=wrap.scrollTop=0;wrap.clientWidth=W;wrap.clientHeight=H;
+ const update=()=>c.updaters.forEach(fn=>fn());update();
+ return {root,wrap,hall,button,update};
+}
+let w=widget(0,0);
+assert(w.button('Вписать'),'control plan has a way back to automatic fit');
+assert.equal(w.hall.style.width,undefined,'hidden viewport defers sizing');
+w.wrap.clientWidth=640;w.wrap.clientHeight=400;observers.at(-1).fn();
+assert.equal(c.planView.zoom,1,'dense fixtures must not force initial enlargement');
+assert.equal(c.planView.auto,true,'automatic mode remains active');
+assert(parseFloat(w.hall.style.width)<=640 && parseFloat(w.hall.style.height)<=400);
+const initial=w.hall.style.width;
+w.wrap.clientWidth=400;w.wrap.clientHeight=640;observers.at(-1).fn();
+assert.notEqual(w.hall.style.width,initial,'auto-fit responds to orientation');
+w.button('Увеличить план').click();assert(c.planView.zoom>1);assert.equal(c.planView.auto,false);
+w.wrap.scrollLeft=70;w.wrap.scrollTop=42;w.wrap.fire('scroll');
+const manual={zoom:c.planView.zoom,x:c.planView.x,y:c.planView.y};
+c.state.selection=[1];w.update();
+assert.deepEqual({zoom:c.planView.zoom,x:c.planView.x,y:c.planView.y},manual,'selection does not change view');
+c.state.config=JSON.parse(JSON.stringify(c.state.config));c.state.config.revision='new';
+c.state.config.hall={stage:'top',d:14,w:18}; // Identical geometry with a different JSON key order.
+w=widget(400,640);
+assert.equal(w.wrap.scrollLeft,70,'rebuild restores horizontal offset');assert.equal(w.wrap.scrollTop,42);
+assert.equal(c.planView.zoom,manual.zoom,'config broadcast preserves zoom');
+c.state.live={1:{dim:70}};w.update();assert.equal(c.planView.zoom,manual.zoom);
+w.button('Вписать').click();assert.equal(c.planView.auto,true);assert.equal(c.planView.zoom,1);
+assert.equal(w.wrap.scrollLeft,0);assert.equal(w.wrap.scrollTop,0);
+w.wrap.clientWidth=800;w.wrap.clientHeight=400;observers.at(-1).fn();assert.equal(c.planView.auto,true);
+w.button('Увеличить план').click();w.wrap.fire('keydown',{key:'0'});assert.equal(c.planView.auto,true,'keyboard fit also enables auto');
+w.button('Увеличить план').click();c.state.config.show='Show B';w=widget();assert.equal(c.planView.auto,true,'new show fits');
+w.button('Увеличить план').click();c.state.config.hall.w=25;w=widget();assert.equal(c.planView.auto,true,'new hall geometry fits');
+assert.equal(ws().sent.length,before,'view changes, resize and updates send no MA2/Highlight actions');
+w.wrap.isConnected=false;observers.at(-1).fn();assert.equal(observers.at(-1).disconnected,true,'removed widget releases its observer');
+console.log('FIELD-04 plan view: hidden/auto/resize/manual/rebuild/fit/show/no commands passed');

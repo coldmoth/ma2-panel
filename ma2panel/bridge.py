@@ -51,6 +51,8 @@ log = logging.getLogger("bridge")
 HERE = Path(__file__).parent.parent
 LOOPBACK = ("127.0.0.1", "::1")
 SHOW_POLL_S = 2  # ListVar while waiting for a loaded show; tests shorten it
+READ_RETRY_S = 30  # back off temporary profile/Lua failures without restarting the bridge
+READ_ATTEMPTS = 3
 
 
 def is_loopback(request: Request) -> bool:
@@ -110,7 +112,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     ma2 = {**DEFAULT_MA2, **cfg.get("ma2", {}), **settings.get("ma2", {})}
     # a config.json written for the spec's draft carries /o: on the real MA2 that export silently writes no file
     ma2["export_cmd"] = re.sub(r"\s+/o(verwrite)?\s*$", "", ma2["export_cmd"], flags=re.I)
-    types_tried: set[str] = set()  # fixture types whose channel read was tried this run
+    types_tried: set[str] = set()  # successfully read fixture types in the current context
+    type_retries: dict[str, tuple[int, float]] = {}  # failed attempts and next admissible read
     export_extra: set[str] = set()  # exact export lines of one diagnostics run, see /api/diag/export_probe
     guard = make_guard(effective_safety(settings), attr_names, ma2["export_cmd"], export_extra,
                        rdm_extra=rdm_search.RDM_GLOBAL)
@@ -566,6 +569,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         if "dmx_map" in cfg:
             cfg["dmx_map"] = {k: {**v, "stale": True} for k, v in cfg["dmx_map"].items()}
         types_tried.clear()
+        type_retries.clear()
+        state.pop("dmx_retry", None)
         state.pop("types_context", None)
 
     def update_show(show):
@@ -1230,8 +1235,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     for f in cfg["fixtures"] if (a := absolute(f.get("address")))}})
 
     async def poll_dmx():
-        """What the desk outputs, read by a Lua line every dmx_seconds: the plan shows every lit fixture, not only the panel's.
-        Needs allow_fixture_read; read only (getdmx). A reply without values backs off to 30 s; the raw reply goes to diagnostics."""
+        """What the desk outputs, read by Lua chunks with dmx_seconds idle time per sweep: the plan shows every lit fixture, not only the panel's.
+        Needs allow_fixture_read; read only (getdmx). Failed reads back off; refusals have a bounded retry budget."""
         wait = dmx_seconds
         while True:
             await asyncio.sleep(wait)
@@ -1240,17 +1245,14 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             except Exception:  # one bad reply must not end the read-back until restart
                 log.exception("чтение DMX не удалось")
                 wait = 30
-            if wait is None:  # the desk refused the Lua line: repeating it only fills «Последняя команда» with errors
-                log.warning("чтение DMX выключено до перезапуска: пульт ответил ошибкой (ответ в диагностике)")
-                return
 
-    dmx_cycle = {"key": None, "index": 0, "initial": True, "seen": {}}
+    dmx_cycle = {"key": None, "index": 0, "initial": True, "seen": {}, "started": None, "seconds": None}
 
     def expire_dmx():
         before = dict(state["dmx"])
         key = (state["plan_epoch"], link._gen, tuple(dmx_intervals(cfg["fixtures"])))
         if dmx_cycle["key"] != key:
-            dmx_cycle.update(key=key, index=0, initial=True, seen={})
+            dmx_cycle.update(key=key, index=0, initial=True, seen={}, started=None, seconds=None)
             state["dmx"] = {}
         now = time.monotonic()
         for a in list(state["dmx"]):
@@ -1263,7 +1265,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         return changed
 
     async def read_dmx():
-        """One read; returns the wait before the next one, None when the desk refused the line."""
+        """One read; refusals back off and stop sending after READ_ATTEMPTS until a context reset."""
         if expire_dmx():
             await broadcast(shown_msg())
         if safety["allow_fixture_read"] is not True or state["loading"] or not link.ready or action_lock.locked():
@@ -1278,18 +1280,24 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             state["background_type_read"] = False
         if epoch != state["plan_epoch"] or gen != link._gen or not link.ready:
             return dmx_seconds
+        retry = state.get("dmx_retry")
+        if retry is None or retry["context"] != (epoch, gen):
+            retry = state["dmx_retry"] = {"context": (epoch, gen), "failures": 0, "after": 0}
+        if retry["failures"] >= READ_ATTEMPTS or time.monotonic() < retry["after"]:
+            return READ_RETRY_S
         intervals = dmx_intervals(cfg["fixtures"])
         if not intervals:
             return dmx_seconds
         key = (epoch, gen, tuple(intervals))
         if dmx_cycle["key"] != key:
-            dmx_cycle.update(key=key, index=0, initial=True, seen={})
+            dmx_cycle.update(key=key, index=0, initial=True, seen={}, started=None, seconds=None)
             # A new show (even with identical addresses) must not inherit old output.
             state["dmx"] = {}
             state["live"] = {}
         chunks = [(a, min(DMX_CHUNK, start + count - a))
                   for start, count in intervals for a in range(start, start + count, DMX_CHUNK)]
         span = chunks[dmx_cycle["index"]]
+        pause = dmx_seconds / len(chunks)
         nonce = uuid.uuid4().hex[:16]
         lines = ([DMX_CANARY.format(a=span[0])] if dmx_cycle["initial"] else []) + dmx_lua(*span, nonce=nonce)
         export_extra.update(lines)
@@ -1298,6 +1306,11 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             async with action_lock:
                 if epoch != state["plan_epoch"] or gen != link._gen or state["loading"] or not link.ready:
                     return dmx_seconds
+                sampled_at = time.monotonic()
+                if dmx_cycle["index"] == 0:
+                    if dmx_cycle["started"] is not None:
+                        dmx_cycle["seconds"] = sampled_at - dmx_cycle["started"]
+                    dmx_cycle["started"] = sampled_at
                 dmx_cycle["initial"] = False
                 dmx_cycle["index"] = (dmx_cycle["index"] + 1) % len(chunks)
                 for line in lines:
@@ -1319,32 +1332,47 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             export_extra.difference_update(lines)
         if epoch != state["plan_epoch"] or gen != link._gen or state["loading"] or not link.ready:
             return dmx_seconds
+        now = time.monotonic()
+        sample_age = now - sampled_at
+        if sample_age >= 6:
+            dmx = {}
         panel_vars = " | ".join(ln.strip()[:200] for ln in listvar.splitlines() if "$PANEL" in ln)
         state["dmx_read"] = {"t": time.strftime("%H:%M:%S"), "span": span, "values": len(dmx),
-                             "reason": "" if len(dmx) == span[1] else "неполный или недостоверный ответ DMX: маркер, диапазон или байты",
+                             "chunks": len(chunks), "pause_seconds": pause,
+                             "read_seconds": sample_age, "cycle_seconds": dmx_cycle["seconds"],
+                             "reason": "ответ DMX старше 6 с" if sample_age >= 6 else "" if len(dmx) == span[1] else "неполный или недостоверный ответ DMX: маркер, диапазон или байты",
                              "reply": " || ".join(replies) + " || ListVar: " + (panel_vars or "нет $PANELDMX")}
         if refused:
-            return None
+            retry["failures"] += 1
+            retry["after"] = time.monotonic() + READ_RETRY_S
+            dmx_cycle["initial"] = True
+            if retry["failures"] >= READ_ATTEMPTS:
+                state["dmx_read"]["reason"] = "MA2 отказал в чтении DMX трижды; переподключитесь или получите приборы заново"
+                log.warning("чтение DMX приостановлено после трёх отказов MA2; ответ в диагностике")
+            else:
+                state["dmx_read"]["reason"] = "MA2 отказал в чтении DMX; следующая попытка не раньше чем через 30 с"
+            return READ_RETRY_S
         # Missing/unreadable channels cease to be evidence. Other chunks age independently.
-        now = time.monotonic()
         for a in list(state["dmx"]):
-            if span[0] <= a < span[0] + span[1] or now - dmx_cycle["seen"].get(a, 0) > 6:
+            if span[0] <= a < span[0] + span[1] or now - dmx_cycle["seen"].get(a, 0) >= 6:
                 state["dmx"].pop(a, None)
                 dmx_cycle["seen"].pop(a, None)
-        dmx_cycle["seen"].update({a: now for a in dmx})
+        dmx_cycle["seen"].update({a: sampled_at for a in dmx})
+        state["dmx_read"]["max_age_seconds"] = max((now - t for t in dmx_cycle["seen"].values()), default=None)
         state["dmx"].update(dmx)
         if not dmx:
             state["live"] = live_from_dmx(cfg["fixtures"], state["dmx"], cfg.get("dmx_map", {}))
             await broadcast({"live": state["live"], "values_meta": values_meta()})
             return 30
         value_evidence.observe("live", True)
+        retry.update(failures=0, after=0)
         dmx = state["dmx"]
         live = live_from_dmx(cfg["fixtures"], dmx, cfg.get("dmx_map", {}))
         state["live"] = live
         await broadcast({"live": live, "values_meta": values_meta()})
         await broadcast({"dmx": {f["id"]: [dmx.get(a + i) for i in range(f.get("footprint") or 0)]
                                  for f in cfg["fixtures"] if (a := absolute(f.get("address")))}})
-        return dmx_seconds
+        return pause
 
     def require_scene_context(context):
         if context != offer_context() or not link.ready or state["loading"]:
@@ -1801,7 +1829,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     async def read_types(force=False, max_types=None, validate=lambda: None, background=False):
         """Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureType per type: the
         fixture export names no attributes. Foreground caller holds action_lock; background locks only sends. Best effort: a failure leaves the plan without colours
-        and is logged; without force, each type is tried once per run."""
+        and is logged; failed reads have a bounded retry budget per context."""
         validate()
         epoch, gen = state["plan_epoch"], link._gen
         refresh = force or state.get("types_context") != (epoch, gen)
@@ -1828,10 +1856,19 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return await link.send(line, **kwargs)
 
         maps, changed = dict(cfg.get("dmx_map", {})), refresh
+
+        def can_retry(kind):
+            attempts, after = type_retries.get(kind, (0, 0))
+            return attempts < READ_ATTEMPTS and time.monotonic() >= after
+
+        def failed(kind):
+            attempts = type_retries.get(kind, (0, 0))[0] + 1
+            type_retries[kind] = (attempts, time.monotonic() + READ_RETRY_S)
+
         attempted = 0
         for kind in sorted({f.get("type") or "" for f in cfg["fixtures"] if not f.get("missing")}):
             m = re.match(r"(\d+) ", kind)
-            if not m or (not force and ("has" in maps.get(kind, {}) and not maps[kind].get("stale") or kind in types_tried)):
+            if not m or (not force and ("has" in maps.get(kind, {}) and not maps[kind].get("stale") or kind in types_tried or not can_retry(kind))):
                 continue
             if max_types is not None and attempted >= max_types:
                 break
@@ -1844,23 +1881,28 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 validate()
                 if epoch != state["plan_epoch"] or gen != link._gen:
                     return
-                types_tried.add(kind)
+                failed(kind)
                 log.warning("каналы типа «%s» не прочитаны: %s", kind, e)
                 break  # the same folder or refusal for the next type: each try holds the desk for up to export_wait
             if epoch != state["plan_epoch"] or gen != link._gen:
                 return
             types_tried.add(kind)
+            type_retries.pop(kind, None)
             if spec and maps.get(kind) != spec:
                 maps[kind], changed = spec, True
         fixtures = cfg["fixtures"]
-        if force or " list" not in types_tried and any(type_no(f.get("type")) and "footprint" not in f for f in fixtures if not f.get("missing")):
+        if force or " list" not in types_tried and can_retry(" list") and any(type_no(f.get("type")) and "footprint" not in f for f in fixtures if not f.get("missing")):
             validate()
             ok, reply = await send("List FixtureType", quiet=True, gen=gen)
             validate()
             if epoch != state["plan_epoch"] or gen != link._gen:
                 return
-            types_tried.add(" list")  # once per run, like the type exports
             sizes = parse_type_footprints(reply) if ok else {}
+            if sizes:
+                types_tried.add(" list")
+                type_retries.pop(" list", None)
+            else:
+                failed(" list")
             new = [{**f, "footprint": sizes[type_no(f.get("type"))]} if type_no(f.get("type")) in sizes and not maps.get(f.get("type"), {}).get("unsupported") else f for f in fixtures]
             if new != fixtures:
                 fixtures, changed = new, True

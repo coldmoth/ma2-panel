@@ -25,7 +25,7 @@ A local-network web panel for grandMA2 that starts empty for each new show: it r
 - Sections in a side rail: Сцены (one ordered list of numbered, named scenes with Go/Off; console addresses live in the editor, master), Свет (pick groups, fixtures or on the plan; brightness, colour, Pan/Tilt joystick and 1° step cross in a separate movement tab, Zoom, Focus, strobe), Зал (layout editor: hall shape, step-by-step placement with highlight, panel groups, write a group to MA2, beam calibration), Шоу (current show, show files, explicit load and save), Площадка (link, fetch fixtures from MA2, read MA2 groups/presets/scenes). Pages `log.html`, `diag.html`, `settings.html`.
 - Panel data (layout, hall, panel groups) lives in the panel per show; MA2 groups and presets are read-only copies, marked "MA2".
 - No frameworks, no build step: plain `static/index.html`, `app.js`, `light.js`, `plan.js`, `move.js`, `style.css`.
-- The panel shows what it last sent ("отправлено панелью"), never claims it as the console's value, except scene running state which is polled.
+- Brightness/RGB prefer fresh MA2 DMX readback, labelled "прочитано с MA2". Panel-sent history stays explicitly labelled and never substitutes for measured plan output. Scene running state is polled.
 - Mock mode (`bridge.py --mock`) shows an "Имитация" badge.
 - UI language: Russian.
 

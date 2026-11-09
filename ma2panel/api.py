@@ -172,7 +172,8 @@ def register(app, c, is_loopback):
         """Everything about reading the fixtures that is already known, without sending anything to the console."""
         folders = export_folders()
         probe_txt = HERE / "probe.txt"
-        return {"allow_fixture_read": safety["allow_fixture_read"], "export_cmd": ma2["export_cmd"], "export_dir": str(export_dir),
+        return {"allow_fixture_read": safety["allow_fixture_read"], "dmx_seconds": c.dmx_seconds,
+                "export_cmd": ma2["export_cmd"], "export_dir": str(export_dir),
                 "export_search": ma2["export_search"], "export_wait": ma2["export_wait"], "console_path": link.vars.get("PATH"),
                 "folders": [listing(f, 15) for f in folders], "last_export_file": state["export_file"],
                 "last_attempt": state["export_trace"], "active_probe": state["export_probe"], "dmx_read": state["dmx_read"], "type_reads": state["type_reads"],
@@ -243,14 +244,16 @@ def register(app, c, is_loopback):
                     private_names(item)
         private_names(cfg)
         snapshot = diagnostics()
+        readback_snapshot = diagnostic_upload.build_report(snapshot, cfg, private, mock=bool(c.mock)).get('readback')
         config_counts = {key: len(cfg.get(key, [])) for key in ("fixtures", "groups", "scenes")}
         description = body.get("description", "").strip()
         for value in sorted(set(private) - {""}, key=len, reverse=True):
             description = description.replace(value, "[скрыто]")
         captured_at = datetime.now(timezone.utc).isoformat()
-        # Only counts cross into the worker, not the mutable live config.
+        # Only counts and anonymized numeric maps cross into the worker, not the mutable live config.
         def collect():
-            report = diagnostic_upload.collect_report(snapshot, {}, private, mock=bool(c.mock), root=HERE)
+            report = diagnostic_upload.collect_report(snapshot, {}, private, mock=bool(c.mock), root=HERE,
+                                                      readback=readback_snapshot)
             report["counts"] = config_counts
             report["description"] = description
             report["captured_at"] = captured_at

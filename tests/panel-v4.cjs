@@ -299,6 +299,43 @@ assert.deepEqual(JSON.parse(JSON.stringify(sent().slice(beforeFlip))),[
 reply({ok:true,a:'fixture_flag'});
 console.log('multi-head inversion gesture passed');
 
+// FIELD-02: unknown Pan does not block relative inversion; all selected heads toggle together.
+const flipConfig = JSON.parse(JSON.stringify(context.state.config));
+flipConfig.fixtures[0].flip_pan = true;
+flipConfig.fixtures[1].flip_pan = false;
+context.receive({config:flipConfig,shown:{}});
+assert.equal(findBtn('Pan наоборот').disabled,false);
+assert.match(findBtn('Pan наоборот').textContent,/Разные/);
+const mixedFlipStart=sent().length;
+findBtn('Pan наоборот').click();
+assert.equal(findBtn('Pan наоборот').disabled,true,'pending flag blocks duplicate clicks');
+assert.match(page.textContent,/Сохраняются настройки приборов/);
+flipConfig.fixtures[1].flip_pan=true;
+context.receive({config:JSON.parse(JSON.stringify(flipConfig))});
+reply({ok:true,a:'fixture_flag'});reply({ok:true,a:'fixture_flag'});
+assert.equal(findBtn('Pan наоборот').disabled,false,'acknowledgements release busy');
+assert.equal(findBtn('Pan наоборот').getAttribute('aria-pressed'),'true');
+findBtn('Pan наоборот').click();
+assert.deepEqual(JSON.parse(JSON.stringify(sent().slice(mixedFlipStart))),[
+ {a:'fixture_flag',id:12,flip_pan:true},{a:'fixture_flag',id:14,flip_pan:true},
+ {a:'fixture_flag',id:12,flip_pan:false}
+]);
+reply({ok:true,a:'fixture_flag'});reply({ok:true,a:'fixture_flag'});
+assert.deepEqual(JSON.parse(JSON.stringify(sent().slice(-2))),[
+ {a:'fixture_flag',id:12,flip_pan:false},{a:'fixture_flag',id:14,flip_pan:false}
+]);
+status({features:{move:false}});assert.equal(findBtn('Pan наоборот').disabled,true);
+assert.match(context.moveState.els.flipHint.textContent,/features.move/);
+status({ma2:'down'});assert.equal(findBtn('Pan наоборот').disabled,true);
+assert.match(context.moveState.els.flipHint.textContent,/Нет связи/);
+status();context.state.selection=[];context.renderMove(context.moveState.root);
+assert.match(context.moveState.els.flipHint.textContent,/Выберите голову/);
+status();context.state.selection=[12];context.lightUI.controlTab='movement';context.go('light');
+assert.equal(findBtn('Pan наоборот').disabled,false,'selection and connection recovery restore inversion');
+console.log('FIELD-02 inversion availability, mixed flags and repeated gesture passed');
+
+
+
 // Unconfirmed writes must be visible and blocked in the teacher UI too.
 simpleSocket.onmessage({data:JSON.stringify(simpleReply({ok:true,a:'scene_go'}))});
 simpleSocket.onmessage({data:JSON.stringify({config:{scenes:[{id:'z',exec:'2.105',label:'Финал',write_error:'Запись не подтверждена'}]}})});
@@ -506,3 +543,7 @@ require('./selection-stability.cjs');
 require('./original-panel.cjs');
 
 require('./stage-atlas.cjs');
+
+require('./plan-view.cjs');
+
+require('./live-output.cjs');

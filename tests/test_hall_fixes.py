@@ -35,7 +35,8 @@ def test_one_character_password_full_settings_cycle(site):
         proposed["safety"]["allow_fixture_read"] = True         # one checkbox, no password field
         secret_before = (s.folder / "secret.env").read_bytes()
         assert s.client.post("/api/settings", json={"settings": proposed}).json()["ok"]
-        assert (s.folder / "secret.env").read_bytes() == secret_before == b"MA2_PASSWORD=1\n"
+        assert (s.folder / "secret.env").read_bytes() == secret_before
+        assert (s.folder / "secret.env").read_text() == "MA2_PASSWORD=1\n"
         again = s.client.get("/api/settings").json()["settings"]
         assert again == proposed and again["bind"] == "127.0.0.1" and again["ma2"]["host"] == "127.0.0.1"
         assert bridge.load_settings(s.path)["safety"]["allow_fixture_read"] is True   # what a restart would read

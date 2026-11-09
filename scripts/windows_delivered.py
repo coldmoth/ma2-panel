@@ -13,19 +13,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def legacy_transition():
-    """Use the immutable published v3.2.0 artifact, not a fabricated old layout."""
+    """Install the published v3.2.4 update on its full v3.2.0 runtime baseline."""
     archive = ROOT / 'dist/cache/published-v3.2.0-win.zip'
     if not archive.exists():
         with urllib.request.urlopen('https://github.com/coldmoth/ma2-panel/releases/download/v3.2.0/ma2-panel-win.zip', timeout=60) as response:
             archive.write_bytes(response.read())
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == 'ebe01bdf8eabf9245830aeb61bce05f2dd49a14b0868f8f20b055919a94c487e'
+    patch = ROOT / 'dist/cache/published-v3.2.4-update.zip'
+    if not patch.exists():
+        with urllib.request.urlopen('https://github.com/coldmoth/ma2-panel/releases/download/v3.2.4/ma2-panel-update.zip', timeout=60) as response:
+            patch.write_bytes(response.read())
+    assert hashlib.sha256(patch.read_bytes()).hexdigest() == 'bc8736d591d8c7dcef33d644e785b2a8b1b4538ff269fa3a6773719709ecf783'
     with tempfile.TemporaryDirectory(prefix='ma2 legacy переход ') as temp:
         folder = Path(temp)
         with zipfile.ZipFile(archive) as packed:
             packed.extractall(folder)
         root = folder / 'ma2-panel/program'
         python = root / 'python/python.exe'
+        installed = subprocess.run([str(python), '-c',
+            'import pathlib,sys,update; update.install(pathlib.Path(sys.argv[1]), pathlib.Path.cwd())', str(patch)],
+            cwd=root, capture_output=True, timeout=120)
+        assert installed.returncode == 0, installed.stdout + installed.stderr
         original_version = (root / 'VERSION').read_bytes()
+        assert original_version.startswith(b'3.2.4+')
         # Synthetic operator data; never connect the bridge to a console.
         protected = {'config.json': (root / 'config.json').read_bytes(),
                      'settings.json': (root / 'settings.json').read_bytes(),
@@ -63,7 +73,7 @@ def legacy_transition():
         result = subprocess.run([str(python), str(root / 'bridge.py'), '--help'], cwd=folder,
                                 capture_output=True, timeout=30)
         assert result.returncode == 0, result.stderr
-    print('Published v3.2.0: legacy rejection, external USB migration, rollback and user data passed')
+    print('Published v3.2.4 on v3.2.0 runtime: legacy rejection, external USB migration, rollback and user data passed')
 
 
 def main():
