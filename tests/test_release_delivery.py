@@ -34,7 +34,7 @@ def candidate(tmp_path):
     packed(tmp_path / ARCHIVES[2], {'ma2-panel-update/ma2-panel-update.zip': update.read_bytes(), 'ma2-panel-update/ma2-panel-update.zip.sha256': sidecar.encode(), 'ma2-panel-update/update.py': payload['update.py'], 'ma2-panel-update/release.py': payload['release.py'], 'ma2-panel-update/update-usb.bat': b'updater', 'ma2-panel-update/update-usb.txt': b'instructions'})
     for name in ARCHIVES:
         path = tmp_path / name
-        path.with_name(name + '.sha256').write_text(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + name + '\n')
+        path.with_name(name + '.sha256').write_bytes((hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + name + '\n').encode('ascii'))
     (tmp_path / 'build-inputs.json').write_text(json.dumps({'version': manifest['version'], 'commit': 'abcdef0123456789'}))
     return tmp_path
 
