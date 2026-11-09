@@ -1,0 +1,121 @@
+name: Patch 3.2.4 acceptance
+on:
+  push:
+    branches: [codex/patch-3.2.4]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-hotfix:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: uv sync --locked
+      - run: python -c "from pathlib import Path; Path('test-results').mkdir(exist_ok=True)"
+      - run: uv run --no-sync pytest -q -p no:cacheprovider tests/test_v3.py tests/test_hall_fixes.py tests/test_real_ma2.py tests/test_release.py tests/test_update.py tests/test_browser_update.py tests/test_diag_upload.py tests/test_diagnostic_relay.py tests/test_diagnostic_relay_server.py tests/test_readback_report.py tests/test_read_recovery.py tests/test_field02_pan.py tests/test_dmx_freshness.py tests/test_dmx_intervals.py tests/test_dmx_scheduling.py --basetemp=test-results/venv-pytest -k "not test_real_worker_update_restart_and_both_ports"
+      - run: node tests/panel-v4.cjs
+      - name: Verify public diagnostics receiver HTTPS
+        shell: python
+        run: |
+          import json,urllib.request
+          with urllib.request.urlopen('https://diag.shmyrev52.ru/health',timeout=15) as response:
+              health=json.load(response)
+          assert health=={'ok':True,'delivery_ready':True},health
+          print('Public diagnostics receiver HTTPS: PASS')
+      - name: Build compatible patch and verify migration from published 3.2.3
+        shell: python
+        run: |
+          import hashlib,json,pathlib,subprocess,sys,urllib.request,zipfile
+          sys.path.insert(0,str(pathlib.Path.cwd()))
+          import release
+          root=pathlib.Path.cwd()
+          output=root/'dist/hotfix'
+          output.mkdir(parents=True)
+          commit=subprocess.check_output(['git','rev-parse','--short','HEAD'],text=True).strip()
+          version='3.2.4+'+commit
+          archive=output/'ma2-panel-update.zip'
+          files=release.build(root,version=version)
+          release.write_zip(files,archive)
+          release.write_zip(release.build(root,version=version),output/'independent.zip')
+          assert archive.read_bytes()==(output/'independent.zip').read_bytes()
+          (output/'independent.zip').unlink()
+          digest=hashlib.sha256(archive.read_bytes()).hexdigest()
+          (output/'ma2-panel-update.zip.sha256').write_text(digest+'  ma2-panel-update.zip'+chr(10),encoding='ascii')
+          baseline=output/'baseline.zip'
+          urllib.request.urlretrieve('https://github.com/coldmoth/ma2-panel/releases/download/v3.2.0/ma2-panel-win.zip',baseline)
+          assert hashlib.sha256(baseline.read_bytes()).hexdigest()=='ebe01bdf8eabf9245830aeb61bce05f2dd49a14b0868f8f20b055919a94c487e'
+          with zipfile.ZipFile(baseline) as z:
+              z.extractall(output/'baseline')
+          program=output/'baseline/ma2-panel/program'
+          installed=json.loads((program/'runtime.json').read_text())
+          manifest=release.check(archive,installed)
+          assert manifest['runtime']['lock_sha256']=='16fc35a00aaa556f2547fa51222cf8e84adf7638e8818169dad4434358f4a592'
+          previous=output/'previous-3.2.3.zip'
+          urllib.request.urlretrieve('https://github.com/coldmoth/ma2-panel/releases/download/v3.2.3/ma2-panel-update.zip',previous)
+          assert hashlib.sha256(previous.read_bytes()).hexdigest()=='41d39b07350987e40d33ef95f2c7f403e100001783f6d6253f57ed19db42023d'
+          code="""
+          import json,pathlib,sys,zipfile
+          import release,update
+          root=pathlib.Path.cwd();archive=pathlib.Path(sys.argv[1])
+          release.verify_runtime(root)
+          update.install(pathlib.Path(sys.argv[2]),root)
+          assert (root/'VERSION').read_text().startswith('3.2.3+')
+          release.verify_runtime(root)
+          original=(root/'VERSION').read_bytes()
+          protected={n:(root/n).read_bytes() for n in ('config.json','settings.json')}
+          for n,d in {'shows/operator.json':b'{}','secret.env':b'MA2_PASSWORD=synthetic','rdm-search.json':b'{}'}.items():
+              p=root/n;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(d);protected[n]=d
+          update.backup_user_data(root)
+          release.check(archive,json.loads((root/'runtime.json').read_text()))
+          update.install(archive,root)
+          with zipfile.ZipFile(archive) as z:
+              for n in z.namelist(): assert (root/n).read_bytes()==z.read(n),n
+          assert (root/'VERSION').read_text().startswith('3.2.4+')
+          for n,d in protected.items(): assert (root/n).read_bytes()==d,n
+          release.verify_runtime(root)
+          update.prepare_bridge=lambda *a,**kw:None
+          assert update.rollback(root,confirm=lambda _: 'y')==0
+          assert (root/'VERSION').read_bytes()==original
+          for n,d in protected.items(): assert (root/n).read_bytes()==d,n
+          update.install(archive,root)
+          release.verify_runtime(root)
+          print('Published 3.2.3 -> 3.2.4 install, rollback, runtime and user data: PASS')
+          """
+          import textwrap
+          subprocess.run([str(program/'python/python.exe'),'-c',textwrap.dedent(code),str(archive),str(previous)],cwd=program,check=True,timeout=120)
+          # The delivered embedded interpreter is a real process, unlike Windows venv's redirector.
+          worker_test="import pathlib,sys;repo=pathlib.Path.cwd();sys.path.insert(0,str(repo));sys.path.append(str(repo/'.venv/Lib/site-packages'));import pytest;sys.exit(pytest.main(['-q','-p','no:cacheprovider','--basetemp=test-results/embedded-worker','tests/test_browser_update.py::test_real_worker_update_restart_and_both_ports']))"
+          subprocess.run(['uv','run','--no-sync','python','scripts/ci_smoke.py','--bundle',str(program),'--log','test-results/hotfix-mock.log'],check=True,timeout=120)
+          evidence={'version':version,'runtime':installed,'sha256':digest,'commit':commit,'baseline_sha256':hashlib.sha256(baseline.read_bytes()).hexdigest(),'windows_install_rollback_user_data':'passed','mock_http_ws':'passed'}
+          result=subprocess.run([str(program/'python/python.exe'),'-c',worker_test],cwd=root,check=False,timeout=120)
+          evidence['browser_worker']='passed' if result.returncode==0 else 'failed'
+          (output/'verification-3.2.4.json').write_text(json.dumps(evidence,indent=2)+chr(10))
+          if result.returncode: raise SystemExit(result.returncode)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: patch-3.2.4
+          path: |
+            dist/hotfix/ma2-panel-update.zip
+            dist/hotfix/ma2-panel-update.zip.sha256
+            dist/hotfix/verification-3.2.4.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fixture-hotfix-logs
+          include-hidden-files: true
+          path: test-results/

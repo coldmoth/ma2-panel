@@ -51,7 +51,7 @@ def test_rewrite_preserves_scene_id_and_position(bridge_cfg):
 
 
 def test_failed_rewrite_remains_visible_as_unconfirmed(bridge_cfg, monkeypatch):
-    from mock import MockMA2
+    from ma2panel.mock import MockMA2
     original=MockMA2._reply
     def reply(self,text):
         if text.startswith('StoreLook'):

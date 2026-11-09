@@ -314,7 +314,7 @@ def test_undo_basis_expires_even_when_latest_value_is_fresh(context):
 
 
 def test_stale_position_cannot_seed_move_jog_or_saved_preset(context):
-    from commands import ActionError
+    from ma2panel.commands import ActionError
     c = context
     c.cfg['fixtures'][0]['moves'] = True
     clock = [0.0]

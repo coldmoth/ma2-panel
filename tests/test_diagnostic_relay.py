@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-import diagnostic_upload as upload
+from ma2panel import diagnostic_upload as upload
 from test_diag_upload import RID, RID2, TOKEN, FakeGithub, configure
 
 
@@ -22,7 +22,7 @@ class FakeRelay:
 
 @pytest.fixture
 def relay_store(tmp_path, monkeypatch):
-    import diagnostic_relay
+    from ma2panel import diagnostic_relay
     relay = FakeRelay()
     monkeypatch.setattr(diagnostic_relay, 'Relay', lambda: relay)
     path = tmp_path / 'diag' / 'upload-state.json'
@@ -55,7 +55,7 @@ def test_lost_put_response_retries_original_uuid_and_snapshot(relay_store):
 
 
 def test_legacy_ambiguous_post_never_reaches_relay(tmp_path, monkeypatch, relay_store):
-    import diagnostic_relay
+    from ma2panel import diagnostic_relay
     monkeypatch.setattr(diagnostic_relay, 'Relay', lambda: pytest.fail('legacy pending must not migrate'))
     cfg = configure(tmp_path)
     fake = FakeGithub()
@@ -105,7 +105,7 @@ def test_no_remote_put_if_transport_cannot_be_persisted(relay_store, monkeypatch
     (200, {'report_id': RID, 'state': 'other'}),
 ])
 def test_relay_rejects_redirects_and_bad_receipts(monkeypatch, status, payload):
-    import diagnostic_relay
+    from ma2panel import diagnostic_relay
     class Connection:
         def __init__(self, host, **kwargs):
             assert host == 'diag.shmyrev52.ru'
@@ -124,7 +124,7 @@ def test_relay_rejects_redirects_and_bad_receipts(monkeypatch, status, payload):
 
 
 def test_relay_request_uses_fixed_https_host_and_bounded_response(monkeypatch):
-    import diagnostic_relay
+    from ma2panel import diagnostic_relay
     class Connection:
         status = 200
         def __init__(self, host, **kwargs):

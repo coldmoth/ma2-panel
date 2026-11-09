@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import diagnostic_upload as upload
+from ma2panel import diagnostic_upload as upload
 from test_diag import site
 
 RID = 'f0e1d2c3-4567-4890-abcd-0123456789ab'
@@ -17,7 +17,7 @@ TOKEN = 'github_pat_PRIVATE_TOKEN'
 @pytest.mark.parametrize('version', ['3.1.0rc1', '3.1.0', '3.1.0rc1+abc1234-dirty',
                                      '3.1.0+nogit', '2026-11-02_1200 abc1234+dirty'])
 def test_project_version_survives_report_and_receiver_validation(version):
-    from relay.app import _valid_report
+    from scripts.relay.app import _valid_report
     report = upload.build_report({'version': version}, {}, mock=True)
     assert report['panel_version'] == version
     assert _valid_report(report)
@@ -25,7 +25,7 @@ def test_project_version_survives_report_and_receiver_validation(version):
 
 @pytest.mark.parametrize('version', ['3.1.0+private-show-name', '3.1.0+abc1234/path', 'private', '3.1.0\n'])
 def test_version_allowlist_still_hides_private_values(version):
-    from relay.app import _valid_report
+    from scripts.relay.app import _valid_report
     report = upload.build_report({'version': version}, {})
     assert report['panel_version'] == upload.UNKNOWN
     assert not _valid_report(dict(report, panel_version=version))
@@ -178,7 +178,7 @@ def test_github_preflight_rejects_public_and_disabled_issues(monkeypatch):
 
 
 def test_api_upload_is_local_protected_and_passive(site, monkeypatch):
-    import diagnostic_relay
+    from ma2panel import diagnostic_relay
     fake = FakeGithub()
     fake.put = lambda rid, report: dict(fake.create(rid, json.dumps(report)), state='sent')
     monkeypatch.setattr(diagnostic_relay, 'Relay', lambda: fake)
@@ -253,7 +253,7 @@ def test_supported_real_states_and_no_fake_evidence():
 
 
 def test_setup_validates_before_writing_and_protects_credentials(tmp_path, monkeypatch):
-    import diagnostic_setup
+    from ma2panel import diagnostic_setup
     fake = FakeGithub()
     monkeypatch.setattr(upload, 'Github', lambda _: fake)
     path = tmp_path / 'diagnostic-upload.json'

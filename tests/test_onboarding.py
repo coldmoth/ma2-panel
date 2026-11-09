@@ -6,13 +6,13 @@ import xml.etree.ElementTree as ET
 import pytest
 from fastapi.testclient import TestClient
 
-import bridge
+from ma2panel import bridge
 from test_bridge import ready
 
 
 @pytest.fixture
 def running(tmp_path, monkeypatch):
-    cfg = json.loads(Path('config.example.json').read_text())
+    cfg = json.loads(Path('ma2panel/resources/config.example.json').read_text())
     settings = {'bind': '0.0.0.0', 'port': 8123, 'simple_port': None,
                 'poll_seconds': 0, 'dmx_seconds': 0, 'ma2': {'user': 'Remote'}}
     config = tmp_path / 'config.json'

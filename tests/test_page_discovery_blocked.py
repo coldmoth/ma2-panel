@@ -1,7 +1,7 @@
 """MA2-003: failed discovery preserves the saved plan."""
 import pytest
 
-from link import MA2Link
+from ma2panel.link import MA2Link
 from test_bridge import bridge_cfg  # noqa: F401
 
 

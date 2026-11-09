@@ -4,8 +4,8 @@ from contextlib import contextmanager
 
 import pytest
 
-from commands import ActionError, parse_address, parse_rdm_list, parse_type_footprints, patch_plan, patch_rows
-from safety import DEFAULT_SAFETY, make_guard
+from ma2panel.commands import ActionError, parse_address, parse_rdm_list, parse_type_footprints, patch_plan, patch_rows
+from ma2panel.safety import DEFAULT_SAFETY, make_guard
 from test_bridge import ask, bridge_cfg, until  # noqa: F401
 
 HALL = [(9, "R-1 WINDOW", 280), (23, "L-4 WINDOW", 289), (24, "R-4 WINDOW", 298)]  # hall 2026-10-21, an example only
@@ -24,7 +24,7 @@ def plan_fixtures(**rdm):
 
 
 def test_footprints_come_from_the_type_list():
-    text = (Path(__file__).parent / "list_fixturetype_3.9.60.txt").read_text(encoding="utf-8")
+    text = (Path(__file__).resolve().parents[1] / "ma2panel/resources/mock/list_fixturetype_3.9.60.txt").read_text(encoding="utf-8")
     assert parse_type_footprints(text) == {"1": 0, "2": 1, "3": 9, "4": 17, "5": 17, "6": 9, "7": 2, "8": 10}
 
 
@@ -197,7 +197,7 @@ def test_known_physical_line_stays_fixed_after_patch_move():
 
 
 def test_multiple_patch_addresses_never_authorize_flat_write():
-    from fixtures import parse_export, merge_fixtures
+    from ma2panel.fixtures import parse_export, merge_fixtures
     xml = export([(1, 'Complex', 100)]).replace('</Patch>', '</Patch><Patch><Address>600</Address></Patch>')
     found = parse_export(xml)
     fixtures = merge_fixtures([], found)

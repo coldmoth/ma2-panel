@@ -1,7 +1,7 @@
 """DATA-005: failed refresh and offline import invalidate old profile evidence."""
 import asyncio
 import pytest
-from fixtures import merge_fixtures, parse_fixture_type
+from ma2panel.fixtures import merge_fixtures, parse_fixture_type
 from test_status_evidence import context  # noqa: F401
 
 
@@ -63,7 +63,7 @@ def test_successful_force_replaces_sizes_with_current_list(context):
         async def send(line, **kw):
             if line == 'List FixtureType':
                 from pathlib import Path
-                return True, Path('tests/list_fixturetype_3.9.60.txt').read_text()
+                return True, Path('ma2panel/resources/mock/list_fixturetype_3.9.60.txt').read_text()
             return False, 'Error'
         c.link.send = send
         await c.read_types(force=True)
@@ -73,8 +73,8 @@ def test_successful_force_replaces_sizes_with_current_list(context):
 
 def test_multi_instance_list_never_authorizes_single_range():
     from pathlib import Path
-    from commands import parse_type_footprints
-    text = Path('tests/list_fixturetype_3.9.60.txt').read_text()
+    from ma2panel.commands import parse_type_footprints
+    text = Path('ma2panel/resources/mock/list_fixturetype_3.9.60.txt').read_text()
     text = text.replace('17            1', '17            2')
     sizes = parse_type_footprints(text)
     assert '4' not in sizes and '5' not in sizes

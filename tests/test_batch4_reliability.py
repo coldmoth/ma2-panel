@@ -90,7 +90,7 @@ def test_reconnect_resets_negative_capabilities(context):
 def test_fade_ticket_is_captured_before_task_starts(context, monkeypatch):
     import json
     from types import SimpleNamespace
-    import bridge
+    from ma2panel import bridge
     c = context
     async def go():
         ws = object()

@@ -2,11 +2,11 @@
 import json
 from pathlib import Path
 
-from commands import can_move
-from fixtures import merge_fixtures, parse_export
+from ma2panel.commands import can_move
+from ma2panel.fixtures import merge_fixtures, parse_export
 from test_bridge import FULL, ask, bridge_cfg, until  # noqa: F401
 
-REAL = Path(__file__).parent / "real_export_3.9.60.xml"
+REAL = Path(__file__).resolve().parents[1] / "ma2panel/resources/mock/real_export_3.9.60.xml"
 READ = {"safety": {"mode": "full", "allow_fixture_read": True}, "ma2": {"export_wait": .6}}
 
 
@@ -64,8 +64,8 @@ def test_ma2_lists_in_the_real_format_are_read(bridge_cfg, monkeypatch):
 
 
 def test_real_echo_does_not_make_an_empty_slot_look_taken():
-    from commands import exec_verdict, group_slot_empty
-    from safety import DEFAULT_MA2 as D
+    from ma2panel.commands import exec_verdict, group_slot_empty
+    from ma2panel.safety import DEFAULT_MA2 as D
     import re
     empty = lambda cmd: f"Executing : {cmd}\nWARNING, NO OBJECTS FOUND FOR LIST\n [Group]>"
     assert exec_verdict(empty("List Executor 1.101"), "1.101", re.compile(r"(?i)no objects? found"))[0] == "empty"

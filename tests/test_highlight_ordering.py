@@ -1,10 +1,10 @@
 """MA2-010: deterministic lifecycle races and explicitly confirmed recovery."""
 import asyncio
 import pytest
-from commands import ActionError
+from ma2panel.commands import ActionError
 import json
 from pathlib import Path
-import bridge
+from ma2panel import bridge
 
 
 @pytest.fixture

@@ -15,6 +15,8 @@ ma2-panel 3.2.0 is a **pre-release**. Real grandMA2 hardware validation is not y
 - [Supervised first-session checklist](ONPC-HALL-TEST-3.2.md)
 - [Advanced installation, backups and development](ADVANCED.md)
 - [3.2.0 release notes](RELEASE-3.2.md)
-- [Changelog](../CHANGELOG.md)
+- [Changelog](CHANGELOG.md)
 
 [Back to the project](../README.md)
+
+- [Repository structure and release compatibility](repository-structure.md)

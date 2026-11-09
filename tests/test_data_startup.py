@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from fastapi.testclient import TestClient
-import bridge
+from ma2panel import bridge
 from test_bridge import ask, ready
 
 
@@ -20,8 +20,8 @@ def test_migrated_ma2_survives_partial_runtime_override(tmp_path):
 
 
 def test_fresh_templates_start_and_master_uses_site_setting(tmp_path):
-    cfg = json.loads(Path('config.example.json').read_text())
-    settings = json.loads(Path('settings.example.json').read_text())
+    cfg = json.loads(Path('ma2panel/resources/config.example.json').read_text())
+    settings = json.loads(Path('ma2panel/resources/settings.example.json').read_text())
     settings.update(poll_seconds=0, safety={'mode': 'full'}, master={'cmd': 'Master 2.2 At {v}'})
     path = tmp_path / 'config.json'
     path.write_text(json.dumps(cfg))
@@ -42,7 +42,7 @@ import pytest
 
 @pytest.mark.parametrize('show', [None, ''])
 def test_unnamed_startup_retries_after_interrupted_migration(tmp_path, monkeypatch, show):
-    import migrations
+    from ma2panel import migrations
     cfg = json.loads(Path('tests/config.test.json').read_text())
     cfg['version'] = 3
     if show is None:

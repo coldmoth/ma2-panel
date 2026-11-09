@@ -8,9 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from bridge import HALTED, NO_LINK, UNKNOWN, MA2Link, create_app
-from mock import start_mock
-from safety import effective_safety, make_guard
+from ma2panel.bridge import HALTED, NO_LINK, UNKNOWN, MA2Link, create_app
+from ma2panel.mock import start_mock
+from ma2panel.safety import effective_safety, make_guard
 from test_bridge import CONFIG, FULL, ask, bridge_cfg, ready, until, wait_state  # noqa: F401  (bridge_cfg is a fixture)
 
 LIVE = {"safety": {"mode": "test", "allowed_fixtures": [12, 14], "allowed_scenes": ["1.101"]}}

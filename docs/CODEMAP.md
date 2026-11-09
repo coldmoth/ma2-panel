@@ -17,6 +17,11 @@
 
 ## Файлы
 
+Backend расположен в `ma2panel/`; имена модулей ниже относятся к этому пакету.
+Корневой `bridge.py` — стабильный launcher с recovery до импорта backend.
+Шаблоны и mock-данные — `ma2panel/resources/`, BAT — `scripts/win/`, relay — `scripts/relay/`.
+
+
 | Файл | Что внутри |
 |---|---|
 | `commands.py` | Чистое: `build(action, cfg)` → строки MA2; множества `SIMPLE`/`FULL`/`SLIDERS` (какие действия существуют); `parse_*` ответов `List ...`; `validate_hall`; `fade_suffix`. Новое действие начинается тут |
@@ -30,11 +35,11 @@
 | `api.py` | `/api/*`: settings, diag, diag.zip, diag/upload, diag/send, probe, link_test, import_file, stop, restart. `register(app, c, is_loopback)` получает снимок локальных переменных `create_app` |
 | `mock.py` | Поддельный MA2 (`--mock`, `MA2_MOCK_REAL=1` — формат живого пульта) |
 | `diagnostic_upload.py`, `diagnostic_relay.py` | Обезличенный отчёт, постоянный журнал UUID/повторов; `Uploader.enqueue/retry/run` — очередь на ПК и доставка раз в минуту без браузера через фиксированный HTTPS-приёмник, без локального GitHub-доступа; старые неоднозначные прямые отправки остаются GET-only |
-| `relay/app.py`, `relay/ma2-diagnostics.service` | Отдельный серверный приёмник: строгая схема, постоянные квоты и SQLite-очередь, идемпотентные UUID, приватные квитанции, ограниченная доставка в закрытый GitHub с отдельным журналом на отчёт; однократный доступ владельца — `scripts/setup_diagnostic_relay.py`; старый `diagnostic_setup.py` оставлен для совместимости |
+| `scripts/relay/app.py`, `scripts/relay/ma2-diagnostics.service` | Отдельный серверный приёмник: строгая схема, постоянные квоты и SQLite-очередь, идемпотентные UUID, приватные квитанции, ограниченная доставка в закрытый GitHub с отдельным журналом на отчёт; однократный доступ владельца — `scripts/setup_diagnostic_relay.py`; старый `diagnostic_setup.py` оставлен для совместимости |
 | `update.py`, `browser_update.py`, `release.py`, `firewall.py`, `selfcheck.py` | Транзакции/точный откат, внешний updater и локальные API/UI, единый payload/manifest/runtime identity, firewall по портам; проверка на площадке |
 | `onboarding.py`, `static/setup.*` | Локальный мастер подключения: пассивный `/api/setup`, актуальные IPv4 URL и офлайн QR (`segno`), сохранение через settings API, перезапуск с проверкой нового instance. Внешний Windows start.bat вызывает program/start.bat; `--open-browser` открывает мастер после готовности HTTP |
 | `show_files.py`, `show_transfer.py`, `static/show-files.js` | Настоящие `.show.gz`: ограниченная проверка gzip, неизменяемый снимок, публикация без замены; HTTP upload/prepare/confirm/status/download. Подтверждение связано с подключением/stop ticket; `bridge.load_show` проверяет файл непосредственно перед командой. Только локальная onPC с явным shows_dir; mock — внутри каталога своего config |
-| `scripts/` | `build_win.sh`, `serve_update.sh` (берут все корневые `*.py`), `command_map.py` (→ `docs/outgoing-commands.md`), `codemap.py`, `clodex.py` |
+| `scripts/` | `build_win.sh`, `serve_update.sh` (payload: `ma2panel/`, static, BAT и standalone updater), `command_map.py` (→ `docs/outgoing-commands.md`), `codemap.py`, `clodex.py` |
 
 ## Блоки внутри `create_app` (искать по имени функции)
 
@@ -95,9 +100,9 @@
 
 ## Тесты
 
-`perl -e 'alarm 300; exec @ARGV' uv run pytest -q -p no:cacheprovider` (≈45 с, ≈525 тестов). `tests/conftest.py` укорачивает ожидания зала (`link.RECONNECT_S`, `link.REPLY_S`, `bridge.SHOW_POLL_S`, `api.BARE_CONNECT_S`, `timeout`/`export_wait` в `DEFAULT_MA2`); тест, которому нужно настоящее значение, задаёт его сам. `tests/test_bridge.py` — основа (`bridge_cfg` фикстура + `ask(ws, action)`), `test_commands.py` — чистые функции, `test_safety.py` — белый список, `test_real_ma2.py` — формат живого пульта, `tests/panel-v4.cjs` — скрипты панели на фальшивом DOM (нужен node). Тесты патчат `bridge.HERE`, `bridge.is_loopback`, `bridge.MA2Link`, `bridge.start_mock`, `bridge.save_config`: эти имена должны оставаться в `bridge.py`.
+`perl -e 'alarm 300; exec @ARGV' uv run pytest -q -p no:cacheprovider` (≈45 с, ≈525 тестов). `tests/conftest.py` укорачивает ожидания зала (`link.RECONNECT_S`, `link.REPLY_S`, `bridge.SHOW_POLL_S`, `api.BARE_CONNECT_S`, `timeout`/`export_wait` в `DEFAULT_MA2`); тест, которому нужно настоящее значение, задаёт его сам. `tests/test_bridge.py` — основа (`bridge_cfg` фикстура + `ask(ws, action)`), `test_commands.py` — чистые функции, `test_safety.py` — белый список, `test_real_ma2.py` — формат живого пульта, `tests/panel-v4.cjs` — скрипты панели на фальшивом DOM (нужен node). Тесты импортируют `from ma2panel import bridge` и патчат `bridge.HERE`, `bridge.is_loopback`, `bridge.MA2Link`, `bridge.start_mock`, `bridge.save_config`: эти имена должны оставаться в `bridge.py`.
 
-`tests/test_diag_upload.py` — обезличивание, доставка/постоянный журнал, старый доступ, локальные HTTP-ограничения. `tests/test_diagnostic_relay.py` — новая установка без credentials, квитанции/повторы, legacy pending; `tests/test_diagnostic_relay_server.py` — серверная очередь/квоты/миграция; `tests/test_relay_setup.py` — безопасная установка токена владельцем. `tests/diag-upload.cjs` включён в `panel-v4.cjs`. На новой установке credentials не нужны. Старый `diagnostic-upload.json` рядом с settings сохраняется для проверки прежних неоднозначных отправок; журнал — `diag/upload-state.json` рядом с config. Удаление журнала теряет идентификаторы повторов. Инструкции: [приёмник](../relay/README.md), [история диагностики](audit-step9-diagnostics.md).
+`tests/test_diag_upload.py` — обезличивание, доставка/постоянный журнал, старый доступ, локальные HTTP-ограничения. `tests/test_diagnostic_relay.py` — новая установка без credentials, квитанции/повторы, legacy pending; `tests/test_diagnostic_relay_server.py` — серверная очередь/квоты/миграция; `tests/test_relay_setup.py` — безопасная установка токена владельцем. `tests/diag-upload.cjs` включён в `panel-v4.cjs`. На новой установке credentials не нужны. Старый `diagnostic-upload.json` рядом с settings сохраняется для проверки прежних неоднозначных отправок; журнал — `diag/upload-state.json` рядом с config. Удаление журнала теряет идентификаторы повторов. Инструкции: [приёмник](../scripts/relay/README.md), [история диагностики](audit-step9-diagnostics.md).
 
 `tests/test_release.py`, `tests/test_update.py`, `tests/test_browser_update.py`, `tests/test_firewall.py` —
 упаковка/совместимость, сохранность/восстановление, локальные API и реальный detached-worker mock,

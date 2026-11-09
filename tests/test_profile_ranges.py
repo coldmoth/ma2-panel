@@ -1,6 +1,6 @@
 """DATA-003: parameter count is never a confirmed physical DMX range."""
 import pytest
-from commands import ActionError, dmx_intervals, patch_plan, patch_rows
+from ma2panel.commands import ActionError, dmx_intervals, patch_plan, patch_rows
 
 
 def test_real_minib_channel_count_does_not_authorize_patch():

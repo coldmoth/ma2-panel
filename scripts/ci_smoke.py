@@ -56,8 +56,9 @@ def smoke(log_path, bundle=None):
             for source in ROOT.glob("*.py"):
                 shutil.copy2(source, app / source.name)
             shutil.copytree(ROOT / "static", app / "static")
-        shutil.copy2(ROOT / "config.example.json", app / "config.json")
-        settings = json.loads((ROOT / "settings.example.json").read_text(encoding="utf-8"))
+            shutil.copytree(ROOT / "ma2panel", app / "ma2panel", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copy2(ROOT / "ma2panel/resources/config.example.json", app / "config.json")
+        settings = json.loads((ROOT / "ma2panel/resources/settings.example.json").read_text(encoding="utf-8"))
         # The export location is installation-specific; keep mock exports here.
         settings["ma2"]["export_dir"] = str(app)
         # Reserve distinct ephemeral ports together, then release before launch.

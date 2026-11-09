@@ -5,8 +5,8 @@ import threading
 
 import pytest
 
-import bridge
-from safety import DEFAULT_MA2, effective_safety, make_guard
+from ma2panel import bridge
+from ma2panel.safety import DEFAULT_MA2, effective_safety, make_guard
 from test_bridge import FULL, ask, bridge_cfg, until  # noqa: F401
 from test_safety import tabs
 
@@ -247,19 +247,19 @@ def test_permissive_empty_pattern_is_rejected(pattern):
 
 
 def test_heads_from_export_params_can_move():
-    from commands import can_move
+    from ma2panel.commands import can_move
     assert can_move({'params': ['DIM', 'PAN', 'TILT']}) and can_move({'moves': True})
     assert not can_move({'params': ['DIM', 'COLORRGB1']}) and not can_move({})
 
 
 def test_row_naming_the_group_is_never_empty():
-    from commands import group_slot_empty
+    from ma2panel.commands import group_slot_empty
     assert not group_slot_empty('Group 11 "Choir"\r\n[Channel]>', 11, r'(?!x)x', r'.*')
     assert group_slot_empty('No objects found\r\n[Channel]>', 11, DEFAULT_MA2['group_regex'], DEFAULT_MA2['group_empty_regex'])
 
 
 def test_group_members_from_export_and_forget(bridge_cfg):
-    from fixtures import parse_group_export
+    from ma2panel.fixtures import parse_group_export
     xml = '<MA><Group index="1" name="B"><Subfixture fix_id="5"/><Subfixture fix_id="6"/><Subfixture cha_id="9"/></Group></MA>'
     assert parse_group_export(xml, {2: 'B'}) == {2: [5, 6]}
     assert parse_group_export(xml, {1: 'B'}) == {1: [5, 6]}  # index is the number itself when the names say so

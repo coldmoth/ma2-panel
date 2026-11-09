@@ -6,9 +6,9 @@ from zipfile import ZipFile
 
 import pytest
 
-import browser_update as bu
-import release
-import update
+from ma2panel import browser_update as bu
+from ma2panel import release
+from ma2panel import update
 
 
 def package(tmp_path):
@@ -17,7 +17,7 @@ def package(tmp_path):
     manifest = {'schema': 1, 'version': 'v2', 'runtime': runtime,
                 'files': {k: {'sha256': hashlib.sha256(v).hexdigest(), 'size': len(v)} for k, v in files.items()}}
     files['program-manifest.json'] = json.dumps(manifest).encode()
-    archive = tmp_path / 'release.zip'
+    archive = tmp_path / 'ma2panel.release.zip'
     release.write_zip(files, archive)
     return archive, runtime
 
@@ -140,7 +140,7 @@ def test_begin_is_idempotent_and_busy_does_not_stop(tmp_path, monkeypatch):
 
 def test_update_api_is_local_and_protected(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
-    import bridge
+    from ma2panel import bridge
     cfg = json.loads(Path('tests/config.test.json').read_text())
     cfg['ma2']['port'] = 30000
     cfg['ma2']['export_dir'] = str(tmp_path)
@@ -228,7 +228,7 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
     url = f'http://127.0.0.1:{httpd.server_port}/update.zip'
     info = {'version': 'v3.2.0', 'url': url, 'checksum_url': url + '.sha256'}
     args = ['--mock', '--config', str(root / 'config.json'), '--settings', str(root / 'settings.json')]
-    code = f'import sys;sys.path.insert(0,{str(root)!r});import bridge,browser_update;browser_update.latest=lambda:{info!r};browser_update.supported_platform=lambda:True;browser_update._open=lambda req,timeout:__import__("urllib.request",fromlist=["urlopen"]).urlopen(req,timeout=timeout);sys.argv=[{str(root / "bridge.py")!r},*{args!r}];bridge.main()'
+    code = f'import sys;from ma2panel import bridge,browser_update;browser_update.latest=lambda:{info!r};browser_update.supported_platform=lambda:True;browser_update._open=lambda req,timeout:__import__("urllib.request",fromlist=["urlopen"]).urlopen(req,timeout=timeout);sys.argv=[{str(root / "bridge.py")!r},*{args!r}];bridge.main()'
     log = (tmp_path / 'bridge-output.log').open('wb')
     parent = subprocess.Popen([sys.executable, '-c', code], cwd=root, stdout=log, stderr=log)
     new_pid = None

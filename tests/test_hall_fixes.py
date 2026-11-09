@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-import bridge
-from fixtures import parse_export
-from safety import redact
+from ma2panel import bridge
+from ma2panel.fixtures import parse_export
+from ma2panel.safety import redact
 from test_bridge import ask, bridge_cfg  # noqa: F401
 from test_diag import site  # noqa: F401
 
@@ -35,7 +35,8 @@ def test_one_character_password_full_settings_cycle(site):
         proposed["safety"]["allow_fixture_read"] = True         # one checkbox, no password field
         secret_before = (s.folder / "secret.env").read_bytes()
         assert s.client.post("/api/settings", json={"settings": proposed}).json()["ok"]
-        assert (s.folder / "secret.env").read_bytes() == secret_before == b"MA2_PASSWORD=1\n"
+        assert (s.folder / "secret.env").read_bytes() == secret_before
+        assert (s.folder / "secret.env").read_text() == "MA2_PASSWORD=1\n"
         again = s.client.get("/api/settings").json()["settings"]
         assert again == proposed and again["bind"] == "127.0.0.1" and again["ma2"]["host"] == "127.0.0.1"
         assert bridge.load_settings(s.path)["safety"]["allow_fixture_read"] is True   # what a restart would read
@@ -166,7 +167,7 @@ def test_report_downloads_even_when_a_part_fails(site, monkeypatch):
 
 
 def test_guard_still_refuses_overwrite_and_foreign_exports():
-    from safety import make_guard
+    from ma2panel.safety import make_guard
     cmd = 'Export Fixture 1 Thru 9999 "panel_fixtures"'
     extra = {'Export Channel 1 Thru 9999 "panel_diag_channel_1"'}
     guard = make_guard({"mode": "full", "allow_fixture_read": True, "allowed_fixtures": [], "allowed_scenes": [], "store_execs": [],
@@ -179,7 +180,7 @@ def test_guard_still_refuses_overwrite_and_foreign_exports():
 
 def test_immediate_close_is_logged_with_stage_and_reason(caplog):
     import asyncio
-    from mock import start_mock
+    from ma2panel.mock import start_mock
 
     async def go():
         mock = await start_mock(0, "Remote")

@@ -7,9 +7,9 @@ import urllib.request
 
 import pytest
 
-import browser_update as bu
-import release
-import update
+from ma2panel import browser_update as bu
+from ma2panel import release
+from ma2panel import update
 from test_browser_update import install_runtime, package
 
 
@@ -109,7 +109,7 @@ def test_busy_after_download_does_not_stop_or_install(tmp_path, monkeypatch):
     import asyncio
     async def scenario():
         monkeypatch.setattr(bu, 'latest', lambda: {'version': 'v3.2.0'})
-        monkeypatch.setattr(bu, 'prepare', lambda *a: (tmp_path / 'update.zip', {'version': '3.2.0'}))
+        monkeypatch.setattr(bu, 'prepare', lambda *a: (tmp_path / 'ma2panel.update.zip', {'version': '3.2.0'}))
         async def busy(): return False
         manager = bu.Updater(tmp_path)
         manager.begin(busy, lambda: pytest.fail('busy bridge must remain running'), {}, 'v3.2.0')

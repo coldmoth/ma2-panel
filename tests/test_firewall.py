@@ -1,6 +1,6 @@
 import json
 import pytest
-import firewall
+from ma2panel import firewall
 
 
 def test_rules_follow_saved_ports_and_disabled_simple(tmp_path, monkeypatch):

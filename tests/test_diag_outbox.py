@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-import diagnostic_upload as upload
+from ma2panel import diagnostic_upload as upload
 from test_diag import site
 from test_diag_upload import FakeGithub, RID, RID2, TOKEN, configure, store
 
@@ -88,7 +88,7 @@ def test_run_starts_from_saved_queue_without_browser(tmp_path):
 
 
 def test_api_queue_is_passive_masks_description_and_worker_delivers(site, monkeypatch):
-    import diagnostic_relay
+    from ma2panel import diagnostic_relay
     fake = FakeGithub()
     fake.put = lambda rid, report: dict(fake.create(rid, json.dumps(report)), state='sent')
     monkeypatch.setattr(diagnostic_relay, 'Relay', lambda: fake)

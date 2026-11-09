@@ -3,7 +3,7 @@ import pytest
 
 
 def book(clock):
-    from status_evidence import Evidence
+    from ma2panel.status_evidence import Evidence
     return Evidence(clock=lambda: clock[0], wall=lambda: 1000 + clock[0])
 
 
@@ -39,7 +39,7 @@ def test_identical_read_refreshes_and_invalidation_forgets_source():
 def test_new_simple_client_does_not_treat_sent_command_as_evidence(tmp_path):
     import json
     from fastapi.testclient import TestClient
-    from bridge import create_app
+    from ma2panel.bridge import create_app
     from test_bridge import CONFIG, FULL, ask, ready, until
     from pathlib import Path
     cfg = json.loads(Path(CONFIG).read_text())
@@ -63,7 +63,7 @@ def test_new_simple_client_does_not_treat_sent_command_as_evidence(tmp_path):
 def context(tmp_path, monkeypatch):
     import json
     from pathlib import Path
-    import bridge
+    from ma2panel import bridge
     captured = []
     monkeypatch.setattr(bridge, 'register_api', lambda app, c, local: captured.append(c))
     cfg = json.loads(Path('tests/config.test.json').read_text())
@@ -127,7 +127,7 @@ def test_partial_scene_read_does_not_make_missing_scene_off(context):
 
 def test_expiry_broadcasts_without_successful_poll(context):
     import asyncio
-    from status_evidence import Evidence
+    from ma2panel.status_evidence import Evidence
     c = context
     async def scenario():
         clock = [0]

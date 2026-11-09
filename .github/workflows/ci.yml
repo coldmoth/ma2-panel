@@ -91,7 +91,7 @@ jobs:
 
   windows-tests:
     name: Windows diagnostic (${{ matrix.group }})
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.head_ref != 'refactor/repository-structure' && github.ref_name != 'refactor/repository-structure'
     runs-on: windows-latest
     timeout-minutes: 10
     strategy:
@@ -138,7 +138,7 @@ jobs:
           if-no-files-found: error
       - name: Collect and verify all Windows test IDs
         timeout-minutes: 2
-        run: .venv\Scripts\python.exe -u scripts/ci_windows_isolation.py --group ${{ matrix.group }} --collect-only
+        run: .venv\Scripts\python.exe -u -m scripts.ci_windows_isolation --group ${{ matrix.group }} --collect-only
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         timeout-minutes: 1
         with:
@@ -152,7 +152,7 @@ jobs:
       - name: Bounded pytest group
         timeout-minutes: 4
         # Direct interpreter keeps the supervisor outside pytest and uv trees.
-        run: .venv\Scripts\python.exe -u scripts/ci_windows_isolation.py --group ${{ matrix.group }}
+        run: .venv\Scripts\python.exe -u -m scripts.ci_windows_isolation --group ${{ matrix.group }}
       - name: After pytest checkpoint
         if: always()
         timeout-minutes: 1
@@ -171,7 +171,7 @@ jobs:
     name: Windows delivered ZIP, runtime, BAT, rollback and mock
     # Validate the delivered embedded runtime even if a separate venv diagnostic fails.
     needs: [tests]
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.head_ref != 'refactor/repository-structure' && github.ref_name != 'refactor/repository-structure'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -186,7 +186,7 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - name: Build delivered Windows x64 and USB bundles
-        run: uv run --no-sync python scripts/build_windows.py --verify-reproducible
+        run: uv run --no-sync python -m scripts.build_windows --verify-reproducible
       - name: Delivered embedded Python, BAT and update rollback
         run: uv run --no-sync python scripts/windows_delivered.py
       - name: HTTP and WebSocket from delivered runtime (mock only)

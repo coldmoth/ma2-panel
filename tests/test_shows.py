@@ -3,9 +3,9 @@ import json
 import time
 
 import pytest
-from show_plans import plan_path
+from ma2panel.show_plans import plan_path
 
-from mock import MockMA2
+from ma2panel.mock import MockMA2
 from test_bridge import ask, bridge_cfg, until  # noqa: F401
 from test_safety import tabs
 
@@ -194,7 +194,7 @@ def test_success_opens_saved_plan_without_replaying_values(bridge_cfg):
 
 @pytest.mark.parametrize('value', [0, -1, '120', True, float('inf')])
 def test_load_timeout_must_be_positive_finite(value):
-    from bridge import validate_settings
+    from ma2panel.bridge import validate_settings
     with pytest.raises(ValueError):
         validate_settings({'ma2': {'load_timeout': value}})
 
@@ -211,7 +211,7 @@ def test_unreadable_fresh_list_never_loads(bridge_cfg):
 
 def test_late_confirmation_cannot_succeed_after_deadline(bridge_cfg, monkeypatch):
     import asyncio
-    from bridge import MA2Link
+    from ma2panel.bridge import MA2Link
     original = MA2Link.send
     with bridge_cfg(settings={**SETTINGS, 'ma2': {'load_timeout': .1}}) as (ws, mock, path):
         ask(ws, {'a': 'show_identify'})
@@ -250,7 +250,7 @@ def test_old_name_during_load_means_still_loading(bridge_cfg, monkeypatch):
 def test_real_ma2_listshows_format():
     # hall 2026-10-18: grandMA2 3.9.60 prints "<name> HH:MM D.Mon.YYYY N KB" with no quotes and no .show suffix
     import re
-    from safety import DEFAULT_MA2
+    from ma2panel.safety import DEFAULT_MA2
     reply = ('Executing : ListShows\r\n         big room v2 18:49 16.Okt.2026   175 KB\r\n'
              '     school cocerts 17:20 13.Okt.2026   171 KB\r\n         newshow 14:58  9.Okt.2026    95 KB\r\n [Group]>')
     names = [next(v for v in m.groups() if v).strip() for m in re.finditer(DEFAULT_MA2['listshows_regex'], reply)]

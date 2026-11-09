@@ -2,13 +2,13 @@
 
 ## Факты кода
 
-**scene_go с ClearAll** ([commands.py](../commands.py#L273))  
+**scene_go с ClearAll** ([commands.py](../ma2panel/commands.py#L273))
 Каждый запуск сцены начинается с `ClearAll`, затем `Go Executor` без fade либо `Goto Cue 1 Executor` с fade. Комментарий: значения в Programmer остаются поверх сцены. Команда отправляется без проверки содержимого Programmer.
 
-**release_highlight: Off и восстановление** ([bridge.py](../bridge.py#L304))  
+**release_highlight: Off и восстановление** ([bridge.py](../bridge.py#L304))
 Снятие подсветки отправляет `Off Fixture` для зоны, затем восстанавливает записанные значения dim/color/pan/tilt/zoom/focus/strobe через `At`. Не проверяет содержимое Programmer перед Off или восстановлением. Фактический эффект Off требует проверки в зале.
 
-**highlight_action: проверки editing и allow_highlight** ([bridge.py](../bridge.py#L343))  
+**highlight_action: проверки editing и allow_highlight** ([bridge.py](../bridge.py#L343))
 Подсветка требует `editing=True` и `allow_highlight=True`. Первое включение записывает `restore` из `state["shown"]` (значения приборов), фильтрация атрибутов по `state["sent"]`. Затем отправляет `At 0` для старых приборов и `At <level>` для выбранного.
 
 ## Неизвестное

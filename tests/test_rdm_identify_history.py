@@ -1,7 +1,7 @@
 """REL-015: every manual Identify attempt is visible, never undoable."""
 import asyncio
 import pytest
-from commands import ActionError
+from ma2panel.commands import ActionError
 from test_status_evidence import context  # noqa: F401
 
 

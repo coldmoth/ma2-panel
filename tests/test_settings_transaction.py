@@ -1,7 +1,7 @@
 import json
 import os
 import pytest
-import safety
+from ma2panel import safety
 from test_diag import site  # noqa: F401
 
 

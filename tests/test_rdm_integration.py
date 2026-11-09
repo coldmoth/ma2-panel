@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from safety import DEFAULT_SAFETY, make_guard
+from ma2panel.safety import DEFAULT_SAFETY, make_guard
 from test_bridge import ask, bridge_cfg, until  # noqa: F401
 
 SETTINGS = {'safety': {'mode': 'full', 'allow_rdm': True, 'allow_patch': True,

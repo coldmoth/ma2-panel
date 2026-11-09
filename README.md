@@ -6,7 +6,7 @@ A web-based lighting control interface for grandMA2 onPC. Control scenes, fixtur
 
 [Documentation](docs/README.md) · [Releases](https://github.com/coldmoth/ma2-panel/releases) · [Source code](https://github.com/coldmoth/ma2-panel)
 
-**3.2.0 is a pre-release for supervised testing. Validation with real grandMA2 hardware is not yet complete.**
+Latest published update: **v3.2.4 (November 8, 2026)**. The download above is the full v3.2.0 Windows starter bundle; v3.2.4 contains an update ZIP only. After extracting the starter bundle, use the [v3.2.4 update](https://github.com/coldmoth/ma2-panel/releases/download/v3.2.4/ma2-panel-update.zip) through the local update page. Keep the included Python runtime. Validation with real grandMA2 hardware is not yet complete.
 
 ## Getting started
 
@@ -17,6 +17,8 @@ A web-based lighting control interface for grandMA2 onPC. Control scenes, fixtur
 5. Open the control panel at [http://127.0.0.1:8080](http://127.0.0.1:8080).
 
 Python and dependencies are included; no terminal or separate Python installation is needed. The interface is currently in Russian. Start with the [installation guide](docs/SETUP.md) and a supervised test of one fixture.
+
+For this reorganized source layout, older installed updaters require the external USB updater; see [update compatibility](docs/repository-structure.md). Existing GitHub release archives are unchanged.
 
 ## Features
 

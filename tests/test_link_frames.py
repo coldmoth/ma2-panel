@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from link import MA2Link
+from ma2panel.link import MA2Link
 
 
 class Writer:
