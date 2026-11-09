@@ -42,11 +42,13 @@ async def check_websocket(port):
         assert reply["ok"] is False and reply.get("err"), reply
 
 
-def smoke(log_path, bundle=None):
+def smoke(log_path, bundle=None, launcher=False, wizard_browser=False):
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="ma2-ci-") as temp:
         app = Path(temp) / 'panel space зал'
-        app.mkdir()
+        if launcher:
+            app = app / 'program'
+        app.mkdir(parents=True)
         executable = sys.executable
         # Explicit inputs only: never copy local credentials, config, or show data.
         if bundle:
@@ -72,9 +74,16 @@ def smoke(log_path, bundle=None):
                if k not in {"MA2_PASSWORD", "MA2_MOCK_REAL", "PYTHONPATH", "PYTHONOPTIMIZE"}}
         env["PYTHONUTF8"] = "1"
         with log_path.open("w", encoding="utf-8") as log:
+            arguments = ['--mock', '--config', str(app / 'config.json'), '--settings', str(app / 'settings.json')]
+            if launcher:
+                if not bundle or os.name != 'nt':
+                    raise ValueError('BAT smoke requires a Windows bundle')
+                shutil.copy2(Path(bundle).resolve().parent / 'start.bat', app.parent / 'start.bat')
+                command = 'cmd.exe /d /s /c ""' + str(app.parent / 'start.bat') + '" ' + subprocess.list2cmdline(arguments) + ' <NUL"'
+            else:
+                command = [executable, str(app / 'bridge.py'), *arguments]
             process = subprocess.Popen(
-                [executable, str(app / "bridge.py"), "--mock",
-                 "--config", str(app / "config.json"), "--settings", str(app / "settings.json")],
+                command,
                 cwd=app, env=env, stdout=log, stderr=subprocess.STDOUT,
             )
             try:
@@ -99,6 +108,13 @@ def smoke(log_path, bundle=None):
                             response.raise_for_status()
                             assert mime in response.headers["content-type"], response.headers
                         asyncio.run(check_websocket(port))
+                    setup = client.get(f"http://127.0.0.1:{ports[0]}/api/setup")
+                    setup.raise_for_status()
+                    assert setup.json()['mock'] is True and setup.json()['ok'] is True
+                    if wizard_browser:
+                        subprocess.run(['node', str(ROOT / 'scripts/release_setup.cjs'),
+                                        f'http://127.0.0.1:{ports[0]}', str(log_path.parent.resolve())],
+                                       check=True, timeout=60)
                     response = client.post(f"http://127.0.0.1:{ports[0]}/api/stop", headers={"X-Stop": "1"})
                     response.raise_for_status()
                     assert response.json()["ok"] is True
@@ -106,7 +122,10 @@ def smoke(log_path, bundle=None):
                 assert not (app / "bridge.pid").exists(), "bridge left its PID file"
             finally:
                 if process.poll() is None:
-                    process.terminate()
+                    if launcher:
+                        subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10)
+                    else:
+                        process.terminate()
                     try:
                         process.wait(timeout=5)
                     except subprocess.TimeoutExpired:
@@ -119,5 +138,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--log", type=Path, default=Path("test-results/mock.log"))
     parser.add_argument("--bundle", type=Path, help="Extracted delivered program/; run its embedded Python")
+    parser.add_argument('--launcher', action='store_true')
+    parser.add_argument('--wizard-browser', action='store_true')
     args = parser.parse_args()
-    smoke(args.log.resolve(), args.bundle)
+    smoke(args.log.resolve(), args.bundle, args.launcher, args.wizard_browser)

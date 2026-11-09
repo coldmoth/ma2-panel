@@ -19,3 +19,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 addopts = "-q --tb=short"
+
+# Application release; project/lock metadata identifies the compatible embedded runtime.
+[tool.ma2panel]
+release-version = "3.2.5"

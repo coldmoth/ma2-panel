@@ -1,0 +1,3 @@
+- Every release now includes the complete Windows app, regular update and external USB updater, each with SHA256.
+- The reorganized backend, setup wizard and resources are included in the full installation.
+- Windows delivery checks cover first launch, mock connections, legacy USB migration, rollback and preserved user data.

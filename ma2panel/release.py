@@ -144,7 +144,8 @@ def payload(root):
 
 def identity(root):
     root = Path(root)
-    version = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+    metadata = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))
+    version = metadata.get('tool', {}).get('ma2panel', {}).get('release-version', metadata['project']['version'])
     try:
         commit = subprocess.run(['git', '-C', str(root), 'rev-parse', '--short', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()
         dirty = subprocess.run(['git', '-C', str(root), 'status', '--porcelain'], check=True, capture_output=True, text=True).stdout.strip()

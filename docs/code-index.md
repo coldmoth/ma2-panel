@@ -446,18 +446,18 @@
   - 59 `add`
   - 72 `walk`
 - 145 `identity`
-- 159 `runtime`
-- 163 `_json`
-- 167 `build`
-- 178 `write_zip`
-- 189 `write_tree`
-- 201 `write_windows_launcher` — Stable outer entry point; updates keep operating inside program/.
-- 216 `_object`
-- 225 `check`
-- 232 `_check`
-- 271 `_runtime_files`
-- 287 `record_runtime`
-- 291 `verify_runtime`
+- 160 `runtime`
+- 164 `_json`
+- 168 `build`
+- 179 `write_zip`
+- 190 `write_tree`
+- 202 `write_windows_launcher` — Stable outer entry point; updates keep operating inside program/.
+- 217 `_object`
+- 226 `check`
+- 233 `_check`
+- 272 `_runtime_files`
+- 288 `record_runtime`
+- 292 `verify_runtime`
 
 ## ma2panel/safety.py
 - 76 `_atomic_bytes`

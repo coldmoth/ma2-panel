@@ -100,6 +100,22 @@ transition. Before a release, make an explicit decision about the v3.2.0–v3.2.
 boundary above. Mock/CI are not physical MA2 acceptance; an operator must still
 check the target Windows laptop, real console connection and existing show.
 
-The existing project/lock metadata remains at 3.2.0 to preserve the published
-runtime identity; this is not the latest release number. The latest release is
-v3.2.4 and its fixes are included. This PR publishes source only, not a release.
+The project/lock metadata remains at 3.2.0 to preserve the published runtime identity.
+The application release is set by `tool.ma2panel.release-version` in `pyproject.toml`
+(currently 3.2.5); `scripts/generate_version.py` keeps `ma2panel/VERSION` in sync.
+Do not edit the dependency lock just to bump the application patch version.
+
+## Publishing the next version
+
+1. Bump `tool.ma2panel.release-version`, run `uv run python -m scripts.generate_version`,
+   and update `docs/release-changes.md` with short English changes. Commit a clean tree.
+2. Push a matching `vX.Y.Z` tag, or dispatch `repository-structure.yml` on that commit
+   with `publish=true`. The single Windows x64 workflow builds and checks all three ZIPs,
+   BAT startup, first-run wizard, mock HTTP/WS, legacy USB migration, data and rollback.
+3. The job verifies SHA256 and identical program payloads, uploads all assets to a draft,
+   downloads and compares every uploaded byte, then publishes the complete release.
+   Existing releases are never overwritten. A failure leaves no public partial release;
+   a failed upload may leave an unpublished draft for inspection.
+
+The README's latest-download link always selects the full Windows ZIP. Ordinary
+GitHub Source Code archives are development sources, not the Windows application.

@@ -2,11 +2,13 @@
 
 A web-based lighting control interface for grandMA2 onPC. Control scenes, fixtures and your venue layout from a computer or tablet.
 
-**[Download for Windows](https://github.com/coldmoth/ma2-panel/releases/download/v3.2.0/ma2-panel-win.zip)**
+**[Download for Windows](https://github.com/coldmoth/ma2-panel/releases/latest/download/ma2-panel-win.zip)**
 
 [Documentation](docs/README.md) · [Releases](https://github.com/coldmoth/ma2-panel/releases) · [Source code](https://github.com/coldmoth/ma2-panel)
 
-Latest published update: **v3.2.4 (November 8, 2026)**. The download above is the full v3.2.0 Windows starter bundle; v3.2.4 contains an update ZIP only. After extracting the starter bundle, use the [v3.2.4 update](https://github.com/coldmoth/ma2-panel/releases/download/v3.2.4/ma2-panel-update.zip) through the local update page. Keep the included Python runtime. Validation with real grandMA2 hardware is not yet complete.
+The full ZIP includes Python and dependencies. Choose **ma2-panel-win.zip** for a new computer; you do not need an older installation.
+
+**Updating v3.2.0–v3.2.4?** Use the [external USB updater](https://github.com/coldmoth/ma2-panel/releases/latest/download/ma2-panel-update-usb.zip), not the old in-app updater. Stop the app, extract the USB kit outside the installation, run `update-usb.bat` and select the existing `program` folder. Settings, passwords, shows and backups are preserved. See [update instructions](docs/update-usb.txt).
 
 ## Getting started
 

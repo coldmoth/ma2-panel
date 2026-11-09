@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 import urllib.request
@@ -58,7 +59,7 @@ def legacy_transition():
             packed.extractall(usb)
         staged = usb / 'ma2-panel-update'
         updater = staged / 'update.py'
-        for command in ([str(python), str(updater), '--root', str(root), str(staged / 'ma2-panel-update.zip')],
+        for command in (f'cmd.exe /d /s /c ""{staged / "update-usb.bat"}" "{root}""',
                         [str(python), str(updater), '--root', str(root), '--rollback']):
             result = subprocess.run(command, cwd=folder, input=b'y\n', capture_output=True, timeout=120)
             assert result.returncode == 0, result.stdout + result.stderr
@@ -66,6 +67,8 @@ def legacy_transition():
                 check = subprocess.run([str(python), '-c', 'from ma2panel import bridge,mock; assert mock.SAMPLE.is_file()'],
                                        cwd=root, capture_output=True, timeout=30)
                 assert check.returncode == 0, check.stderr
+                subprocess.run([sys.executable, str(ROOT / 'scripts/ci_smoke.py'), '--bundle', str(root),
+                                '--log', str(ROOT / 'test-results/legacy-usb-mock.log')], check=True, timeout=120)
             for name, data in protected.items():
                 assert (root / name).read_bytes() == data, name
         assert (root / 'VERSION').read_bytes() == original_version
@@ -95,6 +98,7 @@ def main():
         code = r'''
 import hashlib,json,pathlib,sys,zipfile
 import fastapi,uvicorn,websockets,segno,pydantic_core
+assert sys.version_info[:2] == (3, 12) and sys.maxsize > 2**32
 import release,update
 from ma2panel import bridge,mock
 assert mock.SAMPLE.is_file() and mock.REAL_EXPORT.is_file() and mock.TYPE_LIST.is_file()

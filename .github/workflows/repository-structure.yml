@@ -1,9 +1,14 @@
-name: Repository structure Windows acceptance
+name: Windows release delivery
 
 on:
   push:
-    branches: [refactor/repository-structure]
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a NEW stable release after all Windows checks pass'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -11,49 +16,72 @@ permissions:
 env:
   PYTHONUTF8: '1'
 
+concurrency:
+  group: windows-release-delivery
+  cancel-in-progress: false
+
 jobs:
-  windows-mock:
-    name: Windows delivered ZIP, runtime, BAT, rollback and mock
-    # Validate the delivered embedded runtime even if a separate venv diagnostic fails.
+  windows-release:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
           enable-cache: true
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
       - run: uv sync --locked
-      - name: Source recovery bootstrap regression
-        run: uv run --no-sync pytest -q -p no:cacheprovider tests/test_repository_structure.py
-      - name: Build delivered Windows x64 and USB bundles
+      - name: Packaging and source entry-point regression tests
+        run: uv run --no-sync pytest -q -p no:cacheprovider tests/test_release.py tests/test_release_delivery.py tests/test_windows_bundle.py tests/test_repository_structure.py tests/test_onboarding.py
+      - name: Build all three Windows x64 ZIPs twice from this commit
         run: uv run --no-sync python -m scripts.build_windows --verify-reproducible
-      - name: Delivered embedded Python, BAT and update rollback
+      - name: Extracted ZIP, embedded Python, BAT, legacy USB migration, rollback and user data
         run: uv run --no-sync python scripts/windows_delivered.py
-      - name: HTTP and WebSocket from delivered runtime (mock only)
-        timeout-minutes: 2
-        run: uv run --no-sync python scripts/ci_smoke.py --bundle dist/ma2-panel-win/ma2-panel/program --log test-results/windows-mock.log
+      - run: npm ci --prefix scripts/browser_smoke --ignore-scripts
+      - run: node scripts/browser_smoke/node_modules/playwright/cli.js install chromium
+      - name: Start BAT, first-run wizard, HTTP and WebSocket (isolated mock only)
+        timeout-minutes: 3
+        run: uv run --no-sync python scripts/ci_smoke.py --bundle dist/ma2-panel-win/ma2-panel/program --launcher --wizard-browser --log test-results/windows-mock.log
+      - name: Assemble and verify the complete release asset set
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/release-assets | Out-Null
+          Copy-Item dist/ma2-panel-*.zip* dist/release-assets/
+          Copy-Item dist/update/ma2-panel-update.zip* dist/release-assets/
+          Copy-Item dist/build-inputs.json dist/release-assets/
+          $version = (Get-Content ma2panel/VERSION -Raw).Trim()
+          $tag = "v$version"
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne $tag) { throw 'Tag/version mismatch' }
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          uv run --no-sync python -m scripts.release_delivery --folder dist/release-assets --commit $env:GITHUB_SHA --tag $tag
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-release-candidate
-          path: |
-            dist/build-inputs.json
-            dist/ma2-panel-win.zip
-            dist/ma2-panel-win.zip.sha256
-            dist/ma2-panel-update-usb.zip
-            dist/ma2-panel-update-usb.zip.sha256
-            dist/update/ma2-panel-update.zip
-            dist/update/ma2-panel-update.zip.sha256
-          retention-days: 7
+          path: dist/release-assets/
+          retention-days: 14
           if-no-files-found: error
+      - name: Publish only after complete uploaded draft is downloaded and verified
+        if: github.ref_type == 'tag' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: uv run --no-sync python -m scripts.release_delivery --folder dist/release-assets --commit $env:GITHUB_SHA --tag $env:RELEASE_TAG --publish
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: windows-mock-log
+          name: windows-delivery-evidence
           path: test-results/
-          retention-days: 7
+          retention-days: 14
           if-no-files-found: ignore
+    permissions:
+      contents: write
