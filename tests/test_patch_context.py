@@ -7,7 +7,7 @@ from test_status_evidence import context  # noqa: F401
 
 def setup(c):
     c.cfg['show'] = 'Old'
-    c.state['show'] = {'name': 'Old'}
+    c.state['show'] = {'name': 'Old', 'source':'ma2'}
     c.safety.update(allow_patch=True, allow_rdm=True, allow_fixture_read=False)
     c.cfg['fixtures'] = [{'id': 12, 'address': '1.120', 'footprint': 17,
                           'rdm': {'uid': '43500F019FCB', 'address': 120, 'footprint': 17, 'universe': 1}}]
@@ -20,7 +20,7 @@ def change(c, kind):
     if kind == 'gen': c.link._gen += 1
     elif kind == 'stop': c.link._stop_epoch += 1
     elif kind == 'epoch': c.state['plan_epoch'] += 1
-    else: c.state['show'] = {'name': 'New'}
+    else: c.state['show'] = {'name': 'New', 'source':'ma2'}
 
 
 @pytest.mark.parametrize('kind', ['gen', 'stop', 'epoch', 'show'])
@@ -133,6 +133,7 @@ def test_patch_profile_readback_preserves_context_through_last_stage(context, ki
     from pathlib import Path
     c = context
     action = setup(c)
+    c.cfg['fixtures'][0].update(name='Head', type='3 Current')
     action['physical'] = False
     action['token'] = c.patch_offer(action)['token']
     c.safety['allow_fixture_read'] = True
@@ -142,7 +143,7 @@ def test_patch_profile_readback_preserves_context_through_last_stage(context, ki
             calls.append(line)
             if line.startswith('Export Fixture '):
                 name = re.search(r'"([^"]+)"', line)[1]
-                Path(c.export_dir, name + '.xml').write_text('<MA><Fixture id="12" type="3 Current"><Patch><Address>200</Address></Patch></Fixture></MA>')
+                Path(c.export_dir, name + '.xml').write_text('<MA><Fixture id="12" name="Head" type="3 Current"><Patch><Address>200</Address></Patch></Fixture></MA>')
             if phase == 'type_export' and line.startswith('Export FixtureType'):
                 change(c, kind)
                 return False, 'Error'

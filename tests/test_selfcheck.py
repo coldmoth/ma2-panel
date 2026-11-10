@@ -45,7 +45,7 @@ def endpoint(*, logged_in=True, simple=False):
             thread.join(timeout=5)
 
 
-def run_check(tmp_path, url, *, blocked_report=False):
+def run_check(tmp_path, url, *, blocked_report=False, output_encoding=None):
     script = tmp_path / 'selfcheck.py'
     from ma2panel import release
     source = Path(__file__).resolve().parents[1]
@@ -53,15 +53,23 @@ def run_check(tmp_path, url, *, blocked_report=False):
     script.write_bytes(release.payload(source)['selfcheck.py'])
     if blocked_report:
         (tmp_path / 'selfcheck-report.txt').mkdir()
-    return subprocess.run([sys.executable, str(script), url], cwd=tmp_path,
-                          capture_output=True, text=True, timeout=20)
+    command=[sys.executable, str(script), url]
+    if output_encoding:
+        command=[sys.executable,'-I','-c',
+                 'import runpy,sys; sys.path.insert(0,str(__import__("pathlib").Path(sys.argv[1]).parent)); sys.stdout.reconfigure(encoding="cp1252"); '
+                 'sys.stderr.reconfigure(encoding="cp1252"); sys.argv=sys.argv[1:]; '
+                 'runpy.run_path(sys.argv[0],run_name="__main__")',str(script),url]
+    return subprocess.run(command, cwd=tmp_path,
+                          capture_output=True, text=True, encoding='utf-8', timeout=20)
 
 
-def test_unreachable_cli_returns_failure_and_report(tmp_path):
+@pytest.mark.parametrize("output_encoding",[None,"cp1252"])
+def test_unreachable_cli_returns_failure_and_report(tmp_path,output_encoding):
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         url = f'http://127.0.0.1:{sock.getsockname()[1]}'
-        result = run_check(tmp_path, url)
+        result = run_check(tmp_path, url, output_encoding=output_encoding)
+    assert "UnicodeEncodeError" not in result.stderr
     assert result.returncode == 1, result.stdout + result.stderr
     assert 'Ошибок: 1 из 1' in (tmp_path / 'selfcheck-report.txt').read_text()
 

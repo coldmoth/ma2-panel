@@ -23,7 +23,7 @@ def test_same_request_is_not_replayed(bridge_cfg):
         action = {"a": "scene_go", "id": "pianist", "request_id": "once"}
         r = ask(ws, action)
         assert r["outcome"] == "completed"
-        assert r["command_evidence"] == ["sent", "sent"]
+        assert r["command_evidence"] == ["sent"]
         before = len(mock.received)
         r = ask(ws, action)
         assert not r["ok"] and r["request_id"] == "once"
@@ -49,17 +49,18 @@ def test_stale_shared_plan_edits_rejected(tmp_path, clients):
 @pytest.mark.parametrize("failure,outcome", [("error", "partial"), ("unknown", "unknown")])
 def test_multiline_failure_stops_and_reports_evidence(bridge_cfg, monkeypatch, failure, outcome):
     with bridge_cfg(lambda c: c["scenes"].append({"id": "second", "exec": "1.102", "label": "Second"})) as (ws, _, _):
+        assert ask(ws, {"a": "scene_go", "id": "second"})['ok']
         original = MA2Link.send
         calls = []
         async def injected(self, cmd, *args, **kwargs):
-            if cmd.startswith("Off Executor"):
+            if cmd.startswith(("Masterfade", "Goto")):
                 calls.append(cmd)
                 if len(calls) == 2:
                     self._result(cmd, failure, "injected")
                     return False, "injected"
             return await original(self, cmd, *args, **kwargs)
         monkeypatch.setattr(MA2Link, "send", injected)
-        r = ask(ws, {"a": "blackout", "request_id": "blackout1"})
+        r = ask(ws, {"a": "scene_go", "id":"pianist", "request_id": "transition1"})
         assert not r["ok"] and r["outcome"] == outcome
         assert r["command_evidence"] == ["sent", failure]
         assert len(calls) == 2
@@ -86,7 +87,7 @@ def test_slider_terminal_reply_is_after_actual_send(bridge_cfg):
 
 def test_evidence_is_request_scoped_and_legacy_shape_unchanged(bridge_cfg):
     with bridge_cfg() as (ws, _, _):
-        assert ask(ws, {"a": "scene_off", "id": "pianist", "request_id": "write"})["command_evidence"] == ["sent"]
+        assert ask(ws, {"a": "scene_off", "id": "pianist", "request_id": "write"})["command_evidence"] == ["sent", "sent"]
         # A read and a refusal must not inherit the preceding write's evidence.
         assert ask(ws, {"a": "shows_list", "request_id": "read"})["command_evidence"] == []
         assert ask(ws, {"a": "not_an_action", "request_id": "refused"})["command_evidence"] == []
@@ -104,7 +105,7 @@ def test_not_sent_evidence_is_exposed_without_retry(bridge_cfg, monkeypatch):
         before = len(mock.received)
         r = ask(ws, {"a": "scene_off", "id": "pianist", "request_id": "not-sent"})
         assert not r["ok"] and r["outcome"] == "failed"
-        assert r["command_evidence"] == ["not_sent"]
+        assert r["command_evidence"] == []  # refusal of the read-only show preflight, before any mutation
         assert len(mock.received) == before
 
 

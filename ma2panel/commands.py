@@ -4,7 +4,7 @@ import math
 import re
 
 SIMPLE = {"scene_go", "scene_off", "blackout", "master", "page_go", "halt", "resume"}
-FULL = {"select_group", "select_fixtures", "dim", "color", "clear", "store_scene", "layout_save", "fixtures_fetch", "show_identify", "show_bind", "show_open_plan", "shows_list", "show_load", "show_save",
+FULL = {"scene_fade", "select_group", "select_fixtures", "dim", "color", "clear", "store_scene", "layout_save", "fixtures_fetch", "show_identify", "show_bind", "show_open_plan", "shows_list", "show_load", "show_save",
         "nudge", "jog", "aim", "move_start", "move", "zoom", "focus", "strobe", "preset_save", "preset_go", "preset_delete",
         "group_save", "group_delete", "beam_home", "beam_invert", "scene_create", "scenes_import", "page_save",
         "scene_rename", "scene_delete", "hall_save", "fixture_flag", "ma2_read", "ma2_import",
@@ -120,7 +120,7 @@ def parse_executors(reply: str) -> list[tuple[str, str]]:
 
 def can_move(fixture: dict) -> bool:
     """Heads: the old moves flag, or Pan/Tilt among the parameters read from the MA2 export."""
-    return fixture.get("moves") is True or any(re.search(r"pan|tilt", str(p), re.I) for p in fixture.get("params") or [])
+    return not fixture.get("missing") and (fixture.get("moves") is True or any(str(p).lower() in ("pan", "tilt") for p in fixture.get("params") or []))
 
 
 def parse_ma2_objects(reply: str, pattern: str, preset_type: int | None = None) -> list[dict]:
@@ -283,14 +283,14 @@ def build(action: dict, cfg: dict) -> list[str]:
         scene = find(cfg["scenes"], action.get("id"))
         ex = scene["exec"]
         if a == "scene_go":
-            fade = fade_suffix(action, cfg)  # `Goto Cue 4 Executor 1.8 Fade 5`: MA2 3.9 manual p. 1110; not yet run on a console
-            # ClearAll first: values left in the programmer would stay on top of the scene (owner 2026-10-21)
-            return ["ClearAll", f"Goto Cue 1 Executor {ex}{fade}" if fade else f"Go Executor {ex}"]
+            fade_suffix(action, cfg)
+            return [f"Goto Cue 1 Executor {ex} Fade {action.get('fade', 0):g}"]
         if a == "scene_off":
-            return [f"Off Executor {ex}"]
+            fade_suffix(action, cfg)
+            return [f"Masterfade {action.get('fade', 0):g} Executor {ex}", f"Off Executor {ex}"]
         return store_lines(ex, scene["label"])
     if a == "blackout":
-        return [f"Off Executor {s['exec']}" for s in cfg["scenes"]]
+        raise ActionError("Blackout требует чтения и сохранения Grand Master мостом")
     if a == "master":
         return [cfg["master"]["cmd"].format(v=_value(action, "v"))]
     if a == "select_group":
@@ -413,7 +413,7 @@ def load_config(path: str) -> dict:
 
 
 # DMX read-back through MA2 Lua: the only way found to learn what the desk outputs (Telnet lists no values).
-# Only the documented getdmx(recycle, address, amount) form, 1-based. Needs Admin rights over Telnet (Program: Error #44).
+# Single-address getdmx(address), 1-based; verified on isolated onPC 3.9.63.11. Needs Admin rights (Program: Error #44).
 # Hall 2026-10-21 (v23, Admin): gma.feedback never reached Telnet and gma.show.setvar left nothing in ListVar, so the line
 # runs the desk's own SetVar command (a global variable, which ListVar prints as "Global : $PANELDMX<address> = ...").
 # The quotes come from %q and the dollar from string.char: a literal " would end the Lua argument, a $ would be substituted.
@@ -486,22 +486,32 @@ def parse_dmx(text: str, *, span: tuple[int, int] | None = None, nonce: str | No
 
 def live_from_dmx(fixtures: list[dict], dmx: dict[int, float], dmx_map: dict) -> dict[int, dict]:
     """What each fixture shows, from its type's channel numbers (1-based: dim, r, g, b). Without dim the level is the
-    brightest colour; without colour channels it is white."""
+    brightest colour; a confirmed dimmer-only profile is white."""
     live = {}
     for f in fixtures:
         start, spec = absolute(f.get("address")), dmx_map.get(f.get("type") or "")
-        if start is None or not spec or spec.get("stale") or spec.get("unsupported"):
+        if f.get("missing") or f.get("patch_unsupported") or start is None or not spec or spec.get("stale") or spec.get("unsupported"):
             continue
         get = lambda key: dmx.get(start + spec[key] - 1) if spec.get(key) else None  # noqa: E731
         # A missing mapped byte is unknown, not an absent channel in the profile.
-        if any(spec.get(k) and get(k) is None for k in ("dim", "r", "g", "b")):
+        if any(spec.get(k) and get(k) is None for k in ("dim", "r", "g", "b", "shutter")):
             continue
         rgb = [get(k) for k in "rgb"]
         dim = get("dim")
+        if any(spec.get(k) for k in "rgb") and not all(spec.get(k) for k in "rgb"):
+            continue
         if dim is None and None in rgb:
             continue
         rgb = [100.0, 100.0, 100.0] if None in rgb else [round(v / 2.55, 1) for v in rgb]
         level = round(dim / 2.55, 1) if dim is not None else max(rgb)
+        if spec.get("shutter"):
+            shutter = get("shutter")
+            opened = any(lo <= shutter <= hi for lo, hi in spec.get("shutter_open", []))
+            closed = any(lo <= shutter <= hi for lo, hi in spec.get("shutter_closed", []))
+            if opened == closed:  # strobe, overlap, unclassified or unknown range
+                continue
+            if closed:
+                level = 0
         if dim is None and level:
             rgb = [round(v * 100 / level, 1) for v in rgb]
         live[f["id"]] = {"dim": level, "rgb": rgb}
@@ -635,6 +645,24 @@ def parse_type_footprints(text: str) -> dict[str, int]:
         if m and ln[a:b].strip().isdigit() and instances == "1":
             out[m[1]] = int(ln[a:b].strip())
     return out
+
+
+def parse_type_names(text: str) -> dict[str, str]:
+    """Unique exact LongName -> number from the recorded MA2 FixtureType table.
+
+    Do not guess from a short name, substring, or an ambiguous library name.
+    """
+    head = next((ln for ln in text.splitlines() if "LongName" in ln and "ShortName" in ln), None)
+    if head is None:
+        return {}
+    a, b = head.index("LongName"), head.index("ShortName")
+    names = {}
+    for ln in text.splitlines():
+        m = re.match(r"FixtureType (\d+) ", ln)
+        name = ln[a:b].strip()
+        if m and name:
+            names.setdefault(name, set()).add(m[1])
+    return {name: next(iter(numbers)) for name, numbers in names.items() if len(numbers) == 1}
 
 
 def type_no(kind) -> str | None:

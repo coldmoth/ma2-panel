@@ -9,7 +9,7 @@ import pytest
 from ma2panel import bridge
 from ma2panel.fixtures import parse_export
 from ma2panel.safety import redact
-from test_bridge import ask, bridge_cfg  # noqa: F401
+from test_bridge import ask, bridge_cfg, confirm_fixture_import  # noqa: F401
 from test_diag import site  # noqa: F401
 
 READ = {"safety": {"mode": "full", "allow_fixture_read": True}}
@@ -76,7 +76,7 @@ def trace(path):
 
 def test_export_success_is_recorded(bridge_cfg):
     with bridge_cfg(settings=export_settings()) as (ws, mock, path):
-        result = ask(ws, {"a": "fixtures_fetch"})
+        result = confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))
         assert result["ok"] and result["total"] >= 4
         t = trace(path)
         assert t["file"]["path"].endswith(".xml") and "fixture-panel_fixtures_" in t["file"]["path"] and "error" not in t and t["sent_ok"]
@@ -86,7 +86,7 @@ def test_export_success_is_recorded(bridge_cfg):
 def test_export_delayed_file_is_waited_for(bridge_cfg):
     with bridge_cfg(settings=export_settings(export_wait=3)) as (ws, mock, path):
         mock.export_delay = .8
-        assert ask(ws, {"a": "fixtures_fetch"})["ok"]
+        assert confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))["ok"]
 
 
 @pytest.mark.parametrize("mode,words", [("none", "не появился"), ("reject", "не выполнена")])
@@ -96,7 +96,7 @@ def test_export_failures_keep_plan_and_say_why(bridge_cfg, mode, words):
         stale = path.parent / "panel_fixtures.xml"
         stale.write_text("<MA><Fixture fixture_id='99'/></MA>")   # an old export must never pass for a new one
         mock.export_mode = mode
-        result = ask(ws, {"a": "fixtures_fetch"})
+        result = confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))
         assert result["ok"] is False and words in result["err"]
         assert str(path.parent) in result["err"] or mode == "reject"
         assert path.read_bytes() == old and stale.exists()  # the unique name never touches an unrelated file
@@ -109,7 +109,7 @@ def test_export_corrupt_xml_names_the_file(bridge_cfg):
     with bridge_cfg(settings=export_settings()) as (ws, mock, path):
         old = path.read_bytes()
         mock.export_text = "<MA><Fixture"
-        result = ask(ws, {"a": "fixtures_fetch"})
+        result = confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))
         assert not result["ok"] and "не разобран" in result["err"] and "fixture-panel_fixtures_" in result["err"]
         assert path.read_bytes() == old and "битый XML" in trace(path)["parse_error"]
 
@@ -119,7 +119,7 @@ def test_export_with_link_lost(bridge_cfg):
         mock.drop()
         import time
         time.sleep(.1)
-        result = ask(ws, {"a": "fixtures_fetch"})
+        result = confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))
         assert not result["ok"] and "нет связи" in result["err"]
 
 
@@ -223,7 +223,7 @@ def test_export_cmd_with_overwrite_flag_still_yields_file(bridge_cfg):
     # hall 2026-10-18: a config.json carrying "... /o" got "Executing" from MA2 but no file; the flag must be dropped
     cmd = 'Export Fixture 1 Thru 9999 "panel_fixtures" /o'
     with bridge_cfg(settings=export_settings(export_cmd=cmd)) as (ws, mock, path):
-        assert ask(ws, {"a": "fixtures_fetch"})["ok"]
+        assert confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))["ok"]
         assert not any(c.rstrip().lower().endswith("/o") for c in mock.received if c.startswith("Export"))
 
 
@@ -233,6 +233,6 @@ def test_fixture_export_is_found_in_the_fixtures_folder(bridge_cfg, tmp_path):
     export.mkdir(), fixtures.mkdir()
     with bridge_cfg(settings=export_settings(export_dir=str(export))) as (ws, mock, path):
         mock.export_dir, mock.fixture_dir = str(export), str(fixtures)
-        result = ask(ws, {"a": "fixtures_fetch"})
+        result = confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))
         assert result["ok"] and result["total"] >= 4
         assert not list(fixtures.iterdir())  # our one-off file is removed afterwards

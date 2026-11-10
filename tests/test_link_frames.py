@@ -123,3 +123,26 @@ def test_incomplete_error_with_only_late_prompt_keeps_connection():
         assert await link.send("List Page") == (True, "new answer\n[Group]>")
         assert len(writer.lines) == 2 and not writer.closed
     asyncio.run(go())
+
+
+@pytest.mark.parametrize('outcome',['success','refused','timeout'])
+def test_late_second_greeting_prompt_is_not_the_login_reply(outcome):
+    """onPC 3.9.63.11 sends a guest prompt, then a separate Please login frame."""
+    async def go():
+        link=MA2Link('unused',0,'panel','synthetic',lambda _:None,timeout=.1)
+        loop=asyncio.get_running_loop()
+        def respond(n):
+            if n==1:
+                feed(link,b'Please login !\r\n\r [LayoutSelection]>\x1b[K')
+                if outcome!='timeout':
+                    payload=(b"Logged in as User 'panel'\r\n[LayoutSelection]>" if outcome=='success'
+                             else b'Login incorrect\r\n[LayoutSelection]>')
+                    loop.call_later(.01,feed,link,payload)
+            else:
+                loop.call_later(.01,feed,link,b'Global : $USER = panel\r\n[LayoutSelection]>')
+        writer=link._writer=Writer(link,respond)
+        state=await link._login()
+        assert state=={'success':'logged_in','refused':'login_failed','timeout':'login_unknown'}[outcome]
+        assert writer.lines==(['login "panel" "synthetic"','ListVar'] if outcome=='success'
+                              else ['login "panel" "synthetic"'])
+    asyncio.run(go())

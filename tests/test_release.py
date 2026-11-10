@@ -14,7 +14,7 @@ import zipfile
 from ma2panel import release
 
 
-DOCS = ('SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'RELEASE-3.2.md', 'ONPC-HALL-TEST-3.2.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md')
+DOCS = ('SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'RELEASE-3.2.md', 'RELEASE-3.3.md', 'ONPC-HALL-TEST-3.2.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'hardware-acceptance.md', 'ma2-command-evidence.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md')
 
 
 class ReleaseTests(unittest.TestCase):

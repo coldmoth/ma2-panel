@@ -15,13 +15,14 @@ CFG = {
 }
 
 
-def test_scene_go():   assert build({"a": "scene_go", "id": "pianist"}, CFG) == ["ClearAll", "Go Executor 1.101"]
+def test_scene_go():   assert build({"a": "scene_go", "id": "pianist"}, CFG) == ["Goto Cue 1 Executor 1.101 Fade 0"]
 def test_scene_go_fade():
-    assert build({"a": "scene_go", "id": "pianist", "fade": 5}, CFG) == ["ClearAll", "Goto Cue 1 Executor 1.101 Fade 5"]
-    assert build({"a": "scene_go", "id": "pianist", "fade": 0}, CFG) == ["ClearAll", "Go Executor 1.101"]
+    assert build({"a": "scene_go", "id": "pianist", "fade": 5}, CFG) == ["Goto Cue 1 Executor 1.101 Fade 5"]
+    assert build({"a": "scene_go", "id": "pianist", "fade": 0}, CFG) == ["Goto Cue 1 Executor 1.101 Fade 0"]
     with pytest.raises(ActionError): build({"a": "scene_go", "id": "pianist", "fade": 99}, CFG)
-def test_scene_off():  assert build({"a": "scene_off", "id": "pianist"}, CFG) == ["Off Executor 1.101"]
-def test_blackout():   assert build({"a": "blackout"}, CFG) == ["Off Executor 1.101", "Off Executor 1.102"]
+def test_scene_off():  assert build({"a": "scene_off", "id": "pianist"}, CFG) == ["Masterfade 0 Executor 1.101", "Off Executor 1.101"]
+def test_blackout():
+    with pytest.raises(ActionError, match="Grand Master"): build({"a": "blackout"}, CFG)
 def test_master():     assert build({"a": "master", "v": 40}, CFG) == ["Master 2.1 At 40"]
 def test_group():      assert build({"a": "select_group", "id": "front"}, CFG) == ["Fixture 12 + 14"]  # never the unverified Group n
 def test_fixtures():   assert build({"a": "select_fixtures", "ids": [12, 14]}, CFG) == ["Fixture 12 + 14"]

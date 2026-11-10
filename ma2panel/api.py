@@ -81,6 +81,7 @@ def register(app, c, is_loopback):
                 raise ValueError("нужен объект подтверждения")
             async with action_lock:
                 result = c.confirm_import(action)
+            await broadcast(c.status_msg())
             await broadcast(config_msg())
         except (ActionError, ValueError, OSError) as e:
             result = {"ok": False, "err": str(e)}
@@ -176,7 +177,7 @@ def register(app, c, is_loopback):
                 "export_cmd": ma2["export_cmd"], "export_dir": str(export_dir),
                 "export_search": ma2["export_search"], "export_wait": ma2["export_wait"], "console_path": link.vars.get("PATH"),
                 "folders": [listing(f, 15) for f in folders], "last_export_file": state["export_file"],
-                "last_attempt": state["export_trace"], "active_probe": state["export_probe"], "dmx_read": state["dmx_read"], "type_reads": state["type_reads"],
+                "last_attempt": state["export_trace"], "active_probe": state["export_probe"], "dmx_read": c.dmx_diagnostics(), "type_reads": state["type_reads"],
                 "read_probe_file": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(probe_txt.stat().st_mtime)) if probe_txt.exists() else None}
 
     @app.get("/api/diag")

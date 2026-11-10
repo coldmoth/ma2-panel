@@ -48,8 +48,14 @@ function exportText(x) {
     (t.file ? `файл найден ${t.file.path} (${t.file.size} байт)` : 'файл не найден') + (t.parse_error ? `; ошибка разбора: ${t.parse_error}` : '') + (t.error ? `; итог: ${t.error}` : '; итог: успех')
     : 'Попыток получить оборудование ещё не было');
   lines.push(x.active_probe ? `Проверка экспорта ${x.active_probe.t}: ${x.active_probe.results.map(r => r.key + ' → новых файлов ' + r.new_files.length).join(', ')}` : 'Проверка экспорта ещё не запускалась');
-  const d = x.dmx_read;  // DMX read-back by Lua for the plan: values > 0 means the desk answered
-  lines.push(d ? `Чтение DMX ${d.t}: адреса ${d.span[0]}–${d.span[0] + d.span[1] - 1}, получено значений ${d.values}; ответ: ${d.reply || '—'}` : 'Чтение DMX ещё не выполнялось (нужны адреса приборов и allow_fixture_read)');
+  const d = x.dmx_read;
+  if (d) {
+    lines.push(`DMX-опрос: ${d.enabled ? 'включён' : 'выключен'} · интервал ${d.dmx_seconds} с · вход MA2 ${d.connected ? 'подтверждён' : 'не подтверждён'}${d.mock ? ' · MOCK' : ''}`);
+    lines.push(`Приборов с адресами: ${d.patched_fixtures}; действующих типов: ${d.mapped_types}/${d.types}; актуальных приборов: ${d.actual_fixtures}; неизвестных: ${d.unknown_fixtures}`);
+    lines.push(`Последнее успешное чтение: ${d.last_success || 'нет'}; этап: ${d.stage}; ${d.summary || d.reason || '—'}`);
+    lines.push(`Полный круг: ${d.cycle_seconds == null ? 'ещё не измерен' : d.cycle_seconds.toFixed(2) + ' с'}; TTL ${d.ttl_seconds} с${d.capacity_exceeded ? ' · опрос медленнее TTL, часть выхода неизвестна' : ''}`);
+    if (d.span) lines.push(`Чтение DMX ${d.t}: адреса ${d.span[0]}–${d.span[0] + d.span[1] - 1}, получено значений ${d.values}; ответ: ${d.reply || '—'}`);
+  } else lines.push('Чтение DMX ещё не выполнялось');
   Object.entries(x.type_reads || {}).forEach(([no, t]) => lines.push(`Тип ${no} ${t.t}: ${t.error ? 'ошибка: ' + t.error : 'каналы ' + JSON.stringify(t.spec || {})}; файл ${t.file || '—'}; ответ: ${t.reply || '—'}`));
   return lines.join('\n');
 }

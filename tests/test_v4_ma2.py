@@ -34,19 +34,23 @@ def test_unrecognised_read_and_import_keep_config(bridge_cfg):
         before = path.read_bytes()
         for action in ({'a': 'ma2_read'}, IMPORT):
             result = ask(ws, action)
-            assert result['ok'] is False and '???' in str(result['raw'])
+            assert result['ok'] is False
+            if action['a'] == 'ma2_read':
+                assert '???' in str(result['raw'])
+            else:
+                assert 'шоу' in result['err']
         assert path.read_bytes() == before
 
 
 def test_import_broadcasts_separate_catalogues_and_scenes(tmp_path):
-    with tabs(tmp_path, FULL) as ((a, b), mock, client, path):
+    with tabs(tmp_path, {**FULL, "safety": {**FULL["safety"], "allow_fixture_read": True}}) as ((a, b), mock, client, path):
         before = json.loads(path.read_text())
         mock.rows['1.103'] = 'Imported scene'
         result = ask(a, {**IMPORT, 'scenes': True})
         assert result['ok'], result
         config = until(b, lambda m: 'config' in m)['config']
         saved = json.loads(path.read_text())
-        assert config['ma2groups'] == saved['ma2groups'] == [{'n': 1, 'name': 'Front'}]
+        assert config['ma2groups'] == saved['ma2groups'] == [{'n': 1, 'name': 'Front', 'ids': [1, 2]}]
         assert config['ma2presets'] == saved['ma2presets'] == {'colors': [{'n': 1, 'name': 'Red'}], 'positions': [{'n': 1, 'name': 'Stage'}]}
         assert saved['groups'] == before['groups']
         assert any(s['exec'] == '1.103' for s in saved['scenes'])
@@ -76,7 +80,9 @@ def catalogue(cfg):
 
 
 def test_go_validates_membership_and_selection(bridge_cfg):
-    with bridge_cfg(catalogue) as (ws, mock, _):
+    with bridge_cfg(catalogue, settings={"safety": {"mode": "full", "allow_fixture_read": True}}) as (ws, mock, _):
+        mock.groups[7] = "Current"
+        mock.group_members[7] = [12, 13]
         assert not ask(ws, {'a': 'ma2_preset_go', 'type': 'color', 'n': 3})['ok']
         assert ask(ws, {'a': 'ma2_group_go', 'n': 7})['ok']
         assert mock.received[-1] == 'Group 7'
@@ -137,13 +143,13 @@ def test_import_waits_for_lock(tmp_path, monkeypatch):
     entered, release = threading.Event(), threading.Event()
     original = bridge.MA2Link.send
     async def delayed(link, cmd, *args, **kwargs):
-        if cmd == 'Go Executor 1.101':
+        if cmd == 'Goto Cue 1 Executor 1.101 Fade 0':
             entered.set()
             while not release.is_set():
                 await asyncio.sleep(.01)
         return await original(link, cmd, *args, **kwargs)
     monkeypatch.setattr(bridge.MA2Link, 'send', delayed)
-    with tabs(tmp_path, FULL) as ((a, b), _, client, path):
+    with tabs(tmp_path, {**FULL, "safety": {**FULL["safety"], "allow_fixture_read": True}}) as ((a, b), _, client, path):
         before = path.read_bytes()
         a.send_json({'a': 'scene_go', 'id': 'pianist'})
         assert entered.wait(3)
@@ -159,7 +165,7 @@ def test_import_waits_for_lock(tmp_path, monkeypatch):
 
 
 def test_catalogues_follow_show_plans(tmp_path):
-    with tabs(tmp_path, FULL) as ((ws, _), mock, client, path):
+    with tabs(tmp_path, {**FULL, "safety": {**FULL["safety"], "allow_fixture_read": True}}) as ((ws, _), mock, client, path):
         assert ask(ws, {'a': 'show_bind', 'name': 'Mock show'})['ok']
         assert ask(ws, IMPORT)['ok']
         assert ask(ws, {'a': 'show_open_plan', 'name': 'Other show'})['ok']
@@ -168,7 +174,7 @@ def test_catalogues_follow_show_plans(tmp_path):
         assert saved.get('ma2presets', {'colors': [], 'positions': []}) == {'colors': [], 'positions': []}
         assert not ask(ws, {'a': 'ma2_group_go', 'n': 1})['ok']
         assert ask(ws, {'a': 'show_open_plan', 'name': 'Mock show'})['ok']
-        assert json.loads(path.read_text())['ma2groups'] == [{'n': 1, 'name': 'Front'}]
+        assert json.loads(path.read_text())['ma2groups'] == [{'n': 1, 'name': 'Front', 'ids': [1, 2]}]
 
 
 @pytest.mark.parametrize('reply', ['OK\r\n[Channel]>', '[Channel]>', 'List Group 8\r\n[Channel]>',
@@ -237,7 +243,7 @@ def test_group_go_needs_known_members(bridge_cfg):
         before = list(mock.received)
         reply = ask(ws, {'a': 'ma2_group_go', 'n': 5})
         assert not reply['ok'] and 'состав' in reply['err']
-        assert mock.received == before
+        assert all(line.startswith(('List ', 'ListVar')) for line in mock.received[len(before):])
 
 
 @pytest.mark.parametrize('pattern', ['.*', '(?s).*', '.+'])

@@ -9,6 +9,18 @@ from ma2panel import release
 from scripts.generate_version import generate
 
 
+def test_runtime_identity_survives_git_checkout_line_endings(tmp_path):
+    lock = tmp_path / 'uv.lock'
+    lf = b'version = 1\nrequires-python = ">=3.12"\n'
+    windows = lf.replace(b'\n', b'\r\n')
+    lock.write_bytes(windows)
+    published = release.runtime(tmp_path)
+    lock.write_bytes(lf)
+    assert release.runtime(tmp_path) == published
+    lock.write_bytes(lf.replace(b'3.12', b'3.13'))
+    assert release.runtime(tmp_path) != published
+
+
 def test_release_version_keeps_runtime_lock(tmp_path):
     (tmp_path / 'pyproject.toml').write_text('[project]\nversion="3.2.0"\n[tool.ma2panel]\nrelease-version="3.2.5"\n')
     (tmp_path / 'uv.lock').write_bytes(b'unchanged runtime')

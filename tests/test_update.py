@@ -391,13 +391,20 @@ def test_rdm_journal_survives_backup_transfer_update_rollback(tmp_path, monkeypa
     root.mkdir()
     (root / 'bridge.py').write_text('old')
     (root / 'rdm-search.json').write_bytes(journal)
+    recovery = {'blackout.json': b'{broken blackout\x00',
+                'scene-write-2.150.json': b'{\"state\":\"unknown\"}',
+                'scene-write-1.101.json': b'{broken scene\x00'}
+    for name, data in recovery.items():
+        (root / name).write_bytes(data)
     backup = update.backup_user_data(root)
+    for name, data in recovery.items():
+        assert (backup / name).read_bytes() == data
     assert (backup / 'rdm-search.json').read_bytes() == journal
     restored = tmp_path / 'restored'
     shutil.copytree(backup, restored)
     transferred = tmp_path / 'transferred'
     transferred.mkdir()
-    for name in update.USER_DATA:
+    for name in update.user_data_names(root):
         source = root / name
         if source.is_file():
             shutil.copy2(source, transferred / name)
@@ -420,6 +427,8 @@ def test_rdm_journal_survives_backup_transfer_update_rollback(tmp_path, monkeypa
         assert (folder / 'rdm-search.json').read_bytes() == journal
     for folder in (root, backup, restored, transferred):
         asyncio.run(check_pending(folder))
+        for name, data in recovery.items():
+            assert (folder / name).read_bytes() == data
 
 
 @pytest.mark.parametrize('output_encoding', [None, 'cp1252'])

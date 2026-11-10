@@ -15,11 +15,12 @@ function placed(f) { return typeof f.x === 'number' && typeof f.y === 'number'; 
 function hallOf() { return (state.config && state.config.hall) || null; }
 function planKey() {
   if (state.sec !== 'hall' && !(state.sec === 'light' && lightUI && lightUI.tab === 'plan')) return '';
-  return [planState.tab, planState.cur, planState.editing, !!planState.ping, planState.snap].join(':');
+  return [planState.tab, planState.cur, planState.editing, !!planState.ping, planState.snap, !!planState.hallDraft].join(':');
 }
 
 /* ---------- edit session ---------- */
 function planBeginEdit() {
+  planState.hallDraft = null;
   planState.revision = state.config && state.config.revision;
   planState.editing = true;
   planState.tab = hallOf() ? 'place' : 'shape';
@@ -86,12 +87,12 @@ function hallPlan(root, mode) {
     var toolbar=h('div',{class:'plan-toolbar',role:'group','aria-label':'Вид плана'},
       h('button',{class:'btn small',type:'button','aria-label':'Уменьшить план',onclick:function(){zoomTo(planView.zoom/1.35);}},'−'),zoomReadout,
       h('button',{class:'btn small',type:'button','aria-label':'Увеличить план',onclick:function(){zoomTo(planView.zoom*1.35);}},'+'),
-      h('button',{class:'btn small',type:'button',title:'Вписать план',onclick:function(){fit();}},icon('fit',18),'Вписать'));
+      h('button',{class:'btn small',type:'button',title:'Вписать план',onclick:function(){fit();}},'Вписать'));
     var modeButtons=[];
     add(toolbar,h('div',{class:'seg'},[['select','Выделение'],['pan','Перемещение']].map(function(pair){
       var b=h('button',{type:'button','aria-label':pair[1],title:pair[1], 'aria-pressed':String(planView.mode===pair[0]),onclick:function(){
         planView.mode=pair[0];wrap.dataset.mode=pair[0];modeButtons.forEach(function(btn){btn.setAttribute('aria-pressed',String(btn===b));});
-      }},icon(pair[0]==='select'?'select':'hand',18),h('span',{},pair[1]));modeButtons.push(b);return b;
+      }},h('span',{},pair[0]==='select'?'Выбор':'Сдвиг'));modeButtons.push(b);return b;
     })));
     add(root,toolbar);
     wrap.addEventListener('scroll',function(){
@@ -114,6 +115,7 @@ function hallPlan(root, mode) {
   var outputSource = mode === 'control' ? h('summary', {class: 'note'}) : null;
   if (outputSource) add(root, h('details', {class: 'plan-source'}, outputSource,
     h('p', {class: 'note'}, disclaimer + '. Масштаб — кнопками, Ctrl/Command + колесо или двумя пальцами. «Вписать» включает автоподгонку.')));
+  else add(root, h('p', {class: 'note'}, disclaimer));
   var restoreView = true;
   function size() {
     if (wrap.isConnected === false) { if (observer) observer.disconnect(); return; }
@@ -123,6 +125,17 @@ function hallPlan(root, mode) {
     var hw = W, hh = W / ratio;
     if (hh > H) { hh = H; hw = H * ratio; }
     if(mode==='control' && planView.auto) planView.zoom=1;
+    // Names need more room than the 52px hit area; use IDs when neighbours are close.
+    if (mode === 'edit') {
+      var placedFixtures = fixtures().filter(placed), dense = false;
+      for (var i = 0; i < placedFixtures.length && !dense; i++) {
+        for (var j = i + 1; j < placedFixtures.length; j++) {
+          if (Math.abs(placedFixtures[i].x - placedFixtures[j].x) * hw < 84 &&
+              Math.abs(placedFixtures[i].y - placedFixtures[j].y) * hh < 64) { dense = true; break; }
+        }
+      }
+      hall.classList.toggle('compact-labels', dense);
+    }
     var z=mode==='control'?planView.zoom:1;
     hall.style.width = Math.floor(hw*z) + 'px';
     hall.style.height = Math.floor(hh*z) + 'px';
@@ -147,15 +160,13 @@ function hallPlan(root, mode) {
   }
   if (typeof ResizeObserver === 'function') {
     var observer=new ResizeObserver(size);observer.observe(wrap);
-    if(typeof sectionDisposers!=='undefined')sectionDisposers.push(function(){observer.disconnect();});
   }
   add(hall, h('div', {class: 'grid' + (mode === 'edit' && planState.snap ? ' snap' : '')}));
   var across = hc.stage === 'top' || hc.stage === 'bottom';
   var depth = Math.min(45, (hc.stageDepth || 3) / (across ? hc.d : hc.w) * 100) + '%';
   var sp = {top: {left: '0', top: '0', width: '100%', height: depth}, bottom: {left: '0', bottom: '0', width: '100%', height: depth},
     left: {left: '0', top: '0', height: '100%', width: depth}, right: {right: '0', top: '0', height: '100%', width: depth}}[hc.stage] || {};
-  add(hall, h('div', {class: 'stage', 'data-edge':hc.stage, style: sp}, 'Сцена'));
-  if(mode!=='control') add(root, h('p', {class: 'note'}, 'Расчётное направление по Pan панели · не измерение луча; Tilt не проецируется'));
+  add(hall, h('div', {class: 'stage', style: sp}, 'СЦЕНА'));
   var beamLayer = h('div', {class: 'plan-beams', 'aria-hidden': 'true'});
   add(hall, beamLayer);
   var dots = {};
@@ -176,7 +187,7 @@ function hallPlan(root, mode) {
   updaters.push(function () {
     size();
     var liveMeta = state.valuesMeta.live;
-    var freshOutput = !liveMeta || liveMeta.source === 'ma2' && liveMeta.freshness === 'fresh';
+    var freshOutput = liveMeta && liveMeta.source === 'ma2' && liveMeta.freshness === 'fresh';
     if (outputSource) outputSource.textContent = valueFreshness('live') === 'stale' ? 'Чтение MA2 устарело · свет на плане неизвестен' :
       freshOutput && Object.keys(state.live).length ? 'Выход прочитан с MA2' : 'Текущий выход MA2 неизвестен';
     var hl = state.highlight || {}, active = hl.state === 'active' && planState.ping !== null;
@@ -199,8 +210,17 @@ function hallPlan(root, mode) {
       if (f.service) cls.push('service');
       // Only a fresh MA2 output read can light the plan; sent values remain history in the controls.
       var live = freshOutput ? state.live[id] : null;
+      if (mode === 'control') {
+        var outputLabel = live ? 'выход ' + live.dim + '% · MA2' : 'выход неизвестен';
+        d.el.setAttribute('title', f.id + ' · ' + (f.label || f.name || f.id) + ' · ' + outputLabel);
+        d.el.setAttribute('aria-label', f.id + ' ' + (f.label || f.name || f.id) + ', ' + outputLabel +
+          (f.missing ? ', нет в шоу' : '') + (f.service ? ', служебный' : ''));
+      }
       shown = live;
-      if (mode === 'control' && shown && (shown.rgb || shown.dim > 0) && shown.dim !== 0) {
+      if (mode === 'control' && shown && shown.dim > 0 &&
+          Array.isArray(shown.rgb) && shown.rgb.length === 3 &&
+          shown.rgb.every(function (v) { return Number.isFinite(v) && v >= 0 && v <= 100; }) &&
+          shown.rgb.some(function (v) { return v > 0; })) {
         cls.push('lit');
         d.el.style.setProperty('--c', 'rgba(' + (shown.rgb || [92, 90, 86]).map(function (v) { return Math.round(v * 2.55); }).join(',') + ',' +
           (typeof shown.dim === 'number' ? Math.max(0, Math.min(1, shown.dim / 100)) : .7) + ')');
@@ -450,22 +470,30 @@ SECTIONS.hall = function (el) {
 };
 
 function hallForm() {
-  var v = Object.assign({}, hallOf() || HALL_DEFAULT);
+  var v = planState.hallDraft || Object.assign({}, hallOf() || HALL_DEFAULT);
   function num(k, label) {
     return h('div', {class: 'field'}, h('label', {for: 'hall-' + k}, label), h('input', {id: 'hall-' + k, type: 'number', min: 2, max: 80, step: 0.5, value: String(v[k]),
-      oninput: function (e) { var n = Number(e.target.value); if (n > 0) v[k] = n; }}));
+      oninput: function (e) { var n = Number(e.target.value); if (n > 0) { v[k] = n; planState.hallDraft = v; } }}));
   }
   var save = h('button', {class: 'btn edit full', type: 'button', disabled: !connected(), onclick: function () {
     if (document.activeElement) document.activeElement.blur();
-    if (send({a: 'hall_save', hall: v}, save)) planState.tab = 'place';
+    send({a: 'hall_save', hall: v}, save);
   }}, icon('check'), hallOf() ? 'Применить' : 'Создать схему и начать расстановку');
   return h('div', {class: 'card'}, h('h2', {}, hallOf() ? 'Форма зала' : 'Сначала нарисуйте зал'),
     h('p', {class: 'note'}, 'Размеры задают пропорции схемы. Пока только прямоугольный зал.'),
+    planState.hallDraft && planState.revision !== state.config.revision ? h('div',{class:'note warn',role:'status'},
+      'План изменён другим клиентом. Ваш черновик сохранён; запись со старой версией будет отклонена.',
+      h('button',{class:'btn',type:'button',onclick:function(){planState.hallDraft=null;planState.revision=state.config.revision;render();}},'Отбросить черновик и принять новый план')) : null,
     h('div', {class: 'hallform'}, num('w', 'Ширина зала, м'), num('d', 'Глубина зала, м'),
-      h('div', {class: 'field'}, h('label', {for: 'hall-stage'}, 'Сцена у стены'), h('select', {id: 'hall-stage', onchange: function (e) { v.stage = e.target.value; }},
+      h('div', {class: 'field'}, h('label', {for: 'hall-stage'}, 'Сцена у стены'), h('select', {id: 'hall-stage', onchange: function (e) { v.stage = e.target.value; planState.hallDraft=v; }},
         [['top', 'сверху'], ['bottom', 'снизу'], ['left', 'слева'], ['right', 'справа']].map(function (o) { return h('option', {value: o[0], selected: v.stage === o[0]}, o[1]); }))),
       num('stageDepth', 'Глубина сцены, м'), save));
 }
+on('ok',function(ok,message){
+  if (ok && message.a === 'hall_save' && ['unknown','partial','failed'].indexOf(message.outcome) < 0) {
+    planState.hallDraft=null;planState.tab='place';render();
+  }
+});
 
 function groupSide(side) {
   var ready = connected();

@@ -55,34 +55,32 @@ def test_partial_position_preset_invalidates_only_successful_prefix(context, fai
     asyncio.run(go())
 
 
-@pytest.mark.parametrize('failed_stage', [1, 2])
 @pytest.mark.parametrize('failure', ['error', 'unknown', 'halt', 'reconnect'])
-def test_clearall_prefix_discards_programmer_basis(context, failed_stage, failure):
+def test_failed_native_launch_never_clears_programmer(context, failure):
     c = context
     async def go():
         seed(c, {12: {'pan': 35, 'tilt': 65, 'dim': 42}})
         c.state['sent'] = {12: {'pan', 'tilt', 'dim'}}
-        c.state['live'] = {12: {'dim': 30}}
         session = {'selection': [12], 'base': {12: {'pan': 35, 'tilt': 65}}}
-        c.sessions['client'] = session
-        calls = []
+        calls, probe = [], ''
         async def send(line, **kw):
+            nonlocal probe
             calls.append(line)
-            if len(calls) == failed_stage:
+            if line.startswith('Goto '):
                 if failure == 'unknown': c.on_result({'cmd': line, 'status': 'unknown'})
                 if failure == 'reconnect': c.link._gen += 1; c.invalidate_evidence()
                 return False, failure
-            return True, 'ok'
+            if line.startswith('List Executor '): return True, 'Executor '+line.split()[-1]+' Priority=Normal SoftLTP=on Chaser=off'
+            if 'PANELSCENE' in line:
+                import re
+                probe = re.search(r"PANELSCENE','([a-f0-9]{16})", line)[1] + ' manual'
+            return True, 'Global : $SHOWFILE = Mock show\nGlobal : $PANELSCENE = ' + probe if line == 'ListVar' else 'OK'
         c.link.send = send
         assert await c.execute('scene_go', {'a': 'scene_go', 'id': 'pianist'}, session, [])
-        assert len(calls) == failed_stage
-        if failed_stage == 2 or failure in ('unknown', 'reconnect'):
-            assert not c.state['shown'] and not c.state['sent']
-            assert session['base'] is None
-            assert c.fade_starts('dim', [12]) is None
-        if failure not in ('unknown', 'reconnect'):
-            assert c.state['live'] == {12: {'dim': 30}}
-        c.sessions.clear()
+        assert calls[-1] == 'Goto Cue 1 Executor 1.101 Fade 0'
+        assert 'ClearAll' not in calls
+        if failure not in ('unknown','reconnect'):
+            assert c.state['shown'][12]['dim'] == 42
     asyncio.run(go())
 
 
@@ -91,7 +89,7 @@ def test_clearall_prefix_discards_programmer_basis(context, failed_stage, failur
 def test_undo_cannot_cross_show_epoch(context, kind, transition):
     c = context
     async def go():
-        c.state['show'] = {'name': 'A'}
+        c.state['show'] = {'name': 'A', 'source':'ma2'}
         c.cfg['show'] = 'A'
         c.add_history('dim' if kind == 'light' else 'group_save', 'test', kind,
                       {12: {'dim': 20}} if kind == 'light' else {'groups': []}, [12])
@@ -102,7 +100,7 @@ def test_undo_cannot_cross_show_epoch(context, kind, transition):
             c.update_show({'name': 'B'})
             c.cfg['show'] = 'B'
             if transition == 'A-return':
-                c.update_show({'name': 'A'})
+                c.update_show({'name': 'A', 'source':'ma2'})
                 c.cfg['show'] = 'A'
         calls = []
         async def send(line, **kw): calls.append(line); return True, 'ok'

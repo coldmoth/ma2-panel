@@ -74,6 +74,7 @@ def context(tmp_path, monkeypatch):
                       settings={'safety': {'mode': 'full', 'allow_fixture_read': True}, 'poll_seconds': .01})
     c = captured[0]
     c.link.state = 'logged_in'
+    c.state['show'] = {'name':'Mock show','source':'ma2'}
     yield c
     bridge.log.removeHandler(c.diag_handler)
 
@@ -102,6 +103,7 @@ def test_partial_scene_read_does_not_make_missing_scene_off(context):
         calls = []
         complete = asyncio.Event()
         async def send(line, **kw):
+            if line == 'ListVar': return True, 'Global : $SHOWFILE = Mock show'
             calls.append(line)
             if line == 'List Executor 1.101':
                 return True, '  Executor 1.101  Piano  Sequence 1  Running\r\n'
@@ -208,6 +210,7 @@ def test_poll_does_not_hold_action_lock_for_slow_client(context):
                     await release.wait()
         c.clients.add(Slow())
         async def send(line, **kw):
+            if line == 'ListVar': return True, 'Global : $SHOWFILE = Mock show'
             if line == 'List Executor 1.101':
                 return True, '  Executor 1.101  Piano  Sequence 1  Running\r\n'
             return True, ''
@@ -241,15 +244,21 @@ def test_stalled_client_is_closed_so_it_can_reconnect(context):
     asyncio.run(scenario())
 
 
-def test_scene_replacement_accepts_all_configured_candidates(context):
+def test_client_swap_cannot_release_unowned_catalogue_entries(context):
     import asyncio, json
     c = context
     c.cfg['scenes'].extend({'id': f's{i}', 'exec': f'1.{110+i}', 'label': str(i)} for i in range(17))
     async def scenario():
         sent = []
+        probe = ""
         async def send(line, **kw):
+            nonlocal probe
             sent.append(line)
-            return True, ''
+            if line.startswith('List Executor '): return True, 'Executor '+line.split()[-1]+' Priority=Normal SoftLTP=on Chaser=off'
+            if 'PANELSCENE' in line:
+                import re
+                probe = re.search(r"PANELSCENE','([a-f0-9]{16})", line)[1] + ' manual'
+            return True, 'Global : $SHOWFILE = Mock show\nGlobal : $PANELSCENE = ' + probe if line == 'ListVar' else ''
         c.link.send = send
         ws = object()
         c.sessions[ws] = {'selection': [], 'base': None}
@@ -258,7 +267,7 @@ def test_scene_replacement_accepts_all_configured_candidates(context):
         try:
             assert result['ok'], result
             await asyncio.gather(*list(c.bg))
-            assert all(f'Off Executor 1.{110+i}' in sent for i in range(17))
+            assert not any(line.startswith(('Off Executor', 'Masterfade')) for line in sent)
             result = await c.handle(ws, json.dumps({'a': 'scene_go', 'id': 'pianist', 'swap': ['s0', 's0']}))
             assert not result['ok']
         finally:

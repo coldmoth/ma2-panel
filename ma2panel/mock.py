@@ -3,6 +3,8 @@ import asyncio
 import os
 import re
 import shutil
+import copy
+import time
 from pathlib import Path
 
 SAMPLE = Path(__file__).parent / "resources" / "mock" / "sample_export.xml"
@@ -35,6 +37,7 @@ class MockMA2:
         self.missing_attrs: set[str] = set()  # test knob: these attributes answer Error #14, as Focus on a head without one
         self.rows = {"1.101": "Pianist", "1.102": "Rehearsal"}
         self.groups = {1: "Front"}
+        self.group_members = {}  # optional explicit fixture membership for isolated sync tests
         self.dmx: dict[int, int] = {}  # test knob: what getdmx returns, absolute address -> 0-255
         self.fixture_types: dict[int, str] = {}  # test knob: Export FixtureType <no> -> XML text
         self.vars: dict[str, str] = {}  # global variables set by SetVar from the DMX Lua line
@@ -47,6 +50,19 @@ class MockMA2:
         self.rdm_global = False  # Assign Root "Settings"."Global" /EnableRDM
         self.rdm_universes = {1: True}  # universe RDM flags the state read reports
         self.presets = {4: {1: "Red"}, 2: {1: "Stage"}}
+        self.grand_master = 100.0
+        self.native_blackout = False
+        self.programmer = {}
+        self.positions = {}  # explicit desk positions; missing values stay unknown
+        self.position_ranges = {}
+        self.selection = []
+        self.cues = {ex: {1: {}} for ex in self.rows}
+        self.cue_triggers = {}
+        self.cue_commands = {}
+        self.playback_options = {}
+        self.off_times = {}
+        self.transitions = {}
+        self.clock = time.monotonic
         self.running: set[str] = set()
         self.port = 0
         self._writers: set[asyncio.StreamWriter] = set()
@@ -59,6 +75,35 @@ class MockMA2:
                            7: "STAGE BAR", 8: "PAR ALL"}
             self.presets = {4: {1: "red", 2: "green", 3: "blue", 4: "cyan", 5: "yellow", 6: "magenta", 7: "White"}, 2: {}}
             self.export_text = REAL_EXPORT.read_text(encoding="utf-8")
+
+    def output(self, suppressed=True):
+        """Small LTP/soft-transfer test model; not a console emulator or evidence."""
+        values, priorities = {}, {}
+        for ex in list(self.running):
+            transition = self.transitions.get(ex)
+            if not transition:
+                values.update(copy.deepcopy(self.cues.get(ex, {}).get(1, {})))
+                continue
+            start, duration, origin, target, releasing, order = transition
+            ratio = min(1, max(0, (self.clock() - start) / duration)) if duration else 1
+            if releasing and ratio == 1:
+                self.running.discard(ex)
+                continue
+            # Newer incoming playbacks win; outgoing dimmers retain their own fade.
+            for fid, attrs in target.items():
+                for attr, value in attrs.items():
+                    old = origin.get(fid, {}).get(attr, 0)
+                    key = (fid, attr)
+                    if key not in priorities or priorities[key] <= order:
+                        values.setdefault(fid, {})[attr] = old + (value - old) * ratio
+                        priorities[key] = order
+        for fid, attrs in self.programmer.items():
+            values.setdefault(fid, {}).update(attrs)
+        if suppressed:
+            for attrs in values.values():
+                if 'dim' in attrs:
+                    attrs['dim'] *= 0 if self.native_blackout else self.grand_master / 100
+        return values
 
     async def _handle(self, reader, writer):
         if self.paused:
@@ -123,8 +168,6 @@ class MockMA2:
             return "OK\r\n[Channel]>"
         if text == 'SaveShow' and self.on_save:
             self.on_save()
-        if m := re.match(r"Goto Cue 1 Executor (\S+)", text):
-            self.running.add(m[1])
         name = re.search(r'"([^"]*)"', text)
         if text.startswith("Attribute") and name and name[1] in self.missing_attrs:
             return f"Executing : {text}\r\nError : {text}\r\nError #14: OBJECT DOES NOT EXIST\r\n[Channel]>"
@@ -147,7 +190,7 @@ class MockMA2:
                 for fid, address in self.patch.items():  # the export shows the new patch, as the desk's would
                     body = re.sub(rf'(<Fixture[^>]*fixture_id="{fid}".*?<(Address|Patch)>)[^<]*(</\2>)', rf"\g<1>{address}\g<3>", body, count=1, flags=re.S)
             if text.startswith("Export Group"):  # ponytail: guessed layout, see fixtures.parse_group_export
-                body = '<MA xmlns="urn:ma">' + "".join(f'<Group index="{n - 1}" name="{g}"><Subfixtures><Subfixture fix_id="{n}"/><Subfixture fix_id="{n + 1}"/></Subfixtures></Group>'
+                body = '<MA xmlns="urn:ma">' + "".join(f'<Group index="{n - 1}" name="{g}"><Subfixtures>' + "".join(f'<Subfixture fix_id="{fid}"/>' for fid in self.group_members.get(n, [n, n + 1])) + '</Subfixtures></Group>'
                                                      for n, g in sorted(self.groups.items())) + "</MA>"
             write = (lambda: shutil.copy(SAMPLE, path)) if body is None else (lambda: path.write_text(body, encoding="utf-8"))
             if self.export_delay:
@@ -190,10 +233,57 @@ class MockMA2:
             if m[1] == "dmx_start_address":
                 device["address"] = int(m[2])
             return f"Executing : {text}\r\n[Channel]>"
+        if 'PANELSCENE' in text:
+            ex = re.search(r"handle\('Executor (\d+\.\d+) Cue 1'\)", text)
+            nonce = re.search(r"setvar\('PANELSCENE','([0-9a-f]{16}) '", text)
+            if ex and nonce:
+                cues = self.cues.get(ex[1], {})
+                manual = (set(cues) == {1} and self.cue_triggers.get(ex[1], 'Go') == 'Go'
+                          and not self.cue_commands.get(ex[1], ''))
+                self.vars['PANELSCENE'] = nonce[1] + (' manual' if manual else ' unknown')
+        if m := re.search(r"gma.show.setvar\('PANELGM','([0-9a-f]{16}) '", text):
+            self.vars['PANELGM'] = f'{m[1]} {self.grand_master:g}%'
+        if m := re.fullmatch(r'SpecialMaster 2\.1 At (\d+(?:\.\d+)?)', text):
+            self.grand_master = float(m[1])
+        if m := re.fullmatch(r'Masterfade (\d+(?:\.\d+)?) Executor (\d+\.\d+)', text):
+            self.off_times[m[2]] = float(m[1])
+        if m := re.fullmatch(r'Fixture (\d+(?: \+ \d+)*)', text):
+            self.selection = [int(x) for x in m[1].split(' + ')]
+        if m := re.fullmatch(r'Attribute "(Pan|Tilt)" At ([+-]) (\d+(?:\.\d+)?)', text):
+            attr, step = m[1].lower(), float(m[3]) * (1 if m[2] == '+' else -1)
+            for fid in self.selection:
+                values = self.positions.get(fid, {})
+                if attr in values:
+                    lo, hi = self.position_ranges.get(fid, {}).get(attr, (-float('inf'), float('inf')))
+                    values[attr] = min(hi, max(lo, values[attr] + step))
+        if m := re.fullmatch(r'Store Executor (\d+\.\d+) Cue 1 /Source=Output /Use=Allforselected', text):
+            output = self.output()
+            self.rows[m[1]] = 'New scene'
+            self.cues[m[1]] = {1: {fid: copy.deepcopy(output.get(fid, {'dim': 0})) for fid in self.selection}}
+        if m := re.fullmatch(r'Copy Cue ([12]) Executor (\d+\.\d+) At Cue ([12]) Executor (\d+\.\d+)( /CueOnly)?( /Overwrite)?', text):
+            if not m[5]:
+                return 'Copying Cue: Choose copy method :\r\n[1]: Copy\r\n 2 : Cancel\r\n 3 : CueOnly\r\n 4 : Status\r\n'
+            if int(m[1]) not in self.cues.get(m[2], {}):
+                return 'Error: source cue missing\r\n[Channel]>'
+            self.cues.setdefault(m[4], {})[int(m[3])] = copy.deepcopy(self.cues[m[2]][int(m[1])])
+        if m := re.fullmatch(r'Goto Cue 1 Executor (\d+\.\d+) Fade (\d+(?:\.\d+)?)', text):
+            ex, seconds = m[1], float(m[2])
+            origin = self.output(suppressed=False)
+            self.running.add(ex)
+            self.transitions[ex] = (self.clock(), seconds, origin, copy.deepcopy(self.cues.get(ex, {}).get(1, {})), False, len(self.received))
+        if m := re.fullmatch(r'Off Executor (\d+\.\d+)', text):
+            ex = m[1]
+            if ex in self.running:
+                origin = self.output(suppressed=False)
+                target = {fid: {k: 0 if k == 'dim' else v for k, v in attrs.items()}
+                          for fid, attrs in self.cues.get(ex, {}).get(1, {}).items()}
+                self.transitions[ex] = (self.clock(), self.off_times.get(ex, 0), origin, target, True, -1)
+                if not self.off_times.get(ex, 0): self.running.discard(ex)
         if m := re.match(r"Delete Executor (\S+)", text):
             self.rows.pop(m[1], None)
         if m := re.match(r"(Go|Off) Executor (\S+)", text):
-            (self.running.add if m[1] == "Go" else self.running.discard)(m[2])
+            if m[1] == 'Go': self.running.add(m[2])
+            elif m[2] not in self.transitions: self.running.discard(m[2])
         if m := re.match(r"StoreLook Executor (\d+\.\d+)", text):
             self.rows[m[1]] = "New scene"
         if m := re.fullmatch(r'Label Executor (\d+\.\d+) "([^"\r\n]*)"', text):
@@ -234,7 +324,10 @@ class MockMA2:
             if m:
                 key = lambda ex: tuple(map(int, ex.split(".")))
                 rows = [(e, n) for e, n in self.rows.items() if key(m[1]) <= key(e) <= key(m[2] or m[1])]
-            return ("".join(f"  Executor {e}  {n}  Sequence 1  {'Running' if e in self.running else 'Off'}\r\n"
+            def profile(e):
+                priority, soft = self.playback_options.get(e, ('LTP', 'On'))
+                return f" Priority={priority} SoftLTP={soft} Chaser=off" if m and not m[2] else ""
+            return ("".join(f"  Executor {e}  {n}  Sequence 1  {'Running' if e in self.running else 'Off'}{profile(e)}\r\n"
                             for e, n in rows) or "No objects found\r\n") + "[Channel]>"
         return "OK\r\n[Channel]>"
 

@@ -75,10 +75,14 @@ def parse_export(xml_text: str, skipped: list | None = None) -> list[dict]:
         # The id the operator sees (FixId). A bare "index" is the 0-based pool position: using it would shift every id.
         raw_id = next((elem.get(key) for key in ("fixture_id", "id") if elem.get(key, "").isdigit()), None)
         if raw_id is None:
+            if any(elem.get(key) for key in ("fixture_id", "id")):
+                raise ValueError("неверный Fixture ID: импорт неполон")
             if skipped is not None:
                 skipped.append(elem.get("name") or "?")
             continue
         fid = int(raw_id)
+        if not 1 <= fid <= 9999:
+            raise ValueError("Fixture ID вне поддерживаемого диапазона 1–9999")
         if fid in seen:
             raise ValueError(f"повтор id {fid}")
         seen.add(fid)
@@ -107,19 +111,41 @@ TYPE_ATTRS = {"DIM": "dim", "COLORRGB1": "r", "COLORRGB2": "g", "COLORRGB3": "b"
 
 def parse_fixture_type(xml_text: str) -> dict:
     """{dim, r, g, b}: 1-based DMX channel of each attribute, from an Export FixtureType file (<ChannelType attribute=.. coarse=..>).
-    Multiple modules/instances are unsupported until real offset samples are available."""
+    Only a single unshifted module instance is supported."""
     spec, root = {}, ET.fromstring(xml_text)
     has = set()
-    if sum(local(e.tag) == "Module" for e in root.iter()) > 1 or any(local(e.tag) in ("Instance", "Instances") for e in root.iter()):
+    instances = [e for e in root.iter() if local(e.tag) == "Instance"]
+    if (sum(local(e.tag) == "Module" for e in root.iter()) > 1
+            or len(instances) > 1
+            or any(e.get("module_index") != "0" or e.get("patch") != "1" for e in instances)
+            or any(local(e.tag) == "Instances" and not instances for e in root.iter())):
         return {"unsupported": True, "has": []}
     module = next((e for e in root.iter() if local(e.tag) == "Module"), root)
     for e in module.iter():
         if local(e.tag) != "ChannelType":
             continue
         attr = e.get("attribute") or ""
+        if attr.upper().startswith("SHUTTER"):
+            coarse = e.get("coarse", "")
+            if coarse.isdigit() and 1 <= int(coarse) <= 64 and not e.get("fine"):
+                spec["shutter"] = int(coarse)
+                for child in e.iter():
+                    name = (child.get("name") or "").strip().lower()
+                    key = "shutter_open" if name in ("open", "shutter open") else "shutter_closed" if name in ("closed", "shutter closed") else None
+                    lo, hi = child.get("from_dmx", ""), child.get("to_dmx", "")
+                    if key and lo.isdigit() and hi.isdigit() and 0 <= int(lo) <= int(hi) <= 255:
+                        spec.setdefault(key, []).append([int(lo), int(hi)])
+            else:
+                spec["unsupported"] = True
         key = TYPE_ATTRS.get(attr.upper())
+        # A wheel, CMY, white/amber emitter, etc. needs its own colour model.
+        # A dimmer byte alone cannot prove white output for such a profile.
+        if attr.upper().startswith("COLOR") and key not in ("r", "g", "b"):
+            spec["unsupported"] = True
         if key and key not in spec and (e.get("coarse") or "").isdigit() and 1 <= int(e.get("coarse")) <= 64:
             spec[key] = int(e.get("coarse"))
+        elif key:
+            spec["unsupported"] = True
         for name in ("zoom", "focus"):
             if attr.upper().startswith(name.upper()):
                 has.add(name)
@@ -157,18 +183,27 @@ def merge_fixtures(old: list[dict], found: list[dict], *, choices=None) -> list[
     deciding which groups are ambiguous: two new fixtures can share one old one.
     """
     merged = {f["id"]: {**f, "missing": True} for f in old}
-    found_ids = {f["id"] for f in found}
+    old_by_id = {f["id"]: f for f in old}
+    # Reserve unchanged identities first. An ID reused by another fixture is
+    # available as a transfer source even though that number is still present.
+    stable = {f['id'] for f in found if f['id'] in old_by_id and f.get('name') and f.get('type')
+              and (f['name'], f['type']) == (old_by_id[f['id']].get('name'), old_by_id[f['id']].get('type'))}
     candidates, ambiguous = {}, {}
     for f in found:
-        if f["id"] in merged or not f["name"]:
+        fid = f['id']
+        if fid in stable:
             continue
-        gone = [o for o in old if o["id"] not in found_ids
-                and o.get("name") == f["name"] and o.get("type") == f["type"]]
-        candidates[f["id"]] = gone
-        peers = [n for n in found if n["id"] not in merged
-                 and n["name"] == f["name"] and n["type"] == f["type"]]
-        if gone and (len(gone) != 1 or len(peers) != 1):
-            ambiguous[str(f["id"])] = gone
+        peers = [o for o in old if o['id'] not in stable and f.get('name') and f.get('type')
+                 and (o.get('name'), o.get('type')) == (f['name'], f['type'])]
+        previous = old_by_id.get(fid)
+        candidates[fid] = ([previous] if previous is not None else []) + [o for o in peers if o['id'] != fid]
+    claims = {}
+    for options in candidates.values():
+        for previous in options:
+            claims[previous['id']] = claims.get(previous['id'], 0) + 1
+    for fid, options in candidates.items():
+        if fid in old_by_id or len(options) > 1 or any(claims[o['id']] > 1 for o in options):
+            ambiguous[str(fid)] = options
     if choices is not None:
         if not isinstance(choices, dict) or set(choices) != set(ambiguous):
             raise ValueError("нужен явный выбор для каждого неоднозначного прибора")
@@ -181,14 +216,32 @@ def merge_fixtures(old: list[dict], found: list[dict], *, choices=None) -> list[
             if selected in used:
                 raise ValueError("старый прибор нельзя использовать дважды")
             used.add(selected)
+    resolved, consumed = {}, set()
     for f in found:
         fid = f["id"]
         key = str(fid)
         gone = candidates.get(fid, [])
         old_id = (choices[key] if choices is not None else None) if key in ambiguous else (gone[0]["id"] if gone else None)
         if old_id is not None:
-            merged[fid] = {**merged.pop(old_id), "id": fid, "repatched_from": old_id}
-        entry = merged.get(fid, {"id": fid, "label": f["name"] or f"#{fid}"})
+            if old_id in consumed:
+                raise ValueError("старый прибор нельзя использовать дважды")
+            entry = {**old_by_id[old_id], "id": fid}
+            if old_id != fid:
+                entry["repatched_from"] = old_id
+            consumed.add(old_id)
+        elif key not in ambiguous and fid in old_by_id:
+            if fid in consumed:
+                raise ValueError("старый прибор нельзя использовать дважды")
+            entry = dict(old_by_id[fid])
+            consumed.add(fid)
+        else:
+            entry = {"id": fid, "label": f["name"] or f"#{fid}"}
+            if fid in old_by_id:
+                entry["identity_reset"] = True
+        if any(entry.get(k) != f.get(k) for k in ("address", "type")) or old_id is not None:
+            if entry.get("rdm"):
+                entry["rdm"] = {k: v for k, v in entry["rdm"].items() if k != "address"}
+                entry["rdm"]["stale"] = True
         entry.pop("footprint", None)  # export Channel count is not current profile evidence
         entry.pop("channels", None)
         entry.pop("patch_unsupported", None)
@@ -203,7 +256,9 @@ def merge_fixtures(old: list[dict], found: list[dict], *, choices=None) -> list[
             entry.update(moves=True, moves_auto=True)
         if key in ambiguous and choices is None:
             entry["ambiguous_candidates"] = [{"old_id": o["id"], "label": o.get("label", f"#{o['id']}")} for o in ambiguous[key]]
-        merged[fid] = entry
+        resolved[fid] = entry
+    merged = {fid: f for fid, f in merged.items() if fid not in consumed}
+    merged.update(resolved)
     return [merged[fid] for fid in sorted(merged)]
 
 

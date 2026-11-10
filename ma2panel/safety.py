@@ -221,12 +221,42 @@ def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=(), 
                         rf"|Label Executor ({re.escape(e)}) \"[^\"\r\n]*\"") for e in stores]
 
     def guard(line: str):
-        if re.search(r"/Overwrite\b", line, re.I):
-            return "перезапись запрещена"
         if not line or line != line.strip() or "\n" in line or "\r" in line:
             return "пустая или многострочная команда"
         # Check privileged families before full mode or extra_allowed_regex can allow them.
         low = line.lower()
+        if low.startswith('lua'):
+            from .scene_runtime import is_probe_command
+            if is_probe_command(line):
+                return None
+        # Privileged scene transaction forms are checked before full/extra regex.
+        copy_cue = re.fullmatch(r'Copy Cue ([12]) Executor (\d+\.\d+) At Cue ([12]) Executor (\d+\.\d+) /CueOnly( /Overwrite)?', line)
+        if re.search(r"/Overwrite\b", line, re.I) and not (copy_cue and copy_cue[1] == copy_cue[3] == '1'):
+            return "перезапись запрещена: только commit подготовленного Cue 1"
+        if low.startswith("copy cue ") and not copy_cue:
+            return "копирование Cue требует явный безопасный метод CueOnly"
+        if copy_cue:
+            if safety['mode'] == 'full' or safety['mode'] == 'store' and {copy_cue[2], copy_cue[4]} <= stores:
+                return None
+            return "копирование Cue вне разрешённой области записи"
+        if re.match(r'(?:blackout|specialmaster|masterfade)\b', low):
+            if re.fullmatch(r'SpecialMaster 2\.1 At (?:100(?:\.0+)?|\d{1,2}(?:\.\d+)?)', line):
+                return None if safety['mode'] == 'full' else 'глобальное затемнение требует full'
+            if m := re.fullmatch(rf'Masterfade {NUM} Executor (\d+\.\d+)', line):
+                return None if safety['mode'] == 'full' or m[1] in execs else 'Executor не разрешён'
+            return 'неразрешённая глобальная команда'
+        if line.startswith('Store Executor ') or line.startswith('Assign Cue '):
+            m = re.fullmatch(r'Store Executor (\d+\.\d+) Cue 1 /Source=Output /Use=Allforselected|Assign Cue 1 Executor (\d+\.\d+) /Trig=Go', line)
+            if m and (safety['mode'] == 'full' or safety['mode'] == 'store' and (m[1] or m[2]) in stores):
+                return None
+            return 'запись Cue вне разрешённой области'
+        if line.startswith('Lua "local h=gma.show.getobj.handle(\'SpecialMaster 2.1\')'):
+            expected = ('Lua "local h=gma.show.getobj.handle(\'SpecialMaster 2.1\'); '
+                        'local v=h and gma.show.property.get(h,\'value\'); '
+                        "gma.show.setvar('PANELGM','")
+            suffix = " '..tostring(v))\""
+            nonce = line[len(expected):-len(suffix)]
+            return None if safety['mode'] == 'full' and line == expected + nonce + suffix and re.fullmatch('[0-9a-f]{16}', nonce) else 'недопустимое чтение Grand Master'
         if re.match(r"store\s+group\b", low):
             valid = re.fullmatch(r'Store Group [1-9]\d* "[^";\x00-\x1f\x7f-\x9f]+"', line)
             return None if safety.get("allow_group_store") is True and valid else "запись группы заблокирована: allow_group_store и безопасная команда Store Group"

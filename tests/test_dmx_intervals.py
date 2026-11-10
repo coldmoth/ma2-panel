@@ -61,7 +61,7 @@ def test_manual_command_runs_during_dmx_lua_settle(bridge_cfg):
         assert ask(ws, {'a': 'scene_off', 'id': 'pianist'})['ok']
         lines = list(mock.received)
         manual = next(i for i, line in enumerate(lines[first + 1:], first + 1) if line.startswith('Off Executor '))
-        assert 'ListVar' not in lines[first + 1:manual]
+        assert lines[first + 1:manual] == ['ListVar', 'Masterfade 0 Executor 1.101']  # scene show preflight proceeds during DMX settle
 
 
 def test_current_chunk_does_not_inherit_overlapping_listvar_rows():

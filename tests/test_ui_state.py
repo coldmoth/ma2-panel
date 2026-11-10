@@ -43,6 +43,7 @@ def test_rewrite_preserves_scene_id_and_position(bridge_cfg):
         cfg['scene_order_version'] = 1
         cfg['scenes'] = [{'id':'first','exec':'1.110','label':'First'}, {'id':'pianist','exec':'1.101','label':'Piano'}, {'id':'last','exec':'1.111','label':'Last'}]
     with bridge_cfg(edit=edit) as (ws, mock, path):
+        assert ask(ws, {'a':'select_fixtures','ids':[12]})['ok']
         assert ask(ws, {'a':'scene_create','label':'Новое','page':1,'exec':'1.101','confirm':'1.101','replace':True})['ok']
         import json
         scenes = json.loads(path.read_text())['scenes']
@@ -54,21 +55,22 @@ def test_failed_rewrite_remains_visible_as_unconfirmed(bridge_cfg, monkeypatch):
     from ma2panel.mock import MockMA2
     original=MockMA2._reply
     def reply(self,text):
-        if text.startswith('StoreLook'):
+        if text == 'Copy Cue 1 Executor 1.1 At Cue 1 Executor 1.101 /CueOnly /Overwrite':
             return 'Error #72: COMMAND NOT EXECUTED\r\n[Channel]>'
         return original(self,text)
     monkeypatch.setattr(MockMA2,'_reply',reply)
     with bridge_cfg() as (ws,mock,path):
+        assert ask(ws, {'a':'select_fixtures','ids':[12]})['ok']
         result=ask(ws,{'a':'scene_create','label':'Новое','page':1,'exec':'1.101','confirm':'1.101','replace':True})
         assert not result['ok']
         import json
         scene=next(sc for sc in json.loads(path.read_text())['scenes'] if sc['id']=='pianist')
         assert scene.get('write_error')
-        assert 'удалена' in result['err']
+        assert 'повторно не отправлено' in result['err']
         before_go=len(mock.received)
         assert not ask(ws,{'a':'scene_go','id':'pianist'})['ok']
         assert not any(c.startswith(('Go Executor','Goto Cue')) for c in mock.received[before_go:])
-        assert len([c for c in mock.received if c.startswith('StoreLook')]) == 1
+        assert len([c for c in mock.received if c.startswith('Store Executor')]) == 1
 
 
 def test_desk_show_change_invalidates_shared_master(tmp_path):
@@ -78,7 +80,7 @@ def test_desk_show_change_invalidates_shared_master(tmp_path):
         assert until(b,lambda m:'master' in m)['master']==42
         mock.show_name='Demo'
         assert ask(a,{'a':'show_identify'})['ok']
-        assert ask(a,{'a':'select_fixtures','ids':[12]})['ok']
+        assert not ask(a,{'a':'select_fixtures','ids':[12]})['ok']
         a.send_json({'a':'dim','v':10})
         assert until(b,lambda m:'master' in m)['master'] is None
 

@@ -22,6 +22,23 @@ There is no separate **MA2 Panel.exe** in this release.
 
 ## Complete setup
 
+При переходе с 3.0 на 3.1 установите полный комплект в отдельную папку, сохранив старую. ZIP обновления не подходит для старого runtime. После остановки
+старого моста перенесите в новую папку `program` собственные config.json, settings.json, secret.env, highlight.json,
+shows/, diag/, diagnostic-upload.json, field-data/, rdm-search.json, blackout.json,
+scene-write-*.json и update_url.txt при наличии. Не заменяйте
+их публичными шаблонами. `rdm-search.json` — состояние незавершённого RDM, включая
+исходный target: переносите файл целиком, даже если он повреждён или target неизвестен.
+Журналы blackout.json и scene-write-*.json также переносите побайтово: они нужны
+для разбора незавершённого Blackout или записи Cue. Не удаляйте и не исправляйте
+журналы для снятия предупреждения. Перед переносом сохраните
+старую папку целиком; старые backups/ и логи можно сохранить отдельно. При ручном
+восстановлении из backups/before-update-* сначала остановите мост и сохраните текущую
+папку целиком. Не заменяйте более новое неизвестное RDM-состояние старой копией:
+сохраните обе версии для отдельной проверки оператором. Копирование не подтверждает RDM Off.
+runtime.json/runtime-files.json, Python и lib должны оставаться
+из одного полного комплекта. После смены пути или портов повторите `program/firewall-open.bat`
+от имени администратора.
+
 Follow [First connection](FIRST-CONNECTION.md). You must create or select a dedicated grandMA2 user with a separate User Profile and enable Telnet Remote **inside grandMA2**. The panel wizard saves connection settings; it does not create the MA2 account or enable Telnet for you.
 
 After saving and restarting the bridge, open the full panel at [http://127.0.0.1:8080](http://127.0.0.1:8080). The simple scene view is at [http://127.0.0.1:8090](http://127.0.0.1:8090). These are the default ports.

@@ -15,6 +15,7 @@ from test_patch_context import setup
 def test_patch_result_requires_matching_readback(context, mode, sides, expected):
     c = context
     action = setup(c)
+    c.cfg['fixtures'][0].update(name='Twin', type='3 Current')
     action.update(patch=sides != 'physical', physical=sides != 'patch')
     action['token'] = c.patch_offer(action)['token']
     c.safety['allow_fixture_read'] = True

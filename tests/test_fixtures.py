@@ -24,7 +24,7 @@ def test_merge_keeps_manual():
     old = [{"id": 12, "label": "Фронт левый", "x": 0.1, "y": 0.2}, {"id": 5, "label": "BAR 5"}]
     found = [{"id": 12, "name": "Front", "type": "ACME", "params": [], "address": "2.001"},
              {"id": 99, "name": "New", "type": "PAR", "address": None}]
-    merged = merge_fixtures(old, found)
+    merged = merge_fixtures(old, found, choices={"12": 12})
     assert [f["id"] for f in merged] == [5, 12, 99]
     assert merged[0]["missing"] is True
     assert merged[1] == {**old[0], "name": "Front", "type": "ACME", "params": [], "address": "2.001"}
@@ -35,7 +35,7 @@ def test_merge_keeps_manual():
 def test_merge_keeps_calibration():
     old = [{"id": 12, "label": "ACME 12", "moves": True, "beam": {"home": 40, "invert": True}}]
     found = [{"id": 12, "name": "ACME", "type": "acme", "address": "1.101"}]
-    m = merge_fixtures(old, found)[0]
+    m = merge_fixtures(old, found, choices={"12": 12})[0]
     assert m["moves"] is True and m["beam"] == {"home": 40, "invert": True}
 
 

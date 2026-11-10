@@ -1,6 +1,6 @@
 # Что программа отправляет в MA2: каждое действие панели
 
-Сгенерировано `scripts/command_map.py` на имитации пульта (mock): это реальные строки, которые уходят в Telnet.
+Базовая таблица получена `scripts/command_map.py` на mock; строки сцен/затемнения обновлены вручную по этапу 1 (2026-11-10). Полное обоснование и runtime-предпосылки: [ma2-command-evidence.md](ma2-command-evidence.md). Это не проверка реального пульта.
 Приборы 12 и 14 и сцена 1.101 разрешены, `store_execs` = 2.150, allow_master и allow_page_change включены.
 Классы: LIVE живой свет; LIVE* отдельный флаг; READ только чтение; STORE запись данных MA2; SHOW загрузка/сохранение шоу; SYSTEM экспорт/подсветка; PANEL только конфиг панели.
 
@@ -24,15 +24,15 @@
 | LIVE | Pan/Tilt (пад) | `Fixture 12 + 14`<br>`Attribute "Pan" At 27`<br>`Attribute "Tilt" At -13.5` | `Fixture 12 + 14`<br>`Attribute "Pan" At 27`<br>`Attribute "Tilt" At -13.5` | `Fixture 12 + 14`<br>`Attribute "Pan" At 27`<br>`Attribute "Tilt" At -13.5` |
 | LIVE | Zoom 60 | `Fixture 12 + 14`<br>`Attribute "Zoom" At 60` | `Fixture 12 + 14`<br>`Attribute "Zoom" At 60` | `Fixture 12 + 14`<br>`Attribute "Zoom" At 60` |
 | LIVE | Focus 60 | `Fixture 12 + 14`<br>`Attribute "Focus" At 60` | `Fixture 12 + 14`<br>`Attribute "Focus" At 60` | `Fixture 12 + 14`<br>`Attribute "Focus" At 60` |
-| LIVE | Сцена Go (1.101) | `ClearAll`<br>`Go Executor 1.101` | `ClearAll`<br>`Go Executor 1.101` | `ClearAll`<br>`Go Executor 1.101` |
-| LIVE | Сцена Off (1.101) | `Off Executor 1.101` | `Off Executor 1.101` | `Off Executor 1.101` |
-| LIVE | «Погасить всё» | `Off Executor 1.101`<br>`Fixture 12 + 14`<br>`At 0` | `Off Executor 1.101`<br>`Fixture 12 + 14`<br>`At 0` | `Off Executor 1.101`<br>`Fixture 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20 + 21 + 22 + 23 + 24`<br>`At 0` |
+| LIVE | Сцена Cue 1 (1.101) | Свежее ListVar + фиксированное nonce-чтение ручной Cue 1/LTP/Soft LTP/Cmd; `Masterfade T Executor` прежних запусков панели в текущем плане/шоу → `Goto Cue 1 Executor 1.101 Fade T` → их `Off Executor` | Свежее ListVar + фиксированное nonce-чтение ручной Cue 1/LTP/Soft LTP/Cmd; `Masterfade T Executor` прежних запусков панели в текущем плане/шоу → `Goto Cue 1 Executor 1.101 Fade T` → их `Off Executor` | Свежее ListVar + фиксированное nonce-чтение ручной Cue 1/LTP/Soft LTP/Cmd; `Masterfade T Executor` прежних запусков панели в текущем плане/шоу → `Goto Cue 1 Executor 1.101 Fade T` → их `Off Executor` |
+| LIVE | Сцена Off (1.101), текущий серверный Fade T | `Masterfade T Executor 1.101`<br>`Off Executor 1.101` | `Masterfade T Executor 1.101`<br>`Off Executor 1.101` | `Masterfade T Executor 1.101`<br>`Off Executor 1.101` |
+| LIVE | «Blackout MA2» / возврат | ОТКАЗ: нужен full | ОТКАЗ: нужен full | Фиксированное nonce-чтение Grand с %, журнал → `SpecialMaster 2.1 At 0` → чтение. Повтор: прежний уровень при том же контексте и текущем 0; B.O./Programmer/Executor сохраняются. |
 | LIVE* | Общая яркость 50 (allow_master) | `Master 2.1 At 50` | `Master 2.1 At 50` | `Master 2.1 At 50` |
 | LIVE* | Открыть страницу 2 (allow_page_change) | `Page 2` | `Page 2` | `Page 2` |
 | LIVE | Остановить передачу | ничего не уходит | ничего не уходит | ничего не уходит |
 | READ | Обновить сцены из пульта | `ListVar`<br>`List Page`<br>`List Executor 1.1 Thru 1.250` | `ListVar`<br>`List Page`<br>`List Executor 1.1 Thru 1.250` | `ListVar`<br>`List Page`<br>`List Executor 1.1 Thru 1.250` |
 | STORE | Перезапись сцены (отключена) | ОТКАЗ: перезапись существующей сцены отключена: запишите новую сцену в пустой executor | ОТКАЗ: перезапись существующей сцены отключена: запишите новую сцену в пустой executor | ОТКАЗ: перезапись существующей сцены отключена: запишите новую сцену в пустой executor |
-| STORE | Новая сцена (exec+confirm, проверка пустого места) | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме test | `List Executor 2.150`<br>`StoreLook Executor 2.150 Cue 1 /Source=Output`<br>`Label Executor 2.150 "Тест"` | `List Executor 2.150`<br>`StoreLook Executor 2.150 Cue 1 /Source=Output`<br>`Label Executor 2.150 "Тест"` |
+| STORE | Новая сцена (exec+confirm, selected) | ОТКАЗ: режим test | Свежие ListVar + `List Executor 2.150` → `Fixture 12 + 14` → `Store Executor 2.150 Cue 1 /Source=Output /Use=Allforselected` → `Assign Cue 1 Executor 2.150 /Trig=Go` → Label и проверка Cue | Свежие ListVar + `List Executor 2.150` → `Fixture 12 + 14` → `Store Executor 2.150 Cue 1 /Source=Output /Use=Allforselected` → `Assign Cue 1 Executor 2.150 /Trig=Go` → Label и проверка Cue |
 | STORE | Переименовать сцену | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме test | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме store | `Label Executor 1.101 "X"` |
 | STORE | Назвать страницу | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме test | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме store | `Label Page 2 "X"` |
 | SYSTEM | fixtures_fetch (после show_bind) | ОТКАЗ: получение приборов заблокировано: allow_fixture_read | ОТКАЗ: получение приборов заблокировано: allow_fixture_read | ОТКАЗ: получение приборов заблокировано: allow_fixture_read |
@@ -71,15 +71,15 @@
 | LIVE | Pan/Tilt (пад) | `Fixture 12 + 14`<br>`Attribute "Pan" At 27`<br>`Attribute "Tilt" At -13.5` | `Fixture 12 + 14`<br>`Attribute "Pan" At 27`<br>`Attribute "Tilt" At -13.5` | `Fixture 12 + 14`<br>`Attribute "Pan" At 27`<br>`Attribute "Tilt" At -13.5` |
 | LIVE | Zoom 60 | `Fixture 12 + 14`<br>`Attribute "Zoom" At 60` | `Fixture 12 + 14`<br>`Attribute "Zoom" At 60` | `Fixture 12 + 14`<br>`Attribute "Zoom" At 60` |
 | LIVE | Focus 60 | `Fixture 12 + 14`<br>`Attribute "Focus" At 60` | `Fixture 12 + 14`<br>`Attribute "Focus" At 60` | `Fixture 12 + 14`<br>`Attribute "Focus" At 60` |
-| LIVE | Сцена Go (1.101) | `ClearAll`<br>`Go Executor 1.101` | `ClearAll`<br>`Go Executor 1.101` | `ClearAll`<br>`Go Executor 1.101` |
-| LIVE | Сцена Off (1.101) | `Off Executor 1.101` | `Off Executor 1.101` | `Off Executor 1.101` |
-| LIVE | «Погасить всё» | `Off Executor 1.101`<br>`Fixture 12 + 14`<br>`At 0` | `Off Executor 1.101`<br>`Fixture 12 + 14`<br>`At 0` | `Off Executor 1.101`<br>`Fixture 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20 + 21 + 22 + 23 + 24`<br>`At 0` |
+| LIVE | Сцена Cue 1 (1.101) | Свежее ListVar + фиксированное nonce-чтение ручной Cue 1/LTP/Soft LTP/Cmd; `Masterfade T Executor` прежних запусков панели в текущем плане/шоу → `Goto Cue 1 Executor 1.101 Fade T` → их `Off Executor` | Свежее ListVar + фиксированное nonce-чтение ручной Cue 1/LTP/Soft LTP/Cmd; `Masterfade T Executor` прежних запусков панели в текущем плане/шоу → `Goto Cue 1 Executor 1.101 Fade T` → их `Off Executor` | Свежее ListVar + фиксированное nonce-чтение ручной Cue 1/LTP/Soft LTP/Cmd; `Masterfade T Executor` прежних запусков панели в текущем плане/шоу → `Goto Cue 1 Executor 1.101 Fade T` → их `Off Executor` |
+| LIVE | Сцена Off (1.101), текущий серверный Fade T | `Masterfade T Executor 1.101`<br>`Off Executor 1.101` | `Masterfade T Executor 1.101`<br>`Off Executor 1.101` | `Masterfade T Executor 1.101`<br>`Off Executor 1.101` |
+| LIVE | «Blackout MA2» / возврат | ОТКАЗ: нужен full | ОТКАЗ: нужен full | Фиксированное nonce-чтение Grand с %, журнал → `SpecialMaster 2.1 At 0` → чтение. Повтор: прежний уровень при том же контексте и текущем 0; B.O./Programmer/Executor сохраняются. |
 | LIVE* | Общая яркость 50 (allow_master) | `Master 2.1 At 50` | `Master 2.1 At 50` | `Master 2.1 At 50` |
 | LIVE* | Открыть страницу 2 (allow_page_change) | `Page 2` | `Page 2` | `Page 2` |
 | LIVE | Остановить передачу | ничего не уходит | ничего не уходит | ничего не уходит |
 | READ | Обновить сцены из пульта | `ListVar`<br>`List Page`<br>`List Executor 1.1 Thru 1.250` | `ListVar`<br>`List Page`<br>`List Executor 1.1 Thru 1.250` | `ListVar`<br>`List Page`<br>`List Executor 1.1 Thru 1.250` |
 | STORE | Перезапись сцены (отключена) | ОТКАЗ: перезапись существующей сцены отключена: запишите новую сцену в пустой executor | ОТКАЗ: перезапись существующей сцены отключена: запишите новую сцену в пустой executor | ОТКАЗ: перезапись существующей сцены отключена: запишите новую сцену в пустой executor |
-| STORE | Новая сцена (exec+confirm, проверка пустого места) | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме test | `List Executor 2.150`<br>`StoreLook Executor 2.150 Cue 1 /Source=Output`<br>`Label Executor 2.150 "Тест"` | `List Executor 2.150`<br>`StoreLook Executor 2.150 Cue 1 /Source=Output`<br>`Label Executor 2.150 "Тест"` |
+| STORE | Новая сцена (exec+confirm, selected) | ОТКАЗ: режим test | Свежие ListVar + `List Executor 2.150` → `Fixture 12 + 14` → `Store Executor 2.150 Cue 1 /Source=Output /Use=Allforselected` → `Assign Cue 1 Executor 2.150 /Trig=Go` → Label и проверка Cue | Свежие ListVar + `List Executor 2.150` → `Fixture 12 + 14` → `Store Executor 2.150 Cue 1 /Source=Output /Use=Allforselected` → `Assign Cue 1 Executor 2.150 /Trig=Go` → Label и проверка Cue |
 | STORE | Переименовать сцену | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме test | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме store | `Label Executor 1.101 "X"` |
 | STORE | Назвать страницу | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме test | ОТКАЗ: запись в пульт и служебные действия заблокированы в режиме store | `Label Page 2 "X"` |
 | SYSTEM | fixtures_fetch (после show_bind) | `ListVar`<br>`Export Fixture 1 Thru 9999 "panel_fixtures_013308"`<br>`List FixtureType` | `ListVar`<br>`Export Fixture 1 Thru 9999 "panel_fixtures_013308"`<br>`List FixtureType` | `ListVar`<br>`Export Fixture 1 Thru 9999 "panel_fixtures_013308"`<br>`List FixtureType` |
@@ -100,3 +100,13 @@
 | READ | ma2_import: группа 1, пресеты (+ запись в config.json) | `List Group 1 Thru 999`<br>`List Preset 4.1 Thru 4.999`<br>`List Preset 2.1 Thru 2.999`<br>`Export Group 1 Thru 999 "panel_groups_013319"` | `List Group 1 Thru 999`<br>`List Preset 4.1 Thru 4.999`<br>`List Preset 2.1 Thru 2.999`<br>`Export Group 1 Thru 999 "panel_groups_013319"` | `List Group 1 Thru 999`<br>`List Preset 4.1 Thru 4.999`<br>`List Preset 2.1 Thru 2.999`<br>`Export Group 1 Thru 999 "panel_groups_013319"` |
 | LIVE | Пресет цвета MA2 4.1 для выбора | `Fixture 12 + 14`<br>`At Preset 4.1` | `Fixture 12 + 14`<br>`At Preset 4.1` | `Fixture 12 + 14`<br>`At Preset 4.1` |
 | SHOW | group_store_ma2: группа панели → Group 11 (проверка пустого номера) | `List Group 11`<br>`Fixture 12`<br>`Store Group 11 "G"` | `List Group 11`<br>`Fixture 12`<br>`Store Group 11 "G"` | `List Group 11`<br>`Fixture 12`<br>`Store Group 11 "G"` |
+
+Обновление (`scene_create replace:true`) не использует Delete target: сначала
+новый Cue 1 в проверенном пустом spare, резерв target Cue 1 → spare Cue 2,
+затем Copy spare Cue 1 → target Cue 1 /CueOnly /Overwrite. Backup также использует /CueOnly; интерактивный выбор метода не допускается. Перед стадиями читается шоу.
+Другие формы Overwrite не разрешены. Spare остаётся для ручного восстановления.
+
+Уточнение 2026-11-11: область Masterfade/Off ограничена прежними попытками Goto
+панели в текущем плане/шоу; каталог и клиентский swap не дают права на Off.
+Свежий Off-readback снимает владение, устаревший/неизвестный — нет. После смены
+контекста и перезапуска владельцы не угадываются.

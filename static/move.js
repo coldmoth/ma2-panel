@@ -103,6 +103,7 @@ function moveShell(el) {
     save: moveEl('button', '', 'Запомнить пресет')
   };
   els.pad.dataset.feature = 'move';
+  if (typeof watchControl === 'function') watchControl(els.pad);
   els.pad.appendChild(els.dot);
   els.pad.appendChild(els.msg);
   els.pad.setAttribute('aria-label', 'Пад Pan и Tilt');
@@ -154,6 +155,7 @@ function moveShell(el) {
     var label = moveEl('label', 'move-axis'), name = moveEl('span', '', attr === 'pan' ? 'Pan' : 'Tilt');
     var output = moveEl('output'), input = moveEl('input');
     input.type = 'range'; input.min = 0; input.max = 100; input.step = 0.1; input.dataset.feature = 'move';
+    if (typeof watchControl === 'function') watchControl(input);
     input.setAttribute('aria-label', (attr === 'pan' ? 'Pan' : 'Tilt') + ' — абсолютное положение');
     var axis = {input: input, output: output, blocked: false, gesture: null, timer: null, latest: null, sent: -Infinity};
     els.axes[attr] = axis;
@@ -168,7 +170,7 @@ function moveShell(el) {
       if (axis.gesture && (axis.gesture.ids !== state.selection.join(',') || axis.gesture.config !== state.config)) {
         axis.blocked = true; return;
       }
-      var spec = state.config.attrs[attr], percent = moveClip(Number(input.value), 0, 100);
+      var spec = state.config.attrs[attr] || {}, percent = moveClip(Number(input.value), 0, 100);
       if (!Number.isFinite(percent) || !(spec.max > spec.min)) return;
       var value = Math.round((spec.min + percent * (spec.max - spec.min) / 100) * 10) / 10;
       value = moveClip(value, spec.min, spec.max);
@@ -325,7 +327,7 @@ function renderMove(el) {
   els.modeJoystick.setAttribute('aria-pressed', String(!absolute));
   els.modeAbsolute.setAttribute('aria-pressed', String(absolute));
   Object.keys(els.axes).forEach(function (attr) {
-    var axis = els.axes[attr], spec = state.config.attrs[attr];
+    var axis = els.axes[attr], spec = state.config.attrs[attr] || {};
     axis.input.disabled = off || !Number.isFinite(spec.min) || !Number.isFinite(spec.max) || spec.max <= spec.min;
     if (axis.input.disabled || (axis.gesture && (axis.gesture.ids !== state.selection.join(',') || axis.gesture.config !== state.config)) ||
         (axis.latest && (axis.latest.ids !== state.selection.join(',') || axis.latest.config !== state.config))) {
@@ -379,19 +381,19 @@ function renderMove(el) {
   els.saveHint.hidden = !unknown;
   Object.keys(els.sliders).forEach(function (attr) {
     var input = els.sliders[attr];
-    input.parentNode.hidden = !toolVisible(attr) || !attributeVisible(attr) || !split(attr).yes.length;
+    input.parentNode.hidden = !attributeVisible(attr) || typeof split === 'function' && !split(attr).yes.length;
     // Error #14 on this console taught the bridge which fixture types lack the attribute.
     var lacking = (state.noAttr || {})[attr] || [];
     input.disabled = !ready || !heads.length || !!featureReason(attr) || heads.every(function (f) { return lacking.indexOf(f.type) >= 0; });
-    if (heads.length && document.activeElement !== input && !(sliderChannels[attr] || {}).latest) {
+    if (heads.length && document.activeElement !== input && !(sliderChannels[attr] || {}).latest && !(typeof controlActive === 'function' && controlActive(input))) {
       setFill(input, moveValue(heads[0].id, attr));  // unknown: striped track, hollow thumb
     }
   });
   els.presets.querySelectorAll('[data-preset]').forEach(function (b) { b.disabled = !ready || !!featureReason('move'); });
-  var attrs = state.config.attrs;
+  var attrs = state.config.attrs, panSpec = attrs.pan || {}, tiltSpec = attrs.tilt || {};
   els.steps.forEach(function (item) { item.button.disabled = off; });
-  els.range.textContent = 'Диапазон Pan ' + attrs.pan.min + '…' + attrs.pan.max + '°, Tilt ' + attrs.tilt.min + '…' + attrs.tilt.max + '°' +
-    (attrs.pan.range_checked === true && attrs.tilt.range_checked === true ? ' — проверен на пульте' : ' — из настроек, не проверен на пульте');
+  els.range.textContent = Number.isFinite(panSpec.min) && Number.isFinite(tiltSpec.min) ? 'Диапазон Pan ' + panSpec.min + '…' + panSpec.max + '°, Tilt ' + tiltSpec.min + '…' + tiltSpec.max + '°' +
+    (panSpec.range_checked === true && tiltSpec.range_checked === true ? ' — проверен на пульте' : ' — из настроек, не проверен на пульте') : 'Диапазоны Pan/Tilt не настроены. Абсолютное положение недоступно.';
   var pan = null, tilt = null, drag = moveState.drag;
   if (heads.length) {
     pan = moveValue(heads[0].id, 'pan');

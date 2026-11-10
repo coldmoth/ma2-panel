@@ -12,7 +12,7 @@ from ma2panel import bridge
 from ma2panel.fixtures import parse_export, merge_fixtures
 from ma2panel.safety import effective_safety, make_guard
 from ma2panel.show_plans import plan_path
-from test_bridge import bridge_cfg, ask, until  # noqa: F401
+from test_bridge import bridge_cfg, ask, until, confirm_fixture_import  # noqa: F401
 
 EXPORT = 'Export Fixture 1 Thru 9999 "panel_fixtures"'
 READ = {'safety': {'mode': 'full', 'allow_fixture_read': True}}
@@ -36,7 +36,7 @@ def test_invalid_xml(text):
 def test_merge_display_and_metadata():
     old = [{'id': 12, 'label': 'Manual', 'x': .1, 'y': .2, 'color': 'cmy', 'moves': True, 'beam': {'home': 1}}, {'id': 2}]
     before = json.dumps(old)
-    merged = merge_fixtures(old, [{'id': 12, 'name': 'MA', 'type': 'Spot', 'params': ['Pan'], 'address': '1.001'}])
+    merged = merge_fixtures(old, [{'id': 12, 'name': 'MA', 'type': 'Spot', 'params': ['Pan'], 'address': '1.001'}], choices={'12': 12})
     assert next(f for f in merged if f['id'] == 12) == {**old[0], 'name': 'MA', 'type': 'Spot', 'params': ['Pan'], 'address': '1.001'}
     assert merged[0]['missing'] is True
     assert json.dumps(old) == before
@@ -72,7 +72,7 @@ def test_identify_and_fetch(bridge_cfg):
         assert ask(ws, {'a': 'show_identify'})['ok']
         status = until_status(ws, {'a': 'show_identify'})
         assert status['show'] == {'name': mock.show_name, 'source': 'ma2'}
-        result = ask(ws, {'a': 'fixtures_fetch'})
+        result = confirm_fixture_import(ws, ask(ws, {'a': 'fixtures_fetch'}))
         assert result['ok'] and result['source'] == 'ma2' and result['total'] > 0
         assert Path(result['file']).name.startswith('fixture-panel_fixtures_')
         assert any(c.startswith(EXPORT[:-1] + '_') for c in mock.received)
@@ -92,7 +92,7 @@ def until_status(ws, action):
 
 
 def test_unknown_mismatch_and_binding(bridge_cfg):
-    with bridge_cfg(settings=READ) as (ws, mock, path):
+    with bridge_cfg(lambda c: c.pop("show", None), settings=READ) as (ws, mock, path):
         mock.list_garbage = True
         assert until_status(ws, {'a': 'show_identify'})['show']['name'] is None
         assert 'привяжите' in ask(ws, {'a': 'fixtures_fetch'})['err']
@@ -102,7 +102,7 @@ def test_unknown_mismatch_and_binding(bridge_cfg):
         mock.list_garbage = False
         ask(ws, {'a': 'show_identify'})
         # The desk shows another show: fetching moves to its plan (the old one is kept in shows/) and imports there.
-        result = ask(ws, {'a': 'fixtures_fetch'})
+        result = confirm_fixture_import(ws, ask(ws, {'a': 'fixtures_fetch'}))
         assert result['ok'] and result['switched'] == mock.show_name
         assert json.loads(path.read_text())['show'] == mock.show_name
         assert json.loads(plan_path(path.parent / 'shows', 'Other').read_text())['show'] == 'Other'
@@ -112,7 +112,7 @@ def test_plans_and_selection_reset(bridge_cfg):
     with bridge_cfg() as (ws, mock, path):
         mock.show_name = 'A/Б'  # the desk has this plan's show open: plan actions are allowed
         assert ask(ws, {'a': 'show_identify'})['ok']
-        assert ask(ws, {'a': 'show_bind', 'name': 'A/Б'})['ok']
+        assert ask(ws, {'a': 'show_bind', 'name': 'A/Б', 'confirm': True})['ok']
         old = json.loads(path.read_text())
         assert ask(ws, {'a': 'select_fixtures', 'ids': [12]})['ok']
         before = list(mock.received)
@@ -185,7 +185,7 @@ def test_export_search_freshness(bridge_cfg, tmp_path, fresh):
         # Export goes to another drive. A stale file there must not be accepted.
         mock.export_dir = str(other) if fresh else None
         before = path.read_bytes()
-        result = ask(ws, {'a': 'fixtures_fetch'})
+        result = confirm_fixture_import(ws, ask(ws, {'a': 'fixtures_fetch'}))
         assert result['ok'] is fresh
         if fresh:
             assert Path(result['file']).parent == other and Path(result['file']) != target
@@ -202,7 +202,7 @@ def test_export_search_finds_console_fixtures_folder(bridge_cfg, tmp_path):
     settings = {**READ, 'ma2': {'export_search': [str(install.parent / '*' / 'importexport')]}}
     with bridge_cfg(settings=settings) as (ws, mock, path):
         mock.fixture_dir = str(fixtures)
-        result = ask(ws, {'a': 'fixtures_fetch'})
+        result = confirm_fixture_import(ws, ask(ws, {'a': 'fixtures_fetch'}))
         assert result['ok'], result
         assert Path(result['file']).parent == fixtures
         assert json.loads(path.read_text())['fixtures_read']['source'] == 'ma2'
@@ -288,7 +288,7 @@ def test_head_guess_and_same_type(bridge_cfg):
     from ma2panel.fixtures import guess_head, merge_fixtures
     assert guess_head("5 Oxygen Mode 1") and not guess_head("4 Mini-B Basic RGBW") and not guess_head("8 PAR 14X15 SLIM 10 ch")
     got = merge_fixtures([{"id": 2, "label": "x", "moves": False}],
-                         [{"id": 1, "name": "a", "type": "Oxygen", "address": None}, {"id": 2, "name": "b", "type": "Oxygen", "address": None}])
+                         [{"id": 1, "name": "a", "type": "Oxygen", "address": None}, {"id": 2, "name": "b", "type": "Oxygen", "address": None}], choices={"2": 2})
     assert got[0]["moves"] is True and got[0]["moves_auto"] is True and got[1]["moves"] is False
     with bridge_cfg(lambda cfg: [f.update(type="T1") for f in cfg["fixtures"] if f["id"] in (10, 11)]) as (ws, mock, path):
         assert ask(ws, {"a": "fixture_flag", "id": 10, "moves": True, "same_type": True})["ok"]

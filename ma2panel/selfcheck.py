@@ -99,6 +99,9 @@ def main():
 
 def cli(argv=None):
     global BASE
+    for stream in (sys.stdout, sys.stderr):
+        if stream and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     args = sys.argv[1:] if argv is None else argv
     BASE = (args[0] if args else "http://127.0.0.1:8080").rstrip("/")
     rows.clear()

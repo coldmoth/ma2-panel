@@ -2,7 +2,7 @@
    light.js draws Свет, plan.js draws the hall plan and Зал, move.js the Pan/Tilt pad. */
 var state = {valuesRevision: -1, master: null, readFreshness: {}, ws: null, ma2: 'down', mock: false, last: null, manual: false, page: null, scenes: {}, config: null, configN: 0,
   shown: {}, live: {}, dmx: {}, sceneMeta: {}, valuesMeta: {}, tracked: true, selection: [], group: null, halted: false, safety: null, features: {}, highlight: null,
-  showLoad: {state: 'idle'}, show: {name: null}, sec: 'start', blackoutArm: false,
+  showLoad: {state: 'idle'}, show: {name: null}, sec: 'scenes', blackoutArm: false, blackoutEpoch: 0,
   fetch: null, ma2read: null, showNames: null, showRaw: [], showLocal: [], showPick: null, saveReply: '', history: []};
 // Reconnect restores intent only after fresh fixture identity and bridge-only selection ACK.
 var selectionIntent = null;
@@ -42,7 +42,7 @@ var operationFeedback = null;
 var configQueue = [];
 var configActive = null;
 var actionRevision;
-var CONFIG_WRITES = ['layout_save','hall_save','fixture_flag','group_save','group_delete','preset_save','preset_delete',
+var CONFIG_WRITES = ['scene_fade','layout_save','hall_save','fixture_flag','group_save','group_delete','preset_save','preset_delete',
   'beam_home','beam_invert','dmx_map','rdm_link','scene_create','scene_rename','scene_delete','page_save','scenes_import',
   'ma2_import','fixtures_fetch','import_confirm_merge','plan_copy','show_bind','show_open_plan','show_load','patch_apply','undo'];
 function captureRevision(fn) {
@@ -68,12 +68,17 @@ var requestSerial = 0;
 var requestPrefix = Date.now().toString(36) + Math.random().toString(36).slice(2);
 var sliderChannels = {};
 var SLIDER_ACTIONS = ['master', 'dim', 'color', 'move', 'jog', 'zoom', 'focus', 'strobe'];
-var sceneFade = 0;  // scene crossfade, seconds; the scenes running now always go Off (at once or when it ends)
+var sceneUI = {query: '', editing: false, masterOpen: false};
+var sceneFade = 0;  // persisted by the bridge, shared with the simple panel
 var fadeSeconds = 0;  // fade for jumps (quick % buttons, colour swatches, a tap on the wheel); drags never fade
 var reconnectTimer = null;
 var sectionDisposers = [];
 var updaters = [];     // value refreshers of the current section; rebuilt with it
 var sectionKey = null;
+var latestSelectionRequest = null;
+var activeControls = [];
+var controlGeneration = 0;
+var sectionDeferred = false;
 var SECTIONS = {};     // name -> function (el); light.js and plan.js add theirs
 var SETUP = ['start', 'hall', 'patch', 'shows'];  // venue preparation; the rest is the live show
 
@@ -90,13 +95,39 @@ function h(tag, attrs) {
     if (v === null || v === undefined || v === false) return;
     if (k === 'class') el.className = v;
     else if (k === 'text') el.textContent = v;
-    else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), captureRevision(v));
+    else if (k.slice(0, 2) === 'on') {
+      var handler = captureRevision(v);
+      el.addEventListener(k.slice(2), function (event) {
+        if ((event.type === 'input' || event.type === 'change') && el._controlGeneration !== undefined && el._controlGeneration !== controlGeneration) return;
+        return handler.call(el,event);
+      });
+    }
     else if (k === 'style') Object.keys(v).forEach(function (s) { el.style.setProperty(s, v[s]); });
     else if (k in el && typeof v !== 'string') el[k] = v;
     else el.setAttribute(k, v === true ? '' : v);
   });
   add.apply(null, [el].concat(Array.prototype.slice.call(arguments, 2)));
+  if (tag === 'input' && attrs && attrs.type === 'range' || attrs && attrs.role === 'slider') watchControl(el);
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') el.addEventListener('blur', catchUpSection);
   return el;
+}
+function catchUpSection() {
+  if (sectionDeferred) setTimeout(function () { render(); }, 0);
+}
+function watchControl(el) {
+  el._controlGeneration = controlGeneration;
+  function begin() { el._controlGeneration = controlGeneration; if (activeControls.indexOf(el) < 0) activeControls.push(el); }
+  function end() { activeControls = activeControls.filter(function (item) { return item !== el; }); catchUpSection(); }
+  el.addEventListener('pointercancel',function(){if (controlActive(el)) cancelTargetControls();});
+  ['pointerdown','keydown'].forEach(function (type) { el.addEventListener(type, begin); });
+  ['pointerup','pointercancel','lostpointercapture','keyup','blur'].forEach(function (type) { el.addEventListener(type, end); });
+}
+function controlActive(el) { return activeControls.indexOf(el) >= 0; }
+function cancelTargetControls() {
+  controlGeneration++;
+  Object.keys(sliderChannels).forEach(cancelSlider);
+  activeControls = [];
+  if (typeof moveStop === 'function') moveStop();
 }
 function add(el) {
   for (var i = 1; i < arguments.length; i++) {
@@ -129,11 +160,12 @@ function pageOf(scene) { return parseInt(String(scene.exec).split('.')[0], 10) |
 function bridgeUp() { return !!state.ws && state.ws.readyState === WebSocket.OPEN; }
 // Commands go out only after the bridge confirmed the login (ListVar returned the configured user).
 function linkReady() { return state.ma2 === 'logged_in'; }
-function connected() { return bridgeUp() && linkReady() && !awaitingConfig && !selectionSync && !state.halted && !state.showFileActive && !(state.showLoad && state.showLoad.state === 'loading'); }
+function contextReadable() { return bridgeUp() && linkReady() && !awaitingConfig && !state.halted && !state.showFileActive && !(state.showLoad && state.showLoad.state === 'loading'); }
+function connected() { return contextReadable() && !selectionSync && !state.recovering; }
 function fixtures() { return (state.config && state.config.fixtures) || []; }
 function fixture(id) { return fixtures().filter(function (f) { return f.id === id; })[0] || null; }
 // A head: marked by the operator (moves), or Pan/Tilt among the attribute names from MA2. Same rule as commands.can_move.
-function canMove(f) { return f.moves === true || (f.params || []).some(function (p) { return /pan|tilt/i.test(p); }); }
+function canMove(f) { return !f.missing && (f.moves === true || (f.params || []).some(function (p) { return /^(pan|tilt)$/i.test(p); })); }
 function hasFixtures() { return fixtures().length > 0; }
 function safe(flag) { return !!(state.safety && state.safety[flag]); }
 
@@ -147,6 +179,7 @@ function linkLine() {
   if (state.halted && linkReady()) return {dot: 'wait', text: 'Передача остановлена'};
   var short = {logged_in:'Подключено',down:'Нет связи с пультом',tcp:'Подключение…',login_failed:'Ошибка входа',
     login_unknown:'Вход не подтверждён',manual_off:'Связь отключена'};
+  if (state.recovering) return {dot:'wait',text:'Восстановление данных MA2'};
   if (state.showFileActive) return {dot:'wait',text:'Передача файла шоу'};
   if (state.showLoad && state.showLoad.state === 'loading') return {dot:'wait',text:'Загрузка шоу'};
   return {dot:state.ma2 === 'logged_in' ? 'on' : state.ma2 === 'down' ? '' : 'wait',text:short[state.ma2] || state.ma2};
@@ -154,16 +187,20 @@ function linkLine() {
 
 // Busy is processing, never proof that the desk applied a change.
 function send(action, button) {
-  if (!connected() || featureReason(actionFeature(action.a))) return false;
+  var recoveryRead = state.recovering && contextReadable() && ['fixtures_fetch','import_confirm_merge','show_identify'].indexOf(action.a) >= 0;
+  if ((!connected() && !recoveryRead) || featureReason(actionFeature(action.a))) return false;
   if (button && button.getAttribute('aria-busy') === 'true') return false;
-  // Waiting slider values go out before any other action, so the bridge sees them in the user's order.
-  if (SLIDER_ACTIONS.indexOf(action.a) < 0) flushSliders();
+  // Global Off discards old gestures; other actions retain their ordering with sliders.
+  if (action.a === 'blackout') {
+    cancelTargetControls();
+  } else if (SLIDER_ACTIONS.indexOf(action.a) < 0) flushSliders();
   var revision = actionRevision === undefined ? state.config && state.config.revision : actionRevision;
   if (state.sec === 'hall' && typeof planState !== 'undefined' && planState.editing) revision = planState.revision;
-  action = Object.assign({config_revision: revision}, action, {request_id: requestPrefix + ':' + (++requestSerial)});
+  action = Object.assign({config_revision: revision, blackout_epoch: state.blackoutEpoch}, action, {request_id: requestPrefix + ':' + (++requestSerial)});
   pending[action.request_id] = {a: action.a, request_id: action.request_id, serial: requestSerial,
     label: commandOperationName(action, state.config), sent: false, waitMs: commandWaitMs(action),
-    button: button || null, revision: action.config_revision};
+    button: button || null, revision: action.config_revision, scene: action.id};
+  if (['select_fixtures','select_group','ma2_group_go','clear'].indexOf(action.a) >= 0) latestSelectionRequest = action.request_id;
   operationFeedback = null;
   if (CONFIG_WRITES.indexOf(action.a) >= 0) {
     configQueue.push({action: action});
@@ -245,6 +282,8 @@ function featureReason(feature) {
 
 function go(sec) {
   if (!SECTIONS[sec]) return;
+  if (sec !== state.sec) cancelTargetControls();
+  if (sec !== 'light' && typeof lightUI !== 'undefined') lightUI.picking = false;
   if (state.sec === 'hall' && sec !== 'hall' && typeof planEndEdit === 'function') planEndEdit();
   if (sec === 'hall' && state.sec !== 'hall' && typeof planBeginEdit === 'function') planBeginEdit();
   state.sec = sec;
@@ -289,12 +328,14 @@ function render() {
   halt.setAttribute('aria-pressed', String(!!state.halted));
   halt.disabled = !bridgeUp();
   var bo = document.getElementById('blackout');
-  var blackoutLabel = state.blackoutArm ? 'Ещё раз — погасить' : 'Погасить свет';
+  var blackoutUnknown = state.blackout && state.blackout.phase === 'unknown';
+  var blackoutLabel = blackoutUnknown ? 'Проверьте Grand Master' : state.blackout && state.blackout.phase === 'active' ? 'Восстановить свет' : 'Blackout MA2';
+  bo.title = 'Grand Master: временное затемнение. Приборы без React to Master и DMX overrides могут остаться включены.';
   if (bo.textContent !== blackoutLabel) {
     bo.textContent = '';
     add(bo, [icon('power'), blackoutLabel]);
   }
-  bo.disabled = !connected() || !!featureReason('scenes');
+  bo.disabled = blackoutUnknown || !connected() || !!featureReason('scenes') || !state.safety || state.safety.mode !== 'full' || busy('blackout');
   renderBanners();
   renderOperationFeedback();
   renderSection();
@@ -311,6 +352,8 @@ function renderBanners() {
     h('button', {class: 'btn small', type: 'button', disabled: !connected(), onclick: function () { if (confirm('Снять подсветку командой Off без восстановления прежних значений? У приборов зала пропадёт и то, что выставлено на пульте вручную.')) send({a: 'highlight_off', release_token: hl.release_token}); }}, 'Снять подсветку')));
   if (bridgeUp() && !linkReady()) b.appendChild(h('div', {class: 'banner ' + (state.ma2 === 'login_failed' ? 'bad' : 'warn'), role: 'alert'}, icon('alert'),
     (LINK_TEXT[state.ma2] || state.ma2) + '. Управление недоступно' + (state.manual ? '.' : ', мост переподключается сам.')));
+  if (bridgeUp() && state.recovering) b.appendChild(h('div', {class:'banner warn', role:'status'}, 'Восстановление данных MA2. ' + (state.recoveryError || 'Управление станет доступно после проверки контекста.')));
+  if (state.blackout && state.blackout.phase === 'unknown') b.appendChild(h('div', {class:'banner warn', role:'alert'}, state.blackout.reason || 'Состояние затемнения неизвестно. Проверьте Grand Master на MA2 вручную.'));
   if (!bridgeUp()) b.appendChild(h('div', {class: 'banner bad', role: 'alert'}, icon('alert'), 'Нет связи с мостом. Панель переподключается каждые 2 с.'));
   if (bridgeUp() && state.halted) b.appendChild(h('div', {class: 'banner warn', role: 'alert'}, icon('pause'),
     'Передача остановлена: панель ничего не отправляет на MA2, очередь удалена. Свет на пульте не менялся.',
@@ -330,10 +373,12 @@ function renderBanners() {
 
 function renderSection() {
   var el = document.getElementById('page');
+  activeControls = activeControls.filter(function(control){return el.contains(control);});
   var hl = state.highlight || {};
-  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, connected(), state.configN, state.selection, state.ma2, state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
-    // Poll timestamps must not replace live controls between pointerdown/up.
-    state.show, state.sec === 'scenes' ? ((state.config || {}).scenes || []).map(function (s) { return sceneEvidence(s.id); }) : null, state.safety, state.features, state.readFreshness, state.fetch, state.ma2read, state.showNames, state.showPick, state.saveReply, state.page, sceneFade,
+  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, state.configN, state.selection, state.ma2, state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
+    // Poll timestamps are evidence, not structural UI state. Replacing the page on
+    // every read loses open details and pointer targets between down and up.
+    [state.show.name,state.show.source], sceneUI.editing, sceneUI.masterOpen, state.safety, state.features, SETUP.indexOf(state.sec) >= 0 ? state.readFreshness : null, state.fetch, state.ma2read, state.showNames, state.showPick, state.saveReply, state.page, sceneFade,
     state.sec === 'start' ? state.last : null, // «Последняя команда» on Площадка; elsewhere a command must not redraw the sliders
     state.sec === 'history' ? state.history : null,
     typeof planKey === 'function' ? planKey() : '', state.sec === 'patch' && typeof patchKey === 'function' ? patchKey() : '', typeof lightKey === 'function' ? lightKey() : '']);
@@ -346,7 +391,8 @@ function renderSection() {
   var focused = document.activeElement;
   var focusKey = focused && el.contains(focused) ? {id:focused.id, label:focused.getAttribute('aria-label'), text:focused.textContent, tag:focused.tagName} : null;
   // Re-render would drop text being typed; values catch up on the next change.
-  if (focused && el.contains(focused) && (focused.tagName === 'INPUT' && focused.type !== 'range' && focused.type !== 'checkbox' || focused.tagName === 'TEXTAREA')) return;
+  if (renderSection.sec === state.sec && (activeControls.length || focused && el.contains(focused) && (focused.tagName === 'INPUT' && focused.type !== 'range' && focused.type !== 'checkbox' && focused.id !== 'fixture-search' && focused.id !== 'scene-search' || focused.tagName === 'TEXTAREA'))) { sectionDeferred = true; return; }
+  sectionDeferred = false;
   if (typeof moveStop === 'function') moveStop();
   sectionKey = key;
   // A rebuild must not throw lists back to the top: a tap on a fixture low in the list keeps the list where it was.
@@ -358,6 +404,8 @@ function renderSection() {
   updaters = [];
   el.className = 'page' + (state.sec === 'light' || state.sec === 'hall' ? ' fill' : '');
   SECTIONS[state.sec](el);
+  if (['light','scenes'].indexOf(state.sec) >= 0 && typeof lightUI !== 'undefined' && lightUI.picking) document.getElementById('fixture-picker').showModal();
+  if (state.sec === 'scenes' && sceneUI.masterOpen) document.getElementById('scene-master').showModal();
   if (sameSec) {
     el.scrollTop = scroll.page;
     el.querySelectorAll('[data-scroll]').forEach(function (n) { var v = scroll[n.getAttribute('data-scroll')]; if (v) n.scrollTop = v; });
@@ -404,7 +452,7 @@ function fixtureImportChoices(f) {
           onclick: function () { choose(null); }}, 'Оставить новый')));
     }),
     h('div', {class: 'row'},
-      h('button', {class: 'btn primary', type: 'button', disabled: !connected() || !fixtureImportComplete(f) || busy('import_confirm_merge'), onclick: function (event) {
+      h('button', {class: 'btn primary', type: 'button', disabled: !contextReadable() || !fixtureImportComplete(f) || busy('import_confirm_merge'), onclick: function (event) {
         if (!fixtureImportComplete(f) || busy('import_confirm_merge')) return;
         state.fetch = {state: 'loading'};
         if (!send({a: 'import_confirm_merge', request_token: f.request_token, choices: choices}, event.currentTarget)) {
@@ -433,7 +481,7 @@ SECTIONS.start = function (el) {
   var last = state.last;
   if (last) add(conn, h('p', {class: 'note ' + (last.status === 'error' ? 'bad' : '')}, 'Последняя команда ' + last.t + ': ' + last.cmd + ' — ' + (RESULT_TEXT[last.status] || last.status)));
 
-  var canFetch = ready && safe('allow_fixture_read') && !busy('fixtures_fetch') && !busy('import_confirm_merge');
+  var canFetch = contextReadable() && safe('allow_fixture_read') && !busy('fixtures_fetch') && !busy('import_confirm_merge');
   var f = state.fetch;
   var eq = h('section', {class: 'card'}, h('h2', {}, 'Оборудование из MA2'),
     h('p', {class: 'note'}, 'Читаю приборы текущего патча: ID, имя, тип и параметры. Это не поиск RDM. Повторное чтение сохраняет расстановку, добавляет новые приборы и помечает пропавшие.'),
@@ -441,7 +489,11 @@ SECTIONS.start = function (el) {
       state.fetch = {state: 'loading'}; send({a: 'fixtures_fetch'}, e.currentTarget); render();
     }}, icon(hasFixtures() ? 'refresh' : 'download'), busy('fixtures_fetch') ? 'Читаю патч…' : hasFixtures() ? 'Получить снова' : 'Получить оборудование из MA2')),
     !safe('allow_fixture_read') ? h('p', {class: 'note warn'}, 'Чтение приборов выключено. Включите «Разрешить получение приборов из MA2» в ', h('a', {href: 'settings.html'}, 'Настройках'), '.') : null,
-    f && f.state === 'done' ? h('p', {class: 'ok'}, 'Получено из MA2: добавлено ' + f.added + ', пропало ' + f.missing + ', всего ' + f.total) : null,
+    f && f.state === 'done' ? h('div', {role:'status'}, h('p',{class:'ok'},'Получено из MA2: добавлено ' + f.added + ', пропало ' + f.missing + ', всего ' + f.total),
+      h('dl',{class:'sync-summary'},h('dt',{},'Изменено'),h('dd',{},typeof f.changed === 'number' ? f.changed : 'Мост не сообщает отдельное число'),
+        h('dt',{},'Без Fixture ID'),h('dd',{},f.no_id && f.no_id.length ? f.no_id.join(', ') : 'Нет в ответе'),
+        h('dt',{},'Параметры не прочитаны'),h('dd',{},fixtures().filter(function(item){return !item.missing && !(item.params || []).length;}).map(function(item){return item.id;}).join(', ') || 'Нет'),
+        h('dt',{},'Сохранение'),h('dd',{},'План панели обновлён. Расстановка сохранена; пропавшие приборы помечены. Патч MA2 этим не изменён.'))) : null,
     f && f.state === 'error' ? h('p', {class: 'bad', role: 'alert'}, 'Не получено из MA2: ' + f.err) : null,
     f && f.state === 'error' ? h('p', {class: 'note'}, h('a', {href: 'diag.html'}, 'Открыть диагностику')) : null,
     f && f.state === 'ambiguous' ? fixtureImportChoices(f) : null,
@@ -512,28 +564,91 @@ function ma2Card() {
 /* ---------- Сцены ---------- */
 function pagesList() {
   var pages = state.config && state.config.pages;
-  return Array.isArray(pages) ? pages : [];
+  return Array.isArray(pages) ? pages : Object.keys(pages || {}).map(function (key) { return {n:Number(key),label:pages[key]}; });
+}
+// Keep the existing preparation sections and their forms reachable from four primary entries.
+SECTIONS.prepare = function (el) {
+  add(el, h('div', {class:'ph'}, h('h1', {}, 'Подготовка')),
+    h('p', {class:'note'}, 'Изменения отдельно от исполнения.'));
+  var links = h('div', {class:'preparation-links'});
+  [['start','Подключение и синхронизация'],['patch','Приборы и Patch'],['hall','План зала и группы'],['shows','Шоу'],['scenes','Редактировать сцены'],['history','История']].forEach(function (item) {
+    add(links, h('button', {class:'btn', type:'button', onclick:function () {
+      if (item[0] === 'scenes') sceneUI.editing = true;
+      go(item[0]);
+    }}, item[1]));
+  });
+  add(links,h('button',{class:'btn',type:'button',onclick:function(){go('hall');planState.tab='groups';render();}},'Группы'),h('a',{class:'btn',href:'diag.html'},'Диагностика'),h('a',{class:'btn',href:'settings.html'},'Настройки подключения'));
+  add(el, links);
+};
+SECTIONS.help = function (el) {
+  add(el, h('div', {class:'ph'}, h('h1', {}, 'Связь и помощь')),
+    h('section', {class:'card'}, h('h2', {}, linkLine().text),
+      h('p', {class:'note'}, 'После обрыва команды не повторяются. Проверьте состояние света перед новой командой.'),
+      h('p', {class:'note'}, 'Отправка команды не подтверждает физическое состояние света.'),
+      h('div', {class:'row'}, h('button', {class:'btn', type:'button', onclick:function(){go('start');}}, 'Площадка'),
+        h('button', {class:'btn', type:'button', onclick:function(){go('history');}}, 'История'),
+        h('a', {class:'btn', href:'diag.html'}, 'Диагностика'), h('a', {class:'btn', href:'settings.html'}, 'Настройки'),
+        h('a', {class:'btn', href:'log.html'}, 'Журнал действий'))));
+};
+
+function transitionControl() {
+  var input = h('input', {type:'number', min:0, max:30, step:0.5, value:String(sceneFade), 'aria-label':'Время перехода, секунды', onchange:function () {
+    var value = Number(input.value);
+    if (!input.value.trim() || !Number.isFinite(value) || value < 0 || value > 30) { input.value = String(sceneFade); notice('Время перехода: от 0 до 30 секунд.', 'warning'); return; }
+    send({a:'scene_fade',fade:value});
+  }});
+  return h('div', {class:'card fade shared-fade', role:'group', 'aria-label':'Общее время перехода'},
+    h('label', {}, 'Переход, с', input), [0,2,5,10].map(function (seconds) {
+      var button = h('button', {class:'btn small', type:'button', 'aria-pressed':String(sceneFade === seconds), onclick:function () { send({a:'scene_fade',fade:seconds}); }}, seconds ? seconds + ' с' : 'Сразу');
+      updaters.push(function () { button.setAttribute('aria-pressed',String(sceneFade === seconds)); });
+      return button;
+    }), h('span', {class:'src'}, 'Сцены и быстрые значения. Перетаскивание — сразу.'));
 }
 SECTIONS.scenes = function (el) {
   var ready = connected();
   var scenes = (state.config && state.config.scenes) || [];
   var addBtn = h('button', {class: 'btn primary', type: 'button', disabled: !ready || !!featureReason('store'),
-    title: 'Записать свет, который выставлен сейчас, в новую сцену', onclick: function () { openStore(state.page || 1); }}, '+ Добавить');
-  var head = h('div', {class: 'ph'}, h('h1', {}, 'Сцены'), addBtn);
+    title: 'Записать свет, который выставлен сейчас, в новую сцену', onclick: function () { openStore(state.page || 1); }}, 'Сохранить сцену');
+  var edit = h('button', {class: 'btn small edit', type: 'button', onclick: function () {
+    sceneUI.editing = !sceneUI.editing; render();
+  }}, sceneUI.editing ? 'К исполнению' : 'Изменить сцены');
+  var head = h('div', {class: 'ph'}, h('h1', {}, sceneUI.editing ? 'Редактирование сцен' : 'Сцены'), edit, addBtn);
   var master = masterControl();
-  add(head, h('div', {class: 'card master-card'}, master));
-  add(el, head);
-  add(el, h('div', {class: 'card fade', role: 'group', 'aria-label': 'Плавный переход между сценами',
-    title: 'Сцена включается плавно за это время. Время сцены в самом пульте при этом заменяется.'},
-    h('span', {class: 'note'}, 'Переход'), [0, 2, 5, 10].map(function (sec) {
-      return h('button', {class: 'btn small', type: 'button', 'aria-pressed': String(sec === sceneFade),
-        onclick: function () { sceneFade = sec; render(); }}, sec ? sec + ' с' : 'сразу');
-    })));
+  var compactMaster = h('button', {id:'compact-master', class:'btn compact-master', type:'button', onclick:function () {
+    sceneUI.masterOpen = true; render();
+  }}, 'Общая яркость');
+  function closeMaster() {
+    sceneUI.masterOpen = false; render();
+    var button = document.getElementById('compact-master'); if (button) button.focus({preventScroll:true});
+  }
+  var masterDialog = h('dialog', {id:'scene-master', 'aria-label':'Общая яркость', oncancel:function(event){event.preventDefault();closeMaster();}},
+    h('div', {class:'dlg'}, sceneUI.masterOpen ? master : null,
+      h('button', {class:'btn', type:'button', onclick:closeMaster}, 'К сценам')));
+  add(el, head, compactMaster, masterDialog);
+  add(el, transitionControl());
   if (!scenes.length) {
     add(el, h('div', {class: 'card'}, h('p', {}, 'Сцен в панели нет. Прочитайте их из MA2 на «Площадке».'), h('div', {}, h('button', {class: 'btn', type: 'button', onclick: function () { go('start'); }}, 'Открыть «Площадку»'))));
+    if (hasFixtures()) lightWorkspace(el, true);
     return;
   }
-  var tiles = h('div', {class:'tiles'});
+  var search = h('input', {id:'scene-search', type:'search', value:sceneUI.query,
+    placeholder:'Найти сцену по имени или номеру', 'aria-label':'Найти сцену по имени или номеру',
+    oninput:function () { sceneUI.query = search.value; filterScenes(); }});
+  var entries = [];
+  var emptySearch = h('p', {class:'note', role:'status'}, 'Не найдено. Попробуйте часть названия или номер.');
+  function filterScenes() {
+    var query = sceneUI.query.toLocaleLowerCase('ru').trim();
+    var count = 0;
+    entries.forEach(function (entry) { entry.row.hidden = entry.text.indexOf(query) < 0; if (!entry.row.hidden) count++; });
+    emptySearch.hidden = count > 0;
+  }
+  var workspace = h('div', {class:'concert-workspace'});
+  var list = h('section', {class:'concert-list', 'aria-label':'Список сцен'}, search);
+  var side = h('section', {class:'concert-side', 'aria-label':'План и параметры света'});
+  if (hasFixtures()) lightWorkspace(side, true);
+  else add(side, h('div', {class:'card master-card'}, sceneUI.masterOpen ? null : master));
+  add(workspace, list, side); add(el, workspace);
+  var tiles = h('div', {class:'tiles scene-list', 'data-scroll':'scenes'});
   scenes.forEach(function (scene, index) {
     var current = sceneEvidence(scene.id), run = current.value === true;
     var allowed = sceneAllowed(scene);
@@ -546,33 +661,45 @@ SECTIONS.scenes = function (el) {
         send(action,tile);
       }}, h('span',{class:'scene-number'},index + 1), h('span',{class:'scene-name'},label),
       h('span',{class:'scene-state'},scene.write_error ? 'Запись не подтверждена' : current.label));
-    var controls = h('div',{class:'tile-controls'},h('button',{class:'btn small ghost',type:'button',disabled:!ready,
-      onclick:function(){openSceneEdit(scene);}},'Изменить'));
-    if (current.value !== false) add(controls,h('button',{class:'btn small off',type:'button','data-scene':scene.id,disabled:!ready || !allowed || !!featureReason('scenes'),
-      'aria-label':'Выключить сцену «' + label + '»',onclick:function(e){send({a:'scene_off',id:scene.id},e.currentTarget);}},'Выключить'));
-    add(tiles,h('div',{class:'tile-wrap'},tile,controls));
+    var controls = h('div',{class:'tile-controls'},sceneUI.editing ? h('button',{class:'btn small ghost',type:'button',disabled:!ready,
+      onclick:function(){openSceneEdit(scene);}},'Изменить') : null);
+    var off = h('button',{class:'btn small off',type:'button','data-scene':scene.id,
+      'aria-label':'Выключить сцену «' + label + '»',onclick:function(e){send({a:'scene_off',id:scene.id},e.currentTarget);}},'Выключить');
+    add(controls,off);
+    updaters.push(function () {
+      var evidence = sceneEvidence(scene.id);
+      tile.classList.toggle('run',evidence.value === true);
+      tile.disabled = off.disabled = !connected() || !sceneAllowed(scene) || !!featureReason('scenes');
+      tile.disabled = tile.disabled || !!scene.write_error;
+      tile.setAttribute('aria-label',(index + 1) + '. ' + label + ', ' + evidence.label.toLowerCase());
+      tile.setAttribute('aria-pressed',evidence.value === null ? 'mixed' : String(evidence.value === true));
+      var waiting = Object.keys(pending).map(function (id) { return pending[id]; }).filter(function (item) { return item.scene === scene.id && item.a === 'scene_go'; }).slice(-1)[0];
+      tile.children[2].textContent = scene.write_error ? 'Запись не подтверждена' : evidence.label + (waiting ? ' · ' + commandWaiting(waiting,state.operations || [],Date.now()).text : '');
+      off.hidden = evidence.value === false;
+    });
+    var row = h('div',{class:'tile-wrap'},tile,controls);
+    entries.push({row:row, text:((index + 1) + ' ' + label).toLocaleLowerCase('ru')});
+    add(tiles,row);
   });
-  add(el,tiles);
+  add(list,tiles,emptySearch); filterScenes();
 };
 
 function masterControl() {
-  var activeGesture = false;
   var out = h('span', {class: 'val'});
   var source = h('span', {class: 'note'});
   var input = h('input', {type: 'range', min: 0, max: 100, value: 100, 'aria-label': 'Общая яркость', oninput: function (e) {
     out.textContent = e.target.value + '%'; out.classList.remove('unknown'); setFill(input, Number(e.target.value));
     throttleSlider({a: 'master', v: Number(e.target.value), fade: 0});
   }});
-  ['pointerdown','keydown'].forEach(function(event) { input.addEventListener(event,function(){activeGesture=true;}); });
-  ['pointerup','pointercancel','lostpointercapture','keyup','blur'].forEach(function(event) { input.addEventListener(event,function(){activeGesture=false;}); });
   updaters.push(function () {
     input.disabled = !connected() || !(state.safety && state.safety.master);
     input.title = state.safety && !state.safety.master ? 'Общая яркость заблокирована (allow_master)' : '';
+    if (controlActive(input)) { source.textContent = 'Ввод: ' + input.value + '% · последнее отправленное: ' + (state.master === null ? 'неизвестно' : Math.round(state.master) + '%'); return; }
     out.textContent = state.master === null ? 'неизвестно' : Math.round(state.master) + '%';
     out.classList.toggle('unknown', state.master === null);
     source.textContent = state.master === null ? 'значение неизвестно' : 'отправлено панелью' +
       (valueFreshness('master') === 'stale' ? ' · устарело' : '');
-    if (!activeGesture) setFill(input, state.master);
+    setFill(input, state.master);
   });
   return h('div', {class: 'master'}, h('div', {class: 'vrow'}, h('b', {}, 'Общая яркость'), out), input, source);
 }
@@ -590,14 +717,16 @@ function openSceneEdit(s) {
   }}, 'Сохранить имя');
   var rewrite = h('button', {class: 'btn primary', type: 'button', disabled: !!featureReason('store'), onclick: function () {
     var label = name.value.trim() || s.label;
-    if (!confirm('Перезаписать сцену ' + s.exec + ' светом, который выставлен сейчас? Старое содержимое пропадёт.')) return;
+    if (!confirm('Перезаписать сцену «' + (s.label || 'Без названия') + '» текущим светом? Старое содержимое пропадёт.')) return;
     if (send({a: 'scene_create', label: label, page: pageOf(s), exec: String(s.exec), confirm: String(s.exec), replace: true}, rewrite)) { /* close on reply */ }
   }}, icon('save'), 'Перезаписать текущим светом');
   d.textContent = '';
+  d._result = h('p',{class:'note',role:'status'});
   add(d, h('div', {class: 'dlg'}, h('h2', {}, s.label || 'Без названия'),
     s.write_error ? h('p',{class:'note warn'},s.write_error) : null,
     h('div', {class: 'field'}, h('label', {for: 'scene-name'}, 'Имя сцены'), name),
-    h('p', {class:'note'}, 'Адрес на MA2: ' + s.exec + '. Перезапись сохранит текущий выход пульта.'),
+    h('p', {class:'note'}, 'Перезапись сохранит текущий выход пульта.'), d._result,
+    h('details',{},h('summary',{},'Технические данные'),h('p',{class:'note'},'Адрес на MA2: ' + s.exec)),
     h('div', {class:'scene-delete-actions'}, [false,true].map(function(desk) {
       return h('button',{class:'btn small' + (desk ? ' danger' : ' ghost'),type:'button',disabled:!connected() || (desk && !!featureReason('store')),onclick:function(e) {
         if (confirm((desk ? 'Удалить на пульте ' : 'Убрать из панели ') + '«' + s.label + '» (' + s.exec + ')?' + (desk ? ' Вернуть можно только из бэкапа шоу.' : ' На пульте сцена останется.'))) send({a:'scene_delete',id:s.id,desk:desk},e.currentTarget);
@@ -617,7 +746,9 @@ function openStore() {
   var d = document.getElementById('dlg');
   var ui = {request:null,slot:null}; storeUI = ui;
   var name = h('input',{id:'store-name',maxlength:30,placeholder:'Например: Солист у рояля',autocomplete:'off'});
-  var progress = h('p',{class:'note',role:'status'},'Панель найдёт свободное место на MA2. Пока ничего не записывается.');
+  var progress = h('p',{class:'note',role:'status'},'Сохранится текущий выход выбранных приборов. Сначала выберите их на плане; затем найдите свободное место. Пока ничего не записывается.');
+  d._result = progress;
+  var address = h('p',{class:'note'});
   var search = h('button',{class:'btn primary',type:'button',disabled:!connected() || !!featureReason('store'),onclick:function() {
     if (!name.value.trim()) { name.focus(); return; }
     if (ui.request) sendRaw({a:'scene_slot_cancel',request:ui.request});
@@ -634,14 +765,15 @@ function openStore() {
     search.hidden = slot.state === 'searching';
     if (slot.state === 'ready') {
       ui.slot = slot;
-      progress.textContent = 'Запишется текущий выход пульта. Место на MA2: ' + slot.exec + '. Подтвердите запись.';
+      progress.textContent = 'Свободное место найдено. Сохранится текущий выход выбранных приборов. Подтвердите запись.';
+      address.textContent = 'Адрес на MA2: ' + slot.exec;
     } else {
       ui.slot = null;
       progress.textContent = slot.state === 'searching' ? 'Ищу свободное место… проверено: ' + (slot.checked || 0) : slot.err || 'Поиск отменён';
     }
   };
   d.textContent = '';
-  add(d,h('div',{class:'dlg'},h('h2',{},'Новая сцена'),h('div',{class:'field'},h('label',{for:'store-name'},'Название'),name),progress,
+  add(d,h('div',{class:'dlg'},h('h2',{},'Новая сцена'),h('div',{class:'field'},h('label',{for:'store-name'},'Название'),name),progress,h('details',{},h('summary',{},'Технические данные'),address),
     h('div',{class:'row'},h('button',{class:'btn ghost',type:'button',onclick:function(){cancelStore();d.close();}},'Отмена'),search,write)));
   d.showModal(); name.focus();
 }
@@ -732,7 +864,7 @@ function discardPending() {
   pending = {};
   operationFeedback = null;
   configQueue = []; configActive = null;
-  Object.keys(sliderChannels).forEach(cancelSlider);
+  cancelTargetControls();
   renderOperationFeedback();
 }
 
@@ -795,19 +927,26 @@ function receive(message) {
     state.valuesRevision = message.values_revision;
   }
   if (message.status) {
+    if (typeof message.status.blackout_epoch === 'number' && message.status.blackout_epoch !== state.blackoutEpoch) {
+      state.blackoutEpoch = message.status.blackout_epoch;
+      cancelTargetControls();
+    }
+    state.recovering = !!message.status.recovering;
+    state.recoveryError = message.status.recovery_error || null;
+    state.blackout = message.status.blackout || {phase:'idle'};
     if ('rdm_search' in message.status) state.rdmSearch = message.status.rdm_search;
     state.operations = message.status.operations || [];
     state.showFileActive = !!message.status.show_file_active;
     state.showFileOperation = message.status.show_file || null;
-    if (state.showFileActive) { Object.keys(sliderChannels).forEach(cancelSlider); if (typeof moveStop === 'function') moveStop(); }
+    if (state.showFileActive) cancelTargetControls();
     state.readFreshness = message.status.read_freshness || {};
     state.highlight = message.status.highlight || {state: 'idle', available: []};
     state.showLoad = message.status.show_load || {state: 'idle'};
-    if (state.showLoad.state === 'loading') { selectionIntent = null; selectionSync = null; Object.keys(sliderChannels).forEach(cancelSlider); state.selection = []; state.group = null; clearEvidence(); }
+    if (state.showLoad.state === 'loading') { selectionIntent = null; selectionSync = null; cancelTargetControls(); state.selection = []; state.group = null; clearEvidence(); }
     var nextShow = message.status.show || {name: null, source: 'unknown'};
     if (state.show.name && nextShow.name && state.show.name !== nextShow.name) {
       state.selection = []; state.group = null; selectionIntent = null; selectionSync = null;
-      Object.keys(sliderChannels).forEach(cancelSlider); if (typeof moveStop === 'function') moveStop();
+      cancelTargetControls();
     }
     state.show = nextShow;
     state.ma2 = message.status.ma2; state.login = message.status.login;
@@ -820,7 +959,7 @@ function receive(message) {
     state.manual = !!message.status.manual;
     if ('last' in message.status) state.last = message.status.last;
     if ((!linkReady() || state.halted || state.showLoad.state === 'loading') && storeUI) { cancelStore(); var sd = document.getElementById('dlg'); if (sd.open) sd.close(); }
-    if (!linkReady() || state.halted) { if (typeof moveStop === 'function') moveStop(); discardPending(); }
+    if (!linkReady() || state.recovering || state.halted) { if (typeof moveStop === 'function') moveStop(); discardPending(); }
   }
   if (message.last) state.last = message.last;
   if (message.config) {
@@ -833,13 +972,15 @@ function receive(message) {
     if (state.config && state.config.show !== message.config.show) {
       if (storeUI) { cancelStore(); var sd = document.getElementById('dlg'); if (sd.open) sd.close(); }
       // Another show's plan: old selection and values never carry over.
+      cancelTargetControls();
+      if (state.selection.length) notice('Открыт план другого шоу. Выделение прежних приборов снято.', 'info');
       clearEvidence(); state.selection = []; state.group = null; state.fetch = null; state.ma2read = null;
       if (typeof planState !== 'undefined') planState.cur = 0;
       if (typeof planEndEdit === 'function' && state.sec === 'hall') planEndEdit();
     }
-    state.config = message.config;
-    state.configN++;
+    if (JSON.stringify(state.config) !== JSON.stringify(message.config)) { state.config = message.config; state.configN++; }
     awaitingConfig = false;
+    sceneFade = fadeSeconds = state.config.scene_fade || 0;
   }
   if ('master' in message) state.master = message.master;
   if (message.shown) state.shown = message.shown;
@@ -891,16 +1032,18 @@ function receive(message) {
       return;
     }
     var result = commandFeedback(message);
+    var resultDialog = document.getElementById('dlg');
+    if (button && resultDialog.contains(button) && resultDialog._result) resultDialog._result.textContent = result.text;
     var operation = request ? request.label : commandOperationName({a: a}, state.config);
     if (button) { button.removeAttribute('aria-busy'); button.classList.remove('waiting'); }
     if (result.sticky) notice(result.text, result.kind, true, operation, message.request_id);
     if ((!message.ok || ['select_fixtures','select_group','clear'].indexOf(a)<0) && (!request || !operationFeedback || request.serial >= operationFeedback.serial)) {
       operationFeedback = {text: operation + ': ' + result.text, kind: result.kind, sticky: result.sticky, serial: request ? request.serial : requestSerial};
     }
-    if (message.ok && ['scene_create','scene_rename','scene_delete'].indexOf(a) >= 0) { var dialog = document.getElementById('dlg'); if (dialog.open) dialog.close(); }
-    if (a === 'fixtures_fetch') state.fetch = message.ok ? {state: 'done', added: message.added, missing: message.missing, total: message.total} : {state: 'error', err: message.err || 'ошибка чтения'};
+    if (message.ok && ['unknown','partial','failed'].indexOf(message.outcome) < 0 && !(message.command_evidence || []).some(function (value) { return value !== 'sent'; }) && ['scene_create','scene_rename','scene_delete'].indexOf(a) >= 0) { var dialog = document.getElementById('dlg'); if (dialog.open) dialog.close(); }
+    if (a === 'fixtures_fetch') state.fetch = message.ok ? {state: 'done', added: message.added, missing: message.missing, total: message.total, changed:message.changed, no_id:message.no_id || []} : {state: 'error', err: message.err || 'ошибка чтения'};
     if (a === 'import_confirm_merge') {
-      state.fetch = message.ok ? {state: 'done', added: message.added, missing: message.missing, total: message.total} : {state: 'error', err: message.err || 'ошибка подтверждения'};
+      state.fetch = message.ok ? {state: 'done', added: message.added, missing: message.missing, total: message.total, changed:message.changed, no_id:message.no_id || []} : {state: 'error', err: message.err || 'ошибка подтверждения'};
     }
     if (a === 'ma2_read') state.ma2read = message;
     if (message.ok && a === 'ma2_import') state.ma2read = null;
@@ -914,7 +1057,7 @@ function receive(message) {
     if ((a === 'fixtures_fetch' || a === 'import_confirm_merge') && message.ok && (message.switched || (message.no_id || []).length)) notice(
       (message.switched ? 'Открыт план шоу «' + message.switched + '», приборы получены в него. ' : '') +
       ((message.no_id || []).length ? 'Без Fixture ID, панель ими не управляет: ' + message.no_id.join(', ') + '. Дайте им Fixture ID в патче MA2.' : ''));
-    if (!message.ok && (a === 'select_group' || a === 'select_fixtures' || a === 'clear')) { state.selection = []; state.group = null; }
+    if (!message.ok && message.request_id === latestSelectionRequest && ['select_group','select_fixtures','ma2_group_go','clear'].indexOf(a) >= 0) { cancelTargetControls(); state.selection = []; state.group = null; }
   }
   validateSelectionIntent();
   render();
@@ -993,8 +1136,7 @@ function selectConsoleGroup(group, button) {
 }
 function selectFixtures(ids) {
   if (!connected()) return false;
-  if (typeof moveStop === 'function') moveStop();
-  Object.keys(sliderChannels).forEach(cancelSlider);
+  cancelTargetControls();
   // The bridge rejects an empty select_fixtures list; clear removes the last selection.
   if (!send(ids.length ? {a: 'select_fixtures', ids: ids.slice()} : {a: 'clear'})) return false;
   state.selection = ids.slice();
@@ -1009,25 +1151,19 @@ document.querySelectorAll('#rail [data-sec]').forEach(function (b) {
 });
 document.getElementById('notice').addEventListener('click',function(){notice('');});
 document.getElementById('selpill-clear').addEventListener('click', function () { selectFixtures([]); });
+document.addEventListener('visibilitychange',function(){if(document.hidden){cancelTargetControls();catchUpSection();}});
+if (typeof window !== 'undefined') window.addEventListener('blur',function(){cancelTargetControls();catchUpSection();});
 // Stop sending: works without a console link. Sliders and the queue are dropped here, the bridge drops its own.
 document.getElementById('halt').addEventListener('click', function () {
   discardPending();
   sendRaw({a: state.halted ? 'resume' : 'halt'});
 });
-// Blackout: second press within 3 s. A single accidental tap does nothing.
-document.getElementById('blackout').addEventListener('click', function (event) {
-  if (!connected()) return;
-  if (!state.blackoutArm) {
-    state.blackoutArm = true;
-    render();
-    setTimeout(function () { state.blackoutArm = false; render(); }, 3000);
-    return;
-  }
-  state.blackoutArm = false;
+// Native suppression is reversible; the bridge owns the shared snapshot.
+document.getElementById('blackout').addEventListener('click', function () {
   send({a: 'blackout'}, null);
-  render();
 });
+
 on('a', function (a, message) { if (a === 'show_load' && message.ok) state.showNames = null; });
-try { state.sec = localStorage.getItem('ma2.sec') || 'start'; } catch (error) { state.sec = 'start'; }
+try { state.sec = localStorage.getItem('ma2.sec') || 'scenes'; } catch (error) { state.sec = 'start'; }
 if (!SECTIONS[state.sec] && ['light', 'hall'].indexOf(state.sec) < 0) state.sec = 'start';
 document.addEventListener('DOMContentLoaded', function () { if (state.sec === 'hall') state.sec = 'light'; connect(); });

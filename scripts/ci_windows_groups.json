@@ -26,8 +26,8 @@
   "selfcheck": {
     "per_test_timeout_seconds": 30,
     "group_timeout_seconds": 180,
-    "count": 5,
-    "sha256": "bdea3fadf5052afde2e4bac701668b681e0d8aed49fd97adca599ee5929c707f"
+    "count": 6,
+    "sha256": "964f752a39fff9107318b61fe9314dd948f555449c048d0b60f0aba6011f320a"
   },
   "rdm": {
     "per_test_timeout_seconds": 15,

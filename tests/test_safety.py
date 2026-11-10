@@ -58,7 +58,7 @@ def test_test_mode_blocks_stored_data_and_system(bridge_cfg):
             assert ("перезапись существующей сцены отключена" if bad["a"] == "store_scene" else "заблокир") in r["err"], bad
         assert mock.received == [LOGIN, "ListVar"]
         assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"] is True
-        assert mock.received[-1] == "Go Executor 1.101"
+        assert mock.received[-1] == "Goto Cue 1 Executor 1.101 Fade 0"
 
 
 def test_nothing_allowed_by_default(bridge_cfg):
@@ -235,17 +235,17 @@ def test_guard_store_mode_is_one_slot():
 
 
 def test_store_mode_needs_named_empty_slot(bridge_cfg):
-    settings = {"safety": {"mode": "store", "store_execs": ["2.150", "1.101"]}}
+    settings = {"safety": {"mode": "store", "store_execs": ["2.150", "1.101"], "allowed_fixtures": [12]}}
     with bridge_cfg(settings=settings) as (ws, mock, _):
+        assert ask(ws, {"a":"select_fixtures", "ids":[12]})["ok"]
         create = {"a": "scene_create", "label": "Тест", "page": 2, "exec": "2.150"}
         assert ask(ws, create)["ok"] is False                                   # no confirmation
         assert ask(ws, {**create, "confirm": "2.151"})["ok"] is False           # confirmation names another place
         assert ask(ws, {**create, "exec": "2.151", "confirm": "2.151"})["ok"] is False  # not in store_execs
         assert ask(ws, {**create, "exec": "1.101", "confirm": "1.101"})["err"].endswith("запрещена")  # occupied
-        assert mock.received == [LOGIN, "ListVar", "List Executor 1.101"]
+        assert not any(x.startswith("Store ") for x in mock.received)
         assert ask(ws, {**create, "confirm": "2.150"})["ok"] is True
-        assert mock.received[3:] == ["List Executor 2.150", "StoreLook Executor 2.150 Cue 1 /Source=Output",
-                                     'Label Executor 2.150 "Тест"']
+        assert 'Store Executor 2.150 Cue 1 /Source=Output /Use=Allforselected' in mock.received
         assert ask(ws, {"a": "store_scene", "id": "pianist", "confirm": "1.101"})["ok"] is False  # occupied: never overwritten
         assert not [r for r in mock.received if "SaveShow" in r or "Overwrite" in r]
 

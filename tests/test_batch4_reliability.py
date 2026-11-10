@@ -14,7 +14,7 @@ def test_popped_intent_rechecks_scope_under_lock(context, action, change):
         a, values, ids = action
         # Capture at admission, before the throttle removes the item.
         intent = {'ws': ws, 'a': a, 'action': {'a': a, **values}, 'ids': ids,
-                  'ticket': (ws, c.sessions[ws], c.state["plan_epoch"], c.link._gen, c.link._stop_epoch)}
+                  'ticket': c.action_ticket(ws)}
         sent = []
         async def send(line, **kw):
             sent.append(line)
@@ -35,7 +35,7 @@ def test_popped_intent_rechecks_scope_under_lock(context, action, change):
         # An independent client remains admitted after a local disconnect.
         if change in ('disconnect', 'replace'):
             await c.throttled('other', {'ws': other, 'a': 'dim', 'action': {'a': 'dim', 'v': 32},
-                                      'ids': [12], 'ticket': (other, c.sessions[other], c.state["plan_epoch"], c.link._gen, c.link._stop_epoch)})
+                                      'ids': [12], 'ticket': c.action_ticket(other)})
             assert sent == ['Fixture 12', 'At 32']
     asyncio.run(go())
 
@@ -51,7 +51,7 @@ def test_disconnect_after_first_line_keeps_partial_and_finishes_once(context):
             c.sessions.pop(ws, None)
             return True, 'ok'
         c.link.send = send
-        ticket = (ws, c.sessions[ws], c.state['plan_epoch'], c.link._gen, c.link._stop_epoch)
+        ticket = c.action_ticket(ws)
         err = await c.execute('dim', {'a': 'dim', 'v': 71}, {}, [12], ticket=ticket)
         assert err and calls == ['Fixture 12']
         op = {'key': 'test', 'id': None, 'ws': ws, 'a': 'dim', 'evidence': ['sent']}

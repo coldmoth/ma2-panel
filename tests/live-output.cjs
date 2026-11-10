@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const prefix = fs.readFileSync('tests/panel-v4.cjs', 'utf8').split('// Empty workspace:')[0];
 const {context:c, document, status, ws} = new Function('require', prefix + '\nreturn {context,document,status,ws};')(require);
 status();
-c.receive({config:{show:'Live test', fixtures:[{id:1,type:'LED',x:.3,y:.3},{id:2,type:'LED',x:.6,y:.3}],groups:[],scenes:[],presets:[],attrs:{}}});
+c.receive({config:{show:'Live test', fixtures:[{id:1,type:'LED',params:['Dimmer','ColorRGB_Red','ColorRGB_Green','ColorRGB_Blue'],x:.3,y:.3},{id:2,type:'LED',params:['Dimmer','ColorRGB_Red','ColorRGB_Green','ColorRGB_Blue'],x:.6,y:.3}],groups:[],scenes:[],presets:[],attrs:{}}});
 c.state.selection=[1];
 const sent=ws().sent.length;
 c.receive({tracked:false,shown:{},live:{1:{dim:10,rgb:[0,100,0]}},values_meta:{shown:{source:'unknown',freshness:'unknown'},live:{source:'ma2',freshness:'fresh',updated_at:1}}});
@@ -37,6 +37,17 @@ assert.ok(lit);
 assert.equal(lit.style['--c'],'rgba(0,255,0,0.1)','10% output must not glow at the old 25% minimum');
 c.state.live[1].dim=0;c.updaters.forEach(fn=>fn());
 assert.equal(plan.all().some(n=>n.classList.contains('lit')),false,'zero output is dark');
+
+// Confirmed additive RGB zero is dark even with an open dimmer.
+c.state.live[1]={dim:100,rgb:[0,0,0]};c.updaters.forEach(fn=>fn());
+assert.equal(plan.all().some(n=>n.classList.contains('lit')),false,'RGB zero must not glow at Dimmer 100');
+assert.equal(c.known('dim'),100,'actual measured dimmer is preserved');
+c.state.live[1]={dim:50,rgb:[100,100,100]};
+c.state.config.fixtures[0].params=['Dimmer'];c.updaters.forEach(fn=>fn());
+assert.equal(plan.all().some(n=>n.classList.contains('lit')),true,'dimmer-only white output stays visible');
+
+c.state.live[1]={dim:50};c.updaters.forEach(fn=>fn());
+assert.equal(plan.all().some(n=>n.classList.contains('lit')),false,'incomplete colour evidence cannot invent visible output');
 
 c.receive({tracked:false,shown:{},values_meta:{shown:{source:'unknown',freshness:'unknown'},live:{source:'ma2',freshness:'stale'}}});
 assert.equal(c.known('dim'),null);

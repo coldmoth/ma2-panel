@@ -71,6 +71,13 @@ async function checkEngine(name) {
         : () => page.waitForFunction(() => /Имитация.*подключено/.test(document.querySelector('#connection').textContent));
       await page.goto(mode === 'full' ? fullURL : simpleURL);
       await ready();
+      if (mode === 'full') {
+        await page.getByRole('button', {name:'Сцены', exact:true}).first().click();
+        await page.getByRole('group', {name:'Общее время перехода'}).getByRole('button', {name:'5 с',exact:true}).click();
+        await page.waitForFunction(() => sceneFade === 5 && state.config.scene_fade === 5);
+        await page.reload(); await ready();
+        await page.waitForFunction(() => sceneFade === 5);
+      }
       // Isolate synthetic replies in the browser: no action reaches even the mock bridge.
       await page.evaluate(mode => {
         const socket = window.__smokeSockets.at(-1), originalSend = socket.send;
@@ -185,11 +192,16 @@ async function checkEngine(name) {
         await page.evaluate(() => { lightUI.tab='groups'; });
         }
         for (const section of ['scenes', 'light', 'history', 'start', 'hall', 'patch', 'shows']) {
-          await page.locator(`#rail [data-sec="${section}"]`).tap();
+          if (['scenes','light'].includes(section)) await page.locator(`#rail [data-sec="${section}"]`).tap();
+          else {
+            await page.locator('#rail [data-sec="prepare"]').tap();
+            await page.getByRole('button', {name: {history:'История',start:'Подключение и синхронизация',hall:'План зала и группы',patch:'Приборы и Patch',shows:'Шоу'}[section], exact:true}).tap();
+          }
           await page.waitForFunction(section => state.sec === section, section);
           await noOverflow(page, name + '/' + section);
         }
         await page.locator('#rail [data-sec="scenes"]').tap();
+        await page.getByRole('button', {name: 'Изменить сцены', exact: true}).tap();
         await page.getByRole('button', {name: 'Изменить', exact: true}).tap();
         await page.locator('#dlg[open]').waitFor();
         const box = await page.locator('#dlg').boundingBox();
@@ -201,8 +213,10 @@ async function checkEngine(name) {
         await page.locator('button.tile[data-scene="smoke-scene"]').tap();
         await until(() => frames.slice(beforeScene).some(a => a.a === 'scene_go'), 'full scene action');
         await page.locator('#rail [data-sec="light"]').tap();
+        await page.getByRole('button', {name: 'Выбрать', exact: true}).tap();
         await page.getByRole('button', {name: 'Группы', exact: true}).tap();
         await page.locator('.pick').getByText('Тестовая группа', {exact: true}).tap();
+        await page.getByRole('button', {name: 'К регуляторам', exact: true}).tap();
         await page.getByRole('button', {name: 'Движение', exact: true}).tap();
         const pad = page.getByLabel('Пад Pan и Tilt');
         await pad.waitFor();
@@ -236,8 +250,10 @@ async function checkEngine(name) {
         await page.mouse.up();
         if (await page.locator('#notice').isVisible()) await page.locator('#notice button').click();
         // Begin a fresh explicit interaction after validated selection synchronization.
+        await page.getByRole('button', {name: 'Выбрать', exact: true}).tap();
         await page.getByRole('button', {name: 'Группы', exact: true}).tap();
         await page.locator('.pick').getByText('Тестовая группа', {exact: true}).tap();
+        await page.getByRole('button', {name: 'К регуляторам', exact: true}).tap();
         await page.getByRole('button', {name: 'Движение', exact: true}).tap();
         await page.getByRole('button', {name: 'Положение', exact: true}).tap();
         for (const attr of ['pan', 'tilt']) {
@@ -265,14 +281,13 @@ async function checkEngine(name) {
         await go.tap();
         await until(() => frames.some(a => a.a === 'scene_go'), 'simple scene action');
         await page.waitForFunction(() => !document.querySelector('#blackout').disabled);
-        const beforeDialog = frames.length;
-        const dialogPromise = page.waitForEvent('dialog').then(async dialog => {
-          assert.equal(dialog.type(), 'confirm');
-          await dialog.dismiss();
-        });
+        const beforeBlackout = frames.length;
         await page.locator('#blackout').tap();
-        await dialogPromise;
-        assert.equal(frames.length, beforeDialog, 'Cancelled blackout must send nothing');
+        await until(() => frames.slice(beforeBlackout).some(a => a.a === 'blackout'), 'One tap sends reversible Blackout');
+        await page.waitForFunction(() => document.querySelector('#blackout').textContent.includes('Восстановить свет'));
+        await page.waitForFunction(() => !document.querySelector('#blackout').disabled);
+        await page.locator('#blackout').tap();
+        await page.waitForFunction(() => document.querySelector('#blackout').textContent.includes('Blackout MA2'));
         await noOverflow(page, name + '/simple');
         await screenshot(page, name + '-simple');
         await cutConnection(page, context, ready, async () => {

@@ -20,11 +20,13 @@ The full ZIP includes Python and dependencies. Choose **ma2-panel-win.zip** for 
 
 Python and dependencies are included; no terminal or separate Python installation is needed. The interface is currently in Russian. Start with the [installation guide](docs/SETUP.md) and a supervised test of one fixture.
 
-For this reorganized source layout, older installed updaters require the external USB updater; see [update compatibility](docs/repository-structure.md). Existing GitHub release archives are unchanged.
+For v3.2.5, the compatible in-app updater accepts the regular update ZIP. Versions v3.2.0–v3.2.4 require the external USB updater; see [update compatibility](docs/repository-structure.md).
+
+Version 3.3.0 adds manual scenes with a shared fade, reversible global blackout and a concert interface with a permanent venue plan. See the [Russian release notes](docs/RELEASE-3.3.md) for changes and the remaining real-light acceptance checks.
 
 ## Features
 
-- Scenes and executors.
+- Manual scenes, shared fade and global blackout.
 - Fixture control: dimmer, color and Pan/Tilt.
 - Interactive venue layout with search, zoom and fixture selection.
 - Groups and presets.

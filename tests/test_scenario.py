@@ -70,14 +70,13 @@ def test_hall_scenario(tmp_path):
         # scenes: go / off of the allowed scene only
         assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"]
         assert ask(ws, {"a": "scene_off", "id": "pianist"})["ok"]
-        assert mock.received[-2:] == ["Go Executor 1.101", "Off Executor 1.101"]
+        assert "Goto Cue 1 Executor 1.101 Fade 0" in mock.received and mock.received[-1] == "Off Executor 1.101"
         assert not ask(ws, {"a": "scene_go", "id": "s1"})["ok"]  # 1.102 is not allowed
 
         # store a new scene: the destination is checked on fresh console data first, never overwritten
         r = ask(ws, {"a": "scene_create", "label": "Тест", "page": 2, "exec": "2.150", "confirm": "2.150"})
         assert r["ok"], r
-        assert mock.received[-3:] == ["List Executor 2.150", "StoreLook Executor 2.150 Cue 1 /Source=Output",
-                                      'Label Executor 2.150 "Тест"']
+        assert "Store Executor 2.150 Cue 1 /Source=Output /Use=Allforselected" in mock.received
         r = ask(ws, {"a": "scene_create", "label": "Ещё", "page": 2, "exec": "2.150", "confirm": "2.150"})
         assert not r["ok"] and "занят" in r["err"]
         assert mock.received[-1] == "List Executor 2.150"

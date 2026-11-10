@@ -63,7 +63,8 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
         cmd = f'Export FixtureType {no} "{unique}"'
         install = link.vars.get("PATH", "")
         roots = list(dict.fromkeys([Path(export_dir).parent, *([Path(install).parent] if install else []), *export_folders()]))
-        trace = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "cmd": cmd, "roots": [str(r) for r in roots]}
+        trace = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "cmd": cmd, "roots": [str(r) for r in roots],
+                 "context": (state["plan_epoch"], link._gen)}
         state["type_reads"][str(no)] = trace
         export_extra.add(cmd)
         try:
@@ -85,8 +86,9 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
                         p.unlink(missing_ok=True)  # our own one-off file
                     (Path(config_path).parent / "diag").mkdir(exist_ok=True)
                     (Path(config_path).parent / "diag" / f"fixture_type_{no}.xml").write_text(text, encoding="utf-8")
+                    trace.update(file=str(hits[0]), size=len(text))
                     spec = parse_fixture_type(text)
-                    trace.update(file=str(hits[0]), size=len(text), spec=spec)
+                    trace["spec"] = spec
                     return spec
                 if time.monotonic() >= deadline:
                     raise ActionError(f"файл экспорта типа {no} не появился за {ma2['export_wait']} с")

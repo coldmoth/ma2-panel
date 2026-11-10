@@ -8,7 +8,8 @@
   <title>Свет · MA2</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css"><link rel="stylesheet" href="atlas.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="concert.css">
   <script src="command-feedback.js" defer></script>
   <script src="interface.js" defer></script>
   <script src="app.js" defer></script>
@@ -20,17 +21,10 @@
 </head>
 <body class="panel">
   <nav id="rail" class="rail" aria-label="Разделы">
-    <a class="atlas-brand" href="index.html" aria-label="Свет · MA2" title="Свет · MA2"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19 12 4l8 15M7 14h10M4 19h16"/></svg><span>Атлас</span></a><span class="rail-group">Концерт</span>
-    <button type="button" data-sec="scenes"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5M16 4v5"/></svg>Сцены</button>
-    <button type="button" data-sec="light"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z"/></svg>Свет</button>
-    <button type="button" data-sec="history"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 3"/></svg>История</button>
-    <span class="grow"></span>
-    <span class="rail-group setup">Подготовка</span>
-    <button type="button" data-sec="start" class="r-setup"><span id="rail-dot" class="badge dot"></span><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/></svg>Площадка</button>
-    <button type="button" data-sec="hall" class="r-setup"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V6l9-3 9 3v14zM8 20v-6h8v6"/></svg>Зал</button>
-    <button type="button" data-sec="patch" class="r-setup"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 4v4M14 10v4M10 16v4"/></svg>Патч</button>
-    <button type="button" data-sec="shows" class="r-setup"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l5 5v13H6zM14 3v5h5"/></svg>Шоу</button>
-    <a class="rail-settings" href="settings.html#interface"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg><span>Настройки</span></a>
+    <button type="button" data-sec="scenes"><span class="nav-icon" aria-hidden="true">▤</span>Сцены</button>
+    <button type="button" data-sec="light"><span class="nav-icon" aria-hidden="true">☼</span>Свет</button>
+    <button type="button" data-sec="prepare"><span id="rail-dot" class="badge dot"></span><span class="nav-icon" aria-hidden="true">⌑</span>Подготовка</button>
+    <button type="button" data-sec="help"><span class="nav-icon" aria-hidden="true">?</span>Помощь</button>
   </nav>
   <div id="col" class="col">
     <header class="top">

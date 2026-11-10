@@ -330,7 +330,7 @@ def test_dim_only_fixture_restores_without_color(bridge_cfg):
         assert mock.received[before:] == OFF + ['Fixture 12', 'At 37']
 
 
-@pytest.mark.parametrize('newer', ['blackout', 'scene_go', 'dim', 'color'])
+@pytest.mark.parametrize('newer', ['scene_go', 'dim', 'color'])
 def test_newer_light_blocks_automatic_highlight_release(bridge_cfg, newer):
     with bridge_cfg(edit, {**SETTINGS, 'safety': {**SETTINGS['safety'], 'allowed_scenes': ['1.101']}}) as (ws, mock, path):
         ask(ws, {'a': 'select_fixtures', 'ids': [12]})

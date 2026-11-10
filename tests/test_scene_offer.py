@@ -2,6 +2,7 @@ from test_bridge import ask, bridge_cfg, until  # noqa: F401
 
 
 def offer(ws, request='r1'):
+    ask(ws, {'a':'select_fixtures','ids':[12]})
     ws.send_json({'a':'scene_slot_find','request':request})
     terminal = None
     acknowledged = False
@@ -23,7 +24,7 @@ def test_find_is_read_only_then_confirmed_write(bridge_cfg):
         assert candidate['exec'] == '1.1'
         assert not any(c.startswith(('Store','Delete','Label')) for c in mock.received)
         assert ask(ws, {'a':'scene_create','label':'Новая','page':1,'exec':'1.1','confirm':'1.1','token':candidate['token']})['ok']
-        assert 'StoreLook Executor 1.1 Cue 1 /Source=Output' in mock.received
+        assert 'Store Executor 1.1 Cue 1 /Source=Output /Use=Allforselected' in mock.received
         assert not ask(ws, {'a':'scene_create','label':'Повтор','page':1,'exec':'1.1','confirm':'1.1','token':candidate['token']})['ok']
 
 
@@ -61,7 +62,7 @@ def test_offer_cannot_be_used_by_another_socket(tmp_path):
 
 
 def test_plan_binding_change_invalidates_offer(bridge_cfg):
-    with bridge_cfg() as (ws,mock,path):
+    with bridge_cfg(lambda cfg: cfg.pop("show", None)) as (ws,mock,path):
         candidate=offer(ws)
         assert ask(ws,{'a':'show_bind','name':'Mock show'})['ok']
         before=len(mock.received)

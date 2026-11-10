@@ -204,7 +204,18 @@ class MA2Link:
     async def _login(self) -> str:
         """logged_in only when the login reply has no error AND ListVar names the configured user."""
         # the password is written to the socket only: not logged, not stored, not sent to browsers (the echo is masked)
+        deadline = asyncio.get_running_loop().time() + self.timeout
         reply, seen = await self._exchange(f'login "{self.user}" "{self.password}"', self.timeout)
+        part = reply
+        # onPC can send a second greeting frame after its initial guest prompt.
+        # Consume it without resending login or treating its prompt as our ACK.
+        while seen and re.search(r'(?i)Please\s+login\s*!', part) and not is_error_reply(part) and not self.login_ok.search(part):
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                seen = False
+                break
+            part, seen = await self._collect(remaining)
+            reply += "\n" + part
         self.login_reply = self.mask(reply)
         flat = " ".join(self.login_reply.split())
         self._raw("login (пароль скрыт)", "error" if is_error_reply(reply) else "sent" if seen else "unknown", reply)

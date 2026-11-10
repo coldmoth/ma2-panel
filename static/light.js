@@ -1,6 +1,6 @@
 /* Свет: pick groups or fixtures on the left, every control of the selection on the right at once. */
-var lightUI = {tab: 'plan', controlTab: 'light', moveBox: null, query: ''};
-try { lightUI.tab = localStorage.getItem('ma2.pick') || 'plan'; } catch (error) {}
+var lightUI = {tab: 'groups', controlTab: 'light', moveBox: null, query: '', picking: false};
+try { lightUI.tab = localStorage.getItem('ma2.pick') || 'groups'; } catch (error) {}
 function toolVisible(key) { return typeof panelToolVisible !== 'function' || panelToolVisible(key); }
 var COLORS = [
   ['Белый', [100, 100, 100]], ['Тёплый', [100, 82, 60]], ['Красный', [100, 0, 0]], ['Оранжевый', [100, 50, 0]],
@@ -17,8 +17,13 @@ function colorMode(f) { return f.color || ((state.config && state.config.attrs |
 function supports(f, p) {
   if (p === 'pos') return canMove(f);
   if (p === 'color' && colorMode(f) === 'none') return false;
-  if (f.params && f.params.length) return f.params.some(function (name) { return PARAM_RE[p].test(name); });
-  return true;
+  if (p === 'color' && (f.color === 'rgb' || f.color === 'cmy')) return true;
+  if (f.params && f.params.some(function (name) { return PARAM_RE[p].test(name); })) return true;
+  var spec = ((state.config || {}).dmx_map || {})[f.type];
+  if (!spec || spec.stale) return false;
+  if (p === 'dim') return Number.isInteger(spec.dim) && spec.dim > 0;
+  if (p === 'color') return ['r','g','b'].every(function(key){return Number.isInteger(spec[key]) && spec[key] > 0;});
+  return Array.isArray(spec.has) && spec.has.indexOf(p) >= 0;
 }
 function selected() { return state.selection.map(fixture).filter(function (f) { return f && !f.missing; }); }
 function attributeVisible(attr) {
@@ -59,8 +64,8 @@ function knownText(v, unit) {
   return Math.round(v) + (unit || '');
 }
 function lightKey() {
-  if (state.sec !== 'light') return '';
-  return lightUI.controlTab + ':' + lightUI.tab + ':' + state.group + ':' + fadeSeconds + ':' + (state.config ? (state.config.ma2groups || []).length + ',' + (state.config.groups || []).length : '');
+  if (state.sec !== 'light' && state.sec !== 'scenes') return '';
+  return lightUI.picking + ':' + lightUI.controlTab + ':' + lightUI.tab + ':' + state.group + ':' + fadeSeconds + ':' + (state.config ? (state.config.ma2groups || []).length + ',' + (state.config.groups || []).length : '');
 }
 function unsupportedNote(p) {
   var s = split(p);
@@ -76,10 +81,34 @@ function pickRow(on, disabled, onclick, kids, title) {
 }
 
 SECTIONS.light = function (el) {
+  add(el, transitionControl());
+  lightWorkspace(el, false);
+};
+function lightWorkspace(el, concert) {
   var cfg = state.config;
   if (lightUI.controlTab === 'movement' && (!split('pos').yes.length || !toolVisible('pos'))) lightUI.controlTab = 'light';
-  var wrap = h('div', {class: 'light' + (lightUI.tab === 'plan' ? ' wide' : '')});
+  var wrap = h('div', {class: 'light concert-light'});
   add(el, wrap);
+  var target = selected();
+  var names = target.map(fxName).join(', ');
+  var choose = h('button', {id:'choose-target', class:'btn', type:'button', onclick:function () {
+    lightUI.picking = true; render();
+  }}, 'Выбрать');
+  var targetBar = h('div', {class:'target-bar'}, h('div', {class:'grow'},
+    h('span', {class:'note'}, 'Цель управления'), target.length > 1 ?
+      h('details', {class:'target-names'}, h('summary', {}, target.length + ' ' + plural(target.length, 'прибор', 'прибора', 'приборов')), h('span', {class:'note'}, names)) :
+      h('b', {}, names || 'Ничего не выбрано')), choose);
+  var overall = h('details', {class:'card light-master'}, h('summary', {}, 'Общая яркость'), masterControl());
+  add(wrap, h('div', {class:'light-heading'}, h(concert ? 'h2' : 'h1', {}, 'План и свет'), overall), targetBar);
+  var plan = h('section', {class:'live-plan', 'aria-label':'Рабочий план зала'});
+  add(wrap, plan);
+  if (fixtures().some(placed)) hallPlan(plan, 'control');
+  else add(plan, h('p', {class:'note'}, 'Приборы ещё не расставлены на плане.'), h('button',{class:'btn',type:'button',onclick:function(){go('hall');}},'Расставить приборы'));
+  function closePicker() {
+    lightUI.picking = false; render();
+    document.getElementById('page').scrollTop = 0;
+    var button = document.getElementById('choose-target'); if (button) button.focus({preventScroll:true});
+  }
   var tabs = h('div', {class: 'seg'}, [['groups', 'Группы'], ['fixtures', 'Приборы'], ['plan', 'План']].map(function (t) {
     return h('button', {type: 'button', 'aria-pressed': String(lightUI.tab === t[0]), onclick: function () {
       lightUI.tab = t[0];
@@ -110,7 +139,7 @@ SECTIONS.light = function (el) {
       var on = state.group === g.id;
       var allowed = g.fixtures.every(allowedFixture);
       add(bd, h('div', {class: 'pick-del'}, pickRow(on, !ready || !allowed, function () {
-        cancelSlider('dim'); cancelSlider('color');
+        cancelTargetControls();
         if (send({a: 'select_group', id: g.id})) { state.selection = g.fixtures.slice(); state.group = g.id; render(); }
       }, h('span', {class: 'grow'}, h('b', {}, g.label), h('span', {class: 'meta'}, g.fixtures.length + ' приб. · группа панели')), allowed ? '' : 'В группе есть приборы вне allowed_fixtures'),
         del('группу «' + g.label + '»', {a: 'group_delete', id: g.id})));
@@ -118,8 +147,8 @@ SECTIONS.light = function (el) {
     ma2.forEach(function (g) {
       var on = state.group === 'ma2:' + g.n, ids = g.ids || [];
       add(bd, h('div', {class: 'pick-del'}, pickRow(on, !ready || !ids.length, function () {
-        cancelSlider('dim'); cancelSlider('color');
-        if (selectFixtures(ids)) { state.group = 'ma2:' + g.n; render(); }
+        cancelTargetControls();
+        if (send({a: 'ma2_group_go', n: g.n}, null)) { state.selection = ids.slice(); state.group = 'ma2:' + g.n; render(); }
       }, [h('span', {class: 'grow'}, h('b', {}, g.name), h('span', {class: 'meta'}, 'Group ' + g.n + (g.ids ? ' · ' + ids.length + ' приб.' : ' · состав не прочитан, импортируйте снова'))),
         h('span', {class: 'tag ma2'}, 'MA2')], ids.length ? '' : 'Состав не прочитан: на «Площадке» нажмите «Прочитать из MA2» и импортируйте группу снова'),
         h('button', {class:'btn small ghost',type:'button',disabled:!ready || !ids.length,'aria-label':'Выбрать Group ' + g.n + ' на MA2',onclick:function(e) { selectConsoleGroup(g,e.currentTarget); }}, 'На MA2'),
@@ -174,13 +203,18 @@ SECTIONS.light = function (el) {
     if (!fixtures().some(function (f) { return typeof f.x === 'number'; })) add(bd, h('div', {class: 'empty-pick'}, h('b', {}, 'План ещё не нарисован'),
       h('span', {class: 'note'}, 'Нарисуйте зал и расставьте приборы — потом их можно выбирать прямо на схеме.'),
       h('button', {class: 'btn small edit', type: 'button', onclick: function () { go('hall'); }}, icon('edit', 18), 'Открыть «Зал»')));
-    else hallPlan(bd, 'control');
+    else if (lightUI.picking) add(bd, plan);
   }
-  add(wrap, h('section', {class: 'pick', 'aria-label': 'Что управляем'}, h('div', {class: 'hd'}, tabs), bd,
-    lightUI.tab === 'plan' ? h('p', {class: 'note pick-tip'}, 'Касание — выбор · обведение — несколько') : null,
+  var picker = h('dialog', {id:'fixture-picker', 'aria-label':'Выбрать цель управления', oncancel:function (event) { event.preventDefault(); closePicker(); }},
+    h('div', {class:'picker-heading'}, h('h2', {}, 'Выбрать цель управления'),
+      h('button', {class:'btn', type:'button', onclick:closePicker}, 'К регуляторам')),
+    h('section', {class: 'pick', 'aria-label': 'Что управляем'}, h('div', {class: 'hd'}, tabs), bd,
+    lightUI.tab === 'plan' ? h('p', {class: 'note pick-tip'}, 'Нажмите прибор или обведите несколько пальцем.') : null,
     h('div', {class: 'ft'}, h('button', {class: 'btn small', type: 'button', disabled: !ready, onclick: function () {
       selectFixtures(fixtures().filter(function (f) { return !f.missing && !f.service && allowedFixture(f.id); }).map(function (f) { return f.id; }));
     }}, 'Все сценические'), h('button', {class: 'btn small ghost', type: 'button', disabled: !ready || !state.selection.length, onclick: function () { selectFixtures([]); }}, 'Снять выбор'))));
+
+  add(wrap, picker);
 
   var box = h('section', {class: 'ctl', 'aria-label': 'Управление выбранным', 'data-scroll': 'ctl'});
   var ctl = h('div', {class: 'ctl-grid'});
@@ -213,7 +247,7 @@ SECTIONS.light = function (el) {
       h('button',{class:'btn small ghost',type:'button',onclick:function(){go('scenes');}},'Открыть',icon('chevron',16))),
       liveScenes,
       h('p',{class:'src'},(cfg.scenes || []).length+' сцен в шоу')));
-    add(home,h('div',{class:'home-shortcuts'},h('button',{class:'btn ghost',type:'button',onclick:function(){lightUI.tab='fixtures';render();}},icon('search',18),'Найти прибор'),
+    add(home,h('div',{class:'home-shortcuts'},h('button',{class:'btn ghost',type:'button',onclick:function(){lightUI.tab='fixtures';lightUI.picking=true;render();}},icon('search',18),'Найти прибор'),
       h('a',{class:'btn ghost',href:'settings.html#interface'},'Настроить инструменты')));
     add(ctl,home);
     return;
@@ -225,35 +259,33 @@ SECTIONS.light = function (el) {
     groupLabel=consoleGroup && consoleGroup.name;
   }
   var names = sel.slice(0, 6).map(fxName).join(', ') + (sel.length > 6 ? ' и ещё ' + (sel.length - 6) : '');
-  add(ctl, h('div', {class: 'selbar span'},
-    h('div', {class: 'who'}, h('b', {}, groupLabel || (sel.length === 1 ? fxName(sel[0]) : sel.length + ' ' + plural(sel.length, 'прибор', 'прибора', 'приборов'))), h('span', {class: 'note', title: names}, sel.length === 1 ? '№ '+sel[0].id+' · '+sel[0].type : (groupLabel ? sel.length+' приб. · ' : '')+names)),
-    h('div', {class: 'fade', role: 'group', 'aria-label': 'Плавный переход для кнопок яркости и образцов цвета',
-      title: 'Кнопки 0–100 %, образцы цвета и касание круга меняют свет плавно за это время. Перетаскивание ползунка или круга всегда сразу: свет идёт за пальцем.'},
-      h('span', {class: 'note'}, 'Плавно'), [0, 1, 3, 5].map(function (sec) {
-      return h('button', {class: 'btn small', type: 'button', 'aria-pressed': String(sec === fadeSeconds),
-        onclick: function () { fadeSeconds = sec; render(); }}, sec ? sec + ' с' : 'сразу');
-    })),
-    h('button', {class:'btn small ghost clear-selection',type:'button',onclick:function() { selectFixtures([]); }}, 'Снять выбор'),
+  var contextBar = h('div', {class: 'ctl-context span'});
+  add(ctl, contextBar);
+  var options = h('div', {class:'light-options'}, h('div', {class: 'selbar'},
+    h('div', {class: 'who'}, h('b', {}, sel.length + ' ' + plural(sel.length, 'прибор', 'прибора', 'приборов')), h('span', {class: 'note', title: names}, names)),
     h('button', {class: 'btn small', type: 'button', disabled: !ready || !!featureReason('store'), onclick: function () {
       var pages = ((cfg.scenes || []).map(pageOf));
       openStore(pages.length ? Math.max.apply(null, pages) : 1);
-    }}, icon('save', 18), 'В сцену…')));
+    }}, icon('save', 18), 'Сохранить сцену')));
+  add(box, options);
   // Updated in place: a rebuild here would cut a wheel or slider gesture short.
-  var lost = h('p', {class: 'note warn span'}, 'После сцены значения неизвестны до нового чтения MA2.');
+  var lost = h('p', {class: 'note warn span'}, 'После запуска сцены значения неизвестны до нового чтения MA2.');
   updaters.push(function () { lost.hidden = state.tracked !== false || liveValues('dim'); });
-  add(ctl, lost);
-  add(ctl, h('div', {class: 'control-tabs span seg'}, (split('pos').yes.length && toolVisible('pos') ? ['light', 'movement'] : ['light']).map(function(tab) {
+  add(options, lost);
+  add(contextBar, h('div', {class: 'control-tabs seg'}, (split('pos').yes.length ? ['light','movement'] : ['light']).map(function(tab) {
     return h('button', {type:'button', 'aria-pressed':String(lightUI.controlTab === tab), onclick:function() {
       moveStop(); lightUI.controlTab = tab; render();
     }}, tab === 'light' ? 'Свет' : 'Движение');
   })));
-  if (lightUI.controlTab === 'movement') { add(ctl, moveCard()); return; }
-  if (toolVisible('dim')) add(ctl, sliderCard('dim', 'Яркость', '%', true));
-  if (toolVisible('strobe') && attributeVisible('strobe') && split('strobe').yes.length) add(ctl, sliderCard('strobe', 'Стробоскоп', '%'));
-  if (toolVisible('color')) add(ctl, colorCard());
-  ['zoom','focus'].forEach(function(attr) { if (toolVisible(attr) && attributeVisible(attr) && split(attr).yes.length && (!split('pos').yes.length || !toolVisible('pos'))) add(ctl,sliderCard(attr,attr === 'zoom' ? 'Zoom' : 'Focus','%')); });
-  if (!['dim','color','strobe','zoom','focus'].some(toolVisible) && !toolVisible('pos')) add(ctl,h('p',{class:'note span'},'Инструменты скрыты. Включите их в разделе «Интерфейс» настроек.'));
-};
+  if (sel.some(function(f){return !(f.params || []).length && !((cfg.dmx_map || {})[f.type] || {}).has;})) add(ctl,
+    h('p',{class:'note warn'},'Параметры части приборов не прочитаны. Доступны только подтверждённые параметры.'),
+    h('button',{class:'btn',type:'button',onclick:function(){go('start');}},'Прочитать приборы из MA2'));
+  if (lightUI.controlTab === 'movement' && split('pos').yes.length) { add(ctl, moveCard()); return; }
+  if (split('dim').yes.length) add(ctl, sliderCard('dim', 'Яркость', '%', true));
+  if (split('color').yes.length || sel.some(function(f){return colorMode(f) === 'none';}) || ((cfg.ma2presets || {}).colors || []).length) add(ctl, colorCard());
+  if (split('strobe').yes.length && attributeVisible('strobe')) add(ctl, sliderCard('strobe', 'Стробоскоп', '%'));
+  if (!split('pos').yes.length) ['zoom','focus'].forEach(function(p){if (split(p).yes.length) add(ctl,sliderCard(p,p === 'zoom' ? 'Zoom' : 'Focus','%'));});
+}
 function plural(n, one, few, many) {
   var m10 = n % 10, m100 = n % 100;
   return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
@@ -269,7 +301,9 @@ function sliderCard(p, title, unit, quick) {
     throttleSlider({a: p, v: v});  // a drag is live: the light follows the finger, no fade
   }});
   updaters.push(function () {
-    if ((sliderChannels[p] || {}).latest) return;
+    input.disabled = !connected() || !split(p).yes.length || !!featureReason(p);
+    card.querySelectorAll('[data-quick]').forEach(function(button){button.disabled=input.disabled;});
+    if ((sliderChannels[p] || {}).latest || controlActive(input)) { src.textContent = 'Ввод: ' + input.value + unit + ' · текущее: ' + knownText(known(p),unit) + ' · ' + valueSource(p); return; }
     var v = known(p);
     if (document.activeElement !== input) setFill(input, v);
     out.textContent = p === 'strobe' && v === 0 ? 'выкл' : knownText(v, unit);
@@ -278,7 +312,7 @@ function sliderCard(p, title, unit, quick) {
   });
   var card = h('div', {class: 'card c-' + p + (s.yes.length ? '' : ' dis')}, h('div', {class: 'vrow'}, h('h2', {}, title), out), input, src);
   if (quick) add(card, h('div', {class: 'quick', title: fadeSeconds ? 'Плавно за ' + fadeSeconds + ' с' : ''}, [0, 25, 50, 75, 100].map(function (v) {
-    return h('button', {type: 'button', disabled: !ready, onclick: function () { send({a: 'dim', v: v, fade: fadeSeconds}); }}, v + '%');
+    return h('button', {'data-quick':true,type: 'button', disabled: !ready, onclick: function () { send({a: 'dim', v: v, fade: fadeSeconds}); }}, v + '%');
   })));
   if (quick && fadeSeconds) add(card, h('p', {class: 'src'}, 'Кнопки — плавно за ' + fadeSeconds + ' с. Ползунок — сразу.'));
   if (featureReason(p)) add(card, h('p', {class: 'note warn'}, featureReason(p)));
@@ -320,11 +354,12 @@ function colorCard() {
   var mark = h('span', {class: 'mark'}), shade = h('span', {class: 'shade'});
   var wheel = h('div', {class: 'wheel', role: 'slider', tabindex: ready ? '0' : '-1', 'aria-label': 'Оттенок (по кругу) и насыщенность (от центра)', 'aria-valuemin': '0', 'aria-valuemax': '359'}, shade, mark);
   var chip = h('span', {class: 'swatch-now'}), now = h('b', {}), nowSrc = h('span', {class: 'src'});
-  var satIn = h('input', {type: 'range', min: 0, max: 100, 'aria-label': 'Насыщенность', oninput: function (e) { cp.s = Number(e.target.value) / 100; pick(); }});
-  var valIn = h('input', {type: 'range', min: 0, max: 100, 'aria-label': 'Светлота цвета', oninput: function (e) { cp.v = Number(e.target.value) / 100; pick(); }});
+  var satIn = h('input', {type: 'range', min: 0, max: 100, 'aria-label': 'Насыщенность', oninput: function (e) { cp.s = Number(e.target.value) / 100; pick(false, satIn); }});
+  var valIn = h('input', {type: 'range', min: 0, max: 100, 'aria-label': 'Яркость цвета', oninput: function (e) { cp.v = Number(e.target.value) / 100; pick(false, valIn); }});
   var satOut = h('span', {class: 'num'}), valOut = h('span', {class: 'num'});
   // jump: a swatch or the first touch on the wheel, sent with the chosen fade; a drag goes out at once.
-  function pick(jump) {
+  function pick(jump, control) {
+    if ((control || wheel)._controlGeneration !== controlGeneration || !ready) return;
     cp.set = true;
     var rgb = hsv2rgb(cp.h, cp.s, cp.v);
     var action = {a: 'color', r: rgb[0], g: rgb[1], b: rgb[2]};
@@ -369,8 +404,10 @@ function colorCard() {
     pick();
   });
   var swatches = COLORS.map(function (c) {
-    return h('button', {class: 'sw', type: 'button', 'aria-label': c[0], title: c[0], 'data-rgb': c[1].join(','), style: {'--c': cssRgb(c[1])}, disabled: !ready,
-      onclick: function () { var v = rgb2hsv(c[1]); cp.h = v.s ? v.h : cp.h; cp.s = v.s; cp.v = v.v; pick(true); }});
+    var button = h('button', {class: 'sw', type: 'button', 'aria-label': c[0], title: c[0], 'data-rgb': c[1].join(','), style: {'--c': cssRgb(c[1])}, disabled: !ready,
+      onclick: function () { var v = rgb2hsv(c[1]); cp.h = v.s ? v.h : cp.h; cp.s = v.s; cp.v = v.v; pick(true, button); }});
+    watchControl(button);
+    return button;
   });
   function draw() {
     var v = known('color');
@@ -389,15 +426,18 @@ function colorCard() {
     });
     chip.classList.toggle('unknown', !cp.set);
     chip.style.setProperty('--c', cp.set ? cssRgb(rgb) : 'transparent');
-    var busyNow = cp.drag !== null || !!(sliderChannels.color || {}).latest;
+    var busyNow = cp.drag !== null || controlActive(satIn) || controlActive(valIn) || !!(sliderChannels.color || {}).latest;
     now.textContent = busyNow ? 'Отправляется…' : v === null ? (state.tracked === false ? 'Неизвестен после сцены' : 'Текущий цвет неизвестен') :
       v === 'mixed' ? 'У выбранных разные цвета' : 'R ' + rgb[0] + ' · G ' + rgb[1] + ' · B ' + rgb[2];
-    nowSrc.textContent = busyNow ? '' : v === null ? (sentStale('rgb') ? 'Отправленный цвет устарел · текущий неизвестен' : 'Текущий цвет MA2 неизвестен') : v === 'mixed' ? 'Новый выбор задаст один цвет всем. · ' + valueSource('color') : valueSource('color');
+    nowSrc.textContent = busyNow ? 'Ввод панели · текущее значение: ' + (v === null ? 'неизвестно' : v === 'mixed' ? 'разные' : v) + ' · ' + valueSource('color') : v === null ? (sentStale('rgb') ? 'Отправленный цвет устарел · текущий неизвестен' : 'Текущий цвет MA2 неизвестен. Выберите оттенок на круге или образец.') : v === 'mixed' ? 'Новый выбор задаст один цвет всем. · ' + valueSource('color') : valueSource('color');
     swatches.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.rgb === v)); });
   }
   updaters.push(function () {
+    ready = connected() && !featureReason('color');
+    wheel.setAttribute('aria-disabled',String(!ready));
+    swatches.forEach(function(button){button.disabled=!ready;});
     // While the operator drags or a value waits to go out, the card shows the operator's pick, not the echo.
-    if (cp.drag === null && !(sliderChannels.color || {}).latest && document.activeElement !== satIn && document.activeElement !== valIn) {
+    if (cp.drag === null && !controlActive(satIn) && !controlActive(valIn) && !(sliderChannels.color || {}).latest && document.activeElement !== satIn && document.activeElement !== valIn) {
       var v = known('color');
       if (typeof v === 'string' && v !== 'mixed') {
         var hv = rgb2hsv(v.split(',').map(Number));
@@ -409,16 +449,17 @@ function colorCard() {
   });
   var modes = {}, guessed = false;
   s.yes.forEach(function (f) { modes[colorMode(f).toUpperCase()] = 1; if (!f.color) guessed = true; });
-  return h('div', {class: 'card c-color' + (ready ? '' : ' dis')}, h('div', {class: 'vrow'}, h('h2', {}, 'Цвет'),
-      h('span', {class: 'src', title: guessed ? 'MA2 не сообщает, как прибор смешивает цвет: тип взят из настроек панели (attrs.color)' : ''},
-        'смешение ' + Object.keys(modes).join(' и ') + (guessed ? ' · по настройкам' : ''))),
+  var modeNote = h('p', {class:'src'}, 'смешение ' + Object.keys(modes).join(' и ') + (guessed ? ' · по настройкам панели' : ''));
+  return h('div', {class: 'card c-color' + (ready ? '' : ' dis')},
+    h('div', {class:'vrow color-heading'}, h('h2', {}, 'Цвет'), now), nowSrc,
+    h('div', {class: 'swatches primary-colors', role: 'group', 'aria-label': 'Быстрые цвета'}, [0,1,2,7,5,8].map(function(i){return swatches[i];})),
+    h('details', {class:'color-details'}, h('summary', {}, 'Точный цвет · круг и насыщенность'), modeNote, h('div', {class:'now'}, chip),
+    h('div', {class:'swatches', role:'group', 'aria-label':'Дополнительные цвета'}, [3,4,6,9].map(function(i){return swatches[i];})),
     h('div', {class: 'picker'}, wheel, h('div', {class: 'picker-side'},
-      h('div', {class: 'now'}, chip, h('div', {class: 'stack0'}, now, nowSrc)),
       h('label', {class: 'mini'}, h('span', {class: 'vrow'}, h('span', {}, 'Насыщенность'), satOut), satIn),
-      h('label', {class: 'mini'}, h('span', {class: 'vrow'}, h('span', {}, 'Светлота цвета'), valOut), valIn),
-      h('div', {class: 'swatches', role: 'group', 'aria-label': 'Быстрые цвета'}, swatches),
-      h('p', {class: 'src'}, 'Цвет и яркость регулируются отдельно.' +
-        (fadeSeconds ? ' Образцы и касание круга — плавно за ' + fadeSeconds + ' с, перетаскивание — сразу.' : '')))),
+      h('label', {class: 'mini'}, h('span', {class: 'vrow'}, h('span', {}, 'Яркость цвета'), valOut), valIn),
+      h('p', {class: 'src'}, 'Круг меняет только цвет. Яркость прибора — отдельный регулятор «Яркость».' +
+        (fadeSeconds ? ' Образцы и касание круга — плавно за ' + fadeSeconds + ' с, перетаскивание — сразу.' : ''))))),
     presetRow(ready), reason ? h('p', {class: 'note warn'}, reason) : null, unsupportedNote('color'));
 }
 

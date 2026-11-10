@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse
 
 from .commands import (FULL, PLAN_WRITES, SIMPLE, SLIDERS, ActionError, apply_move, build, can_move, check_jog, check_move, exec_page, find, exec_verdict,
                       head_lines, is_error_reply, load_config, movers, page_number, parse_executors, parse_label, parse_running,
-                      absolute, check_dmx_map, check_uid, parse_address, parse_rdm_list, parse_type_footprints, patch_plan, patch_rows, type_no, DMX_CANARY, DMX_CHUNK, dmx_lua, dmx_span, dmx_intervals, live_from_dmx, parse_dmx,
+                      absolute, check_dmx_map, check_uid, parse_address, parse_rdm_list, parse_type_footprints, parse_type_names, patch_plan, patch_rows, type_no, DMX_CANARY, DMX_CHUNK, dmx_lua, dmx_span, dmx_intervals, live_from_dmx, parse_dmx,
                       parse_positions, parse_ma2_objects, group_slot_empty, mirrored, pan_flip, rel_lines, select_line, store_lines, targets, unrecognised_lines, validate_hall)
 from .fixtures import merge_fixtures, parse_export, parse_group_export, save_config
 from .migrations import SITE_KEYS, legacy_archive_path, migrate_config, merge_settings
@@ -39,6 +39,8 @@ from .api import DIAG_HINTS, PROBE_COMMANDS, register as register_api  # noqa: F
 from .link import HALTED, LOGIN_OK, NO_LINK, PROMPT, READY, STALE, UNKNOWN, VAR, MA2Link, Throttle, clean  # noqa: F401 (tests import several from here)
 from .scenes import canonical_exec, ordered_scenes, merge_scenes, slot_candidates
 from .status_evidence import Evidence
+from .scene_runtime import GrandMasterBlackout, transition_lines, store_scene, confirm_manual_scene
+from .commands import fade_suffix
 from .commands import nudge_step
 from .mock import start_mock
 from . import exports
@@ -69,6 +71,7 @@ HISTORY_NAMES = {"dim": "Яркость", "color": "Цвет", "move": "Пози
                  "scenes_import": "Сцены из MA2", "fixtures_fetch": "Приборы из MA2", "ma2_import": "Группы и пресеты из MA2",
                  "show_load": "Загрузка шоу", "show_bind": "План шоу", "plan_copy": "Копия плана", "page_go": "Страница", "undo": "Откат"}
 HISTORY_LIGHT = {"dim", "color", "move", "jog", "nudge", "aim", "preset_go", "zoom", "focus", "strobe"}
+LIGHT_ACTIONS = HISTORY_LIGHT | {"scene_go", "scene_off", "blackout", "master", "highlight", "highlight_off", "ma2_preset_go"}
 HISTORY_DESK = {"scene_go", "scene_off", "blackout", "scene_create", "scene_rename", "page_save", "group_store_ma2", "show_load",
                 "show_bind", "plan_copy", "page_go"}
 MISSING = object()
@@ -136,8 +139,11 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     value_evidence = Evidence()
     sent_evidence = Evidence("panel")
     poll_wake = asyncio.Event()
+    dmx_wake = asyncio.Event()
     broadcast_lock = asyncio.Lock()
-    scene_revision: dict[str, int] = {}  # only actions involving this scene supersede its pending Off
+    scene_revision: dict[str, int] = {}  # revisions of observed playback state
+    scene_playbacks = {"context": None, "execs": set()}
+    blackout = GrandMasterBlackout(Path(config_path).parent / "blackout.json", save_config)
     clients: set[WebSocket] = set()
     sessions: dict[WebSocket, dict] = {}  # per tab: selection and the pan/tilt the gesture started from
     state = {"values_revision": 0, "plan_epoch": 0, "master": None, "read_freshness": {"fixtures": False, "ma2": False, "scenes": False}, "shown": {}, "tracked": True, "page": None, "show": {"name": None, "source": "unknown"}, "export_file": None, "loading": None, "live": {}, "dmx": {}, "dmx_read": None, "type_reads": {}, "rdm": None, "export_trace": None, "export_probe": None,
@@ -146,7 +152,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     active_operations = {}
     operation = ContextVar("operation", default=None)
     bridge_epoch = uuid.uuid4().hex
-    config_writes = {"layout_save", "hall_save", "fixture_flag", "group_save", "group_delete",
+    state["blackout_epoch"] = 0
+    config_writes = {"scene_fade", "layout_save", "hall_save", "fixture_flag", "group_save", "group_delete",
                      "preset_save", "preset_delete", "beam_home", "beam_invert", "dmx_map", "rdm_link",
                      "scene_create", "scene_rename", "scene_delete", "page_save", "scenes_import",
                      "ma2_import", "fixtures_fetch", "import_confirm_merge", "plan_copy", "show_bind",
@@ -203,8 +210,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             highlight.update(state="stuck", reason=str(e), restore_invalid=True, release_token=uuid.uuid4().hex)
 
     def status_msg():
-        return {"status": {"show_file_active": bool(state.get("show_file_active")), "show_file": state.get("show_file"), "operations": [{"request_id": op["id"], "a": op["a"], "stage": op.get("stage", "running")} for op in active_operations.values()], "read_freshness": dict(state["read_freshness"]), "show_load": state["show_load"], "highlight": highlight_status(), "show": state["show"], "features": features, "no_attr": state["no_attr"], "ma2": link.state, "login": {k: link.vars.get(k) for k in ("USER", "USERRIGHTS", "USERPROFILE", "VERSION")} if link.ready else None, "mock": mock, "halted": link.halted, "last": link.last, "manual": link.manual,
-                           "rdm_search": rdm.snapshot(),
+        return {"status": {"show_file_active": bool(state.get("show_file_active")), "show_file": state.get("show_file"), "operations": [{"request_id": op["id"], "a": op["a"], "stage": op.get("stage", "running")} for op in active_operations.values()], "recovering": bool(state.get("recovering")), "recovery_error": state.get("recovery_error"), "ma2_read": catalogue_meta(), "read_freshness": dict(state["read_freshness"]), "show_load": state["show_load"], "highlight": highlight_status(), "show": state["show"], "features": features, "no_attr": state["no_attr"], "ma2": link.state, "login": {k: link.vars.get(k) for k in ("USER", "USERRIGHTS", "USERPROFILE", "VERSION")} if link.ready else None, "mock": mock, "halted": link.halted, "last": link.last, "manual": link.manual,
+                           "rdm_search": rdm.snapshot(), "blackout": dict(blackout.state), "blackout_epoch": state["blackout_epoch"],
                            "safety": {"mode": mode, "fixtures": sorted(allowed_fixtures), "scenes": sorted(allowed_scenes),
                                       "store": sorted(store_execs), "master": safety["allow_master"] or mode == "full",
                                       "page": safety["allow_page_change"] or mode == "full",
@@ -227,7 +234,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 continue
             if isinstance(name, str) and name != cfg.get("show") and name not in plans:
                 plans.append(name)
-        return {"config": {**{k: cfg.get(k) for k in ("groups", "ma2groups", "ma2presets", "fixtures", "scenes", "plan", "hall", "presets", "attrs", "pages", "show", "fixtures_read", "dmx_map", "scene_order_version")},
+        return {"config": {**{k: cfg.get(k) for k in ("groups", "ma2groups", "ma2presets", "fixtures", "scenes", "plan", "hall", "presets", "attrs", "pages", "show", "fixtures_read", "dmx_map", "scene_order_version", "scene_fade")},
                            "dmx_map": {k: v for k, v in cfg.get("dmx_map", {}).items() if not v.get("stale") and not v.get("unsupported")},
                            "plans": plans, "revision": revision_token(), "patch": patch_rows(cfg["fixtures"])}}
 
@@ -308,6 +315,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return "откат выполняется"
         if entry.get("undo_error"):
             return "откат прерван: " + entry["undo_error"]
+        if entry.get("kind") == "light" and entry.get("blackout_epoch", 0) != state["blackout_epoch"]:
+            return "после общего гашения или восстановления связи прежний свет не восстанавливается"
         if any(sent_evidence.clock() - stamp >= 6 for stamp in entry.get("basis_times", {}).values()):
             return "прежние отправленные значения устарели"
         if entry.get("context") != history_context():
@@ -327,7 +336,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         basis_times = basis_times if basis_times is not None else ({f"sent:{fid}:{attr}": sent_evidence.clock()
                        for fid, values in (before or {}).items() for attr in values} if kind == "light" else {})
         last = history[-1] if history else None
-        if kind == "light" and last and not last["done"] and not last.get("undo_state") and last["context"] == context and last["kind"] == "light" and last["a"] == a and last["ids"] == set(ids) and time.monotonic() - last["ts"] < 3:
+        if kind == "light" and last and not last["done"] and not last.get("undo_state") and last.get("blackout_epoch", 0) == state["blackout_epoch"] and last["context"] == context and last["kind"] == "light" and last["a"] == a and last["ids"] == set(ids) and time.monotonic() - last["ts"] < 3:
             for fid, v in before.items():  # one slider drag is one change: the oldest values win
                 for attr, value in v.items():
                     last["before"].setdefault(fid, {}).setdefault(attr, value)
@@ -337,7 +346,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         else:
             history_n[0] += 1
             history.append({"n": history_n[0], "t": time.strftime("%H:%M:%S"), "ts": time.monotonic(), "a": a, "what": what,
-                            "kind": kind, "before": before, "ids": set(ids), "undo": bool(kind and before), "done": False, "context": context, "basis_times": basis_times})
+                            "kind": kind, "before": before, "ids": set(ids), "undo": bool(kind and before), "done": False, "context": context, "basis_times": basis_times,
+                            "blackout_epoch": state["blackout_epoch"]})
         spawn_broadcast(history_msg())
 
     def light_diff(before):
@@ -356,6 +366,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     async def undo_light(before, s, expected_context=None, inverse=None, stages=None, inverse_times=None, expected_basis=None):
         """Send the old values back, fixture by fixture; the first refusal stops it."""
+        epoch = state["blackout_epoch"]
         for fid, v in before.items():
             steps = [(k, {"a": k, "v": v[k]}) for k in ("dim", "zoom", "focus", "strobe") if k in v]
             if "rgb" in v:
@@ -363,7 +374,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if pos := {k: v[k] for k in ("pan", "tilt") if k in v}:
                 steps.append(("restore_pos", {"a": "restore_pos", "pos": {fid: pos}}))
             for a, action in steps:
-                if err := await execute(a, action, s, [fid], log_history=False, expected_context=expected_context, inverse=inverse, stages=stages, inverse_times=inverse_times, expected_basis=expected_basis):
+                if err := await execute(a, action, s, [fid], log_history=False, expected_context=expected_context, inverse=inverse, stages=stages, inverse_times=inverse_times, expected_basis=expected_basis, expected_blackout_epoch=epoch):
                     return err
         return None
 
@@ -552,6 +563,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return {"name": None, "source": "unknown"}
 
     def invalidate_profiles():
+        dmx_wake.set()
         state["no_attr"] = {}
         # Keep operator maps for recovery, but never use them as evidence of this context.
         state["dmx"], state["live"] = {}, {}
@@ -572,6 +584,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         type_retries.clear()
         state.pop("dmx_retry", None)
         state.pop("types_context", None)
+        state.pop("type_names", None)
+        state["dmx_read"] = None
+        state.pop("last_dmx_success", None)
 
     def update_show(show):
         if state["show"].get("name") != show.get("name"):
@@ -598,8 +613,29 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 # Never on its own at start or reconnect: "Off Fixture <zone>" also wipes what the operator set by hand
                 # in the programmer since (hall 2026-10-21). The operator removes it with the banner button.
                 highlight.update(state="stuck", reason="осталась после перезапуска или обрыва связи")
+        if recover:
+            gen = link._gen
+            try:
+                if not state["show"].get("name") or state["show"].get("source") != "ma2":
+                    raise ActionError("текущее шоу MA2 не подтверждено")
+                if state.get("was_ready"):
+                    check_show()
+                if state.get("was_ready") and cfg["fixtures"] and safety["allow_fixture_read"] is not True:
+                    raise ActionError("для восстановления Patch включите allow_fixture_read и получите приборы заново")
+                if state.get("was_ready") and safety["allow_fixture_read"] is True:
+                    async with action_lock:
+                        result = await fetch_fixtures()
+                        if not result.get("ok"):
+                            raise ActionError(result.get("err", "импорт не подтверждён"))
+                if gen == link._gen and link.ready:
+                    state["recovering"] = False
+                    state["was_ready"] = True
+                    state.pop("recovery_error", None)
+            except (ActionError, ValueError, OSError) as error:
+                state["recovery_error"] = str(error)
         await broadcast(status_msg())
         poll_wake.set()
+        dmx_wake.set()
 
     # ---- raw replies for the hall (owner 2026-10-22): main() turns this on, tests and --mock do not ------------------
 
@@ -632,6 +668,15 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         task.add_done_callback(bg.discard)
 
     def on_state(new):
+        # Every recovery invalidates admitted work, including a line waiting for
+        # the transport lock. Authentication callbacks need not change _gen.
+        link._stop_epoch += 1
+        if state.get("was_ready"):
+            # Reuse the existing client light barrier: a late WebSocket packet
+            # must not become a new intent just because recovery has finished.
+            state["blackout_epoch"] += 1
+        throttle.clear()
+        state["recovering"] = True
         invalidate_profiles()
         invalidate_scene_offers()
         if new in READY and capture and not captured["start"]:  # once per run: a reconnect does not repeat it
@@ -662,6 +707,16 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     def blocked(a):
         """Reason an action is refused in the current mode, else None. link.guard repeats this for every line."""
+        if a in PLAN_WRITES | {"master", "blackout", "page_go", "clear", "patch_apply", "rdm_identify", "show_save", "show_load", "undo"}:
+            if not link.ready:
+                return NO_LINK
+            if state.get("recovering") and a in PLAN_WRITES:
+                try:
+                    check_show()
+                except ActionError as error:
+                    return str(error)
+            if state.get("recovering"):
+                return "восстанавливается контекст MA2; дождитесь чтения приборов"
         if rdm.active and a not in ("rdm_stop", "rdm_check"):
             # The search owns the desk; light/patch/show operations must not queue behind its lock (spec «Изоляция RDM»).
             return "идёт поиск RDM; свет, патч, Identify и файлы шоу сейчас недоступны (RDM)"
@@ -731,11 +786,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 attr = "dim" if a == "dim" else "rgb"
                 sent_evidence.observe(f"sent:{fid}:{attr}", entry[attr])
             state["tracked"] = True
-        elif a == "blackout":
-            state["shown"] = {}
-        elif a == "scene_go":  # the line starts with ClearAll: nothing the panel sent is on the desk any more
-            forget_positions()
-            state["shown"], state["tracked"] = {}, False
+        elif a == "scene_go":
+            # Native playback leaves Programmer intact; sent values remain independent.
+            pass
         elif a == "page_go":
             state["page"] = action["n"]
         for fid, v in values.items():
@@ -842,29 +895,39 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if a == "scene_go" and scene.get("write_error"):
                 raise ActionError("запись сцены не подтверждена: проверьте её в редакторе")
             check_scene(scene["exec"])
+        if a == "scene_go":
+            return transition_lines(action, cfg, lambda ex: mode == "full" or ex in allowed_scenes, owned_scene_execs()), {}
         if a == "blackout":
-            # Off for the panel's scenes, then dimmer 0 for every fixture of the plan: a plan without scenes (a new show)
-            # or light set from the panel / programmer used to stay on (hall 2026-10-21). Undo: Oops on the desk.
-            lines = [f"Off Executor {sc['exec']}" for sc in cfg["scenes"] if mode == "full" or str(sc["exec"]) in allowed_scenes]
-            dark = [f["id"] for f in cfg["fixtures"] if not f.get("missing") and not f.get("service") and (mode == "full" or f["id"] in allowed_fixtures)]
-            if dark:
-                lines += [select_line(dark), "At 0"]
-            if not lines:
-                raise ActionError("нечего гасить: в плане нет сцен и приборов (или они не разрешены в settings.json)")
-            return lines, {fid: {"dim": 0.0} for fid in dark}
+            raise ActionError("Blackout выполняется отдельной транзакцией Grand Master")
         return build(action, {**cfg, "master": settings.get("master", cfg.get("master", {"cmd": "Master 2.1 At {v}"}))}), {}
 
+    def owned_scene_execs():
+        # Ownership comes from attempted panel Goto commands, never catalogue
+        # membership or a stale/unknown Running row. Blackout preserves it.
+        context = (state['plan_epoch'], state['show'].get('name'), cfg.get('show'))
+        if scene_playbacks['context'] != context:
+            scene_playbacks.update(context=context, execs=set())
+        observed, _ = scene_evidence.snapshot(sc['id'] for sc in cfg['scenes'])
+        for sc in cfg['scenes']:
+            if observed[sc['id']] is False:
+                scene_playbacks['execs'].discard(sc['exec'])
+        return scene_playbacks['execs']
+
     def action_ticket(ws):
-        return (ws, sessions.get(ws), state["plan_epoch"], link._gen, link._stop_epoch)
+        return (ws, sessions.get(ws), state["plan_epoch"], link._gen, link._stop_epoch, state["blackout_epoch"])
 
     def ticket_valid(ticket):
-        ws, session, epoch, gen, stop = ticket
+        ws, session, epoch, gen, stop, blackout_epoch = ticket
         return (session is not None and sessions.get(ws) is session
-                and (epoch, gen, stop) == (state["plan_epoch"], link._gen, link._stop_epoch))
+                and (epoch, gen, stop, blackout_epoch) == (state["plan_epoch"], link._gen, link._stop_epoch, state["blackout_epoch"]))
 
-    async def execute(a, action, s, ids, log_history=True, scene_ticket=None, expected_context=None, inverse=None, stages=None, inverse_times=None, expected_basis=None, ticket=None):
+    async def execute(a, action, s, ids, log_history=True, scene_ticket=None, expected_context=None, inverse=None, stages=None, inverse_times=None, expected_basis=None, ticket=None, expected_blackout_epoch=None):
         """Send the action's lines; None on success, else the error text."""
         async with action_lock:
+            if state.get("recovering"):
+                return "восстанавливается контекст MA2; действие отменено"
+            if expected_blackout_epoch is not None and expected_blackout_epoch != state["blackout_epoch"]:
+                return "действие отменено затемнением"
             if ticket is not None and not ticket_valid(ticket):
                 return "устаревшее действие клиента"
             if expected_basis and any(sent_evidence.clock() - stamp >= 6 for stamp in expected_basis.values()):
@@ -885,9 +948,52 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             gen = link._gen  # a drop and reconnect in the middle must not let the second half of the lines through
             stop_epoch = link._stop_epoch
             try:
-                lines, values = lines_for(a, action, s, ids)
+                if a != 'blackout':
+                    lines, values = lines_for(a, action, s, ids)
             except ActionError as e:
                 return str(e)
+            if a in PLAN_WRITES:
+                try:
+                    check_show()
+                    if a in ("scene_go", "scene_off"):
+                        await confirm_write_show(gen)
+                        if a == 'scene_go':
+                            async def send_probe(line):
+                                ok, reply = await link.send(line, gen=gen)
+                                if not ok or (gen, stop_epoch) != (link._gen, link._stop_epoch):
+                                    raise ActionError('чтение сцены прервано; запуск отменён')
+                                if line == 'ListVar':
+                                    update_show(show_from(reply))
+                                    check_show()
+                                return reply
+                            affected = {find(cfg['scenes'], action['id'])['exec']}
+                            affected.update(line.rsplit(' ', 1)[-1] for line in lines if line.startswith('Masterfade '))
+                            for ex in sorted(affected):
+                                await confirm_manual_scene(send_probe, ex)
+                except ActionError as e:
+                    return str(e)
+            if a == "blackout":
+                if mode != "full":
+                    return "глобальное затемнение требует режим full"
+                context = (state["plan_epoch"], gen, stop_epoch, state["show"]["name"])
+                async def send_blackout(line):
+                    if context != (state["plan_epoch"], link._gen, link._stop_epoch, state["show"]["name"]):
+                        raise ActionError("контекст затемнения изменился; оставшиеся команды отменены")
+                    ok, reply = await link.send(line, gen=gen)
+                    if not ok:
+                        raise ActionError(reply.strip() or "ошибка MA2")
+                    if line == "ListVar":
+                        update_show(show_from(reply))
+                    if context != (state["plan_epoch"], link._gen, link._stop_epoch, state["show"]["name"]):
+                        raise ActionError("контекст затемнения изменился; оставшиеся команды отменены")
+                    return reply
+                try:
+                    await blackout.toggle(send_blackout, context)
+                    return None
+                except (ActionError, OSError) as e:
+                    return str(e)
+                finally:
+                    await broadcast(status_msg())
             # A newer mutation owns the light even when its result is partial/unknown.
             # Do not let a later release wipe it with either Off Fixture or saved At.
             if highlight["state"] != "idle" and a in HISTORY_LIGHT | {"restore_pos", "scene_go", "scene_off", "blackout", "clear", "master"}:
@@ -895,24 +1001,33 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             # Invalidate before the first send: even a partially failed newer action owns the scene.
             if a in ("scene_go", "scene_off", "blackout"):
                 touched = ({sc["id"] for sc in cfg["scenes"]} if a == "blackout" else
-                           {action["id"], *action.get("swap", [])})
+                           {sc["id"] for sc in cfg["scenes"]} if a == "scene_go" else {action["id"]})
                 for sid in touched:
                     scene_revision[sid] = scene_revision.get(sid, 0) + 1
                 scene_evidence.invalidate(touched)
                 spawn_broadcast(scenes_msg())
             selected_ids = []
+            native_context = (state["plan_epoch"], gen, stop_epoch, state["blackout_epoch"])
             for line in lines:
+                if state.get("recovering"):
+                    return "восстанавливается контекст MA2; оставшиеся команды отменены"
+                if native_context != (state["plan_epoch"], link._gen, link._stop_epoch, state["blackout_epoch"]):
+                    return "контекст действия изменился; оставшиеся команды отменены"
                 if ticket is not None and not ticket_valid(ticket):
                     return "устаревшее действие клиента"
                 if expected_basis and any(sent_evidence.clock() - stamp >= 6 for stamp in expected_basis.values()):
                     return "прежние отправленные значения устарели"
                 if expected_context is not None and expected_context != history_context():
                     return "изменилось шоу, план или соединение"
+                if a == 'scene_go' and line.startswith('Goto Cue 1 Executor '):
+                    # A missing reply may still have started playback. Retain
+                    # this address so the next panel transition can release it.
+                    owned_scene_execs().add(find(cfg['scenes'], action['id'])['exec'])
                 ok, reply = await link.send(line, gen=gen)
                 if stages is not None:
                     last = link.last or {}
                     stages.append({"cmd": line, "status": last.get("status") if last.get("cmd") == line else "sent" if ok else "error"})
-                if gen != link._gen:
+                if native_context != (state["plan_epoch"], link._gen, link._stop_epoch, state["blackout_epoch"]):
                     invalidate_evidence()
                     return "соединение изменилось во время операции"
                 if not ok:
@@ -922,6 +1037,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     if a in ("zoom", "focus", "strobe") and "#14" in reply:
                         return no_attribute(a, ids)
                     return reply.strip() or "ошибка пульта"
+                if a in ('scene_go', 'scene_off') and line.startswith('Off Executor '):
+                    owned_scene_execs().discard(line[len('Off Executor '):])
                 if line == "ClearAll":
                     # Even if the subsequent Go fails, this programmer is no longer
                     # a usable basis. Output readback is independent of ClearAll.
@@ -943,15 +1060,6 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                             state["sent"].get(fid, set()).discard(attr)
                             sent_evidence.invalidate([f"sent:{fid}:{attr}"])
             remember(a, action, ids, values, s)
-            if a == "scene_go" and action.get("swap"):
-                # A reconnect may reach READY before identify_show has acquired this lock.
-                tickets = {sid: (state["plan_epoch"], scene_revision.get(sid, 0), gen, stop_epoch)
-                           for sid in action["swap"] if sid != action["id"]}
-                if (op := operation.get()) and op["id"] is not None:
-                    op.update(retain=True, deferred=True, stage="transition")
-                task = asyncio.create_task(swap_off(tickets, action.get("fade") or 0, s))
-                bg.add(task)
-                task.add_done_callback(bg.discard)
             if a in ("scene_go", "scene_off", "blackout"):
                 poll_wake.set()
             if before is not None:
@@ -980,19 +1088,6 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         name = re.search(r'Attribute "([^"]+)"', cfg["attrs"][a]["cmd"])
         return (f"у выбранных приборов на пульте нет атрибута «{name[1] if name else a}» (MA2: Error #14). "
                 f"Имя атрибута меняется в настройках: attrs.{a}.cmd")
-
-    async def swap_off(tickets, seconds, s):
-        await asyncio.sleep(seconds)
-        err = None
-        for sid, ticket in tickets.items():
-            err = await execute("scene_off", {"a": "scene_off", "id": sid}, s, [], scene_ticket=ticket)
-            if err == "устаревший переход сцены":
-                err = None  # only this scene was superseded; independent tickets remain valid
-                continue
-            if err:
-                break
-        if op := operation.get():
-            await finish_operation(op, {"ok": not bool(err), **({"err": err} if err else {})})
 
     async def throttled(key, intent):
         ws = intent["ws"]
@@ -1239,20 +1334,28 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         Needs allow_fixture_read; read only (getdmx). Failed reads back off; refusals have a bounded retry budget."""
         wait = dmx_seconds
         while True:
-            await asyncio.sleep(wait)
+            sleeper = asyncio.create_task(asyncio.sleep(wait))
+            awakened = asyncio.create_task(dmx_wake.wait())
+            try:
+                await asyncio.wait((sleeper, awakened), return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                sleeper.cancel()
+                awakened.cancel()
+                await asyncio.gather(sleeper, awakened, return_exceptions=True)
+            dmx_wake.clear()
             try:
                 wait = await read_dmx()
             except Exception:  # one bad reply must not end the read-back until restart
                 log.exception("чтение DMX не удалось")
                 wait = 30
 
-    dmx_cycle = {"key": None, "index": 0, "initial": True, "seen": {}, "started": None, "seconds": None}
+    dmx_cycle = {"key": None, "index": 0, "initial": True, "seen": {}, "started": None, "seconds": None, "retry_after": {}}
 
     def expire_dmx():
         before = dict(state["dmx"])
         key = (state["plan_epoch"], link._gen, tuple(dmx_intervals(cfg["fixtures"])))
         if dmx_cycle["key"] != key:
-            dmx_cycle.update(key=key, index=0, initial=True, seen={}, started=None, seconds=None)
+            dmx_cycle.update(key=key, index=0, initial=True, seen={}, started=None, seconds=None, retry_after={})
             state["dmx"] = {}
         now = time.monotonic()
         for a in list(state["dmx"]):
@@ -1263,6 +1366,58 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         if changed:
             state["live"] = live_from_dmx(cfg["fixtures"], state["dmx"], cfg.get("dmx_map", {}))
         return changed
+
+    def dmx_diagnostics():
+        """Local, read-only snapshot. Never treats cached/sent values as actual output."""
+        now = time.monotonic()
+        current = dmx_cycle["key"] == (state["plan_epoch"], link._gen, tuple(dmx_intervals(cfg["fixtures"])))
+        fresh = {a: v for a, v in state["dmx"].items()
+                 if current and now - dmx_cycle["seen"].get(a, float("-inf")) < 6}
+        maps = cfg.get("dmx_map", {})
+        fixtures = [f for f in cfg["fixtures"] if not f.get("missing")]
+        patched = [f for f in fixtures if absolute(f.get("address"))]
+        kinds = {f.get("type") or "" for f in patched}
+        valid = {k for k in kinds if maps.get(k) and not maps[k].get("stale")
+                 and not maps[k].get("unsupported") and (all(maps[k].get(c) for c in "rgb")
+                 or maps[k].get("dim") and not any(maps[k].get(c) for c in "rgb"))}
+        live = live_from_dmx(fixtures, fresh, maps) if link.ready and not state["loading"] else {}
+        read = state.get("dmx_read") or {}
+        enabled = safety["allow_fixture_read"] is True and dmx_seconds > 0
+        stage, reason = "output", "Свежие значения DMX доступны; отрисовка браузера отдельно не подтверждена"
+        if not enabled:
+            stage, reason = "disabled", "Чтение запрещено allow_fixture_read" if safety["allow_fixture_read"] is not True else "Опрос выключен: dmx_seconds=0"
+        elif not link.ready:
+            stage, reason = "connection", "Нет подтверждённого входа в MA2"
+        elif state["loading"]:
+            stage, reason = "paused", "Идёт загрузка шоу"
+        elif not patched:
+            stage, reason = "addresses", "В плане нет приборов с DMX-адресами"
+        elif not valid:
+            errors = [t for t in state["type_reads"].values()
+                      if t.get("error") and t.get("context") == (state["plan_epoch"], link._gen)]
+            stage = "profile_parser" if any(t.get("file") for t in errors) else "export" if errors else "dmx_map"
+            reason = "Нет действующих поддерживаемых карт: проверьте экспорт типов, номер/LongName, stale и unsupported"
+        elif not live:
+            stage = read.get("stage") if read.get("stage") not in (None, "output") else "freshness" if state.get("last_dmx_success") else "dmx_map" if fresh else "polling"
+            reason = read.get("reason") or "Нет свежего полного набора каналов прибора; проверьте footprint и карту"
+        elif len(live) < len(patched):
+            reason = "Выход прочитан частично; неизвестные приборы не подсвечиваются"
+        cycle = dmx_cycle["seconds"]
+        rows = [{"id": f["id"], "address": f.get("address"), "type": f.get("type"),
+                 "map": maps.get(f.get("type") or ""), "actual": f["id"] in live,
+                 "fresh_channels": sum(a <= address < a + (f.get("footprint") or 0) for address in fresh) if (a := absolute(f.get("address"))) else 0}
+                for f in fixtures]
+        blocks = [{"start": start, "count": count, "fresh_channels": sum(start <= a < start + count for a in fresh),
+                   "retry_in": max(0, round(dmx_cycle["retry_after"].get((start, count), 0) - now, 2))}
+                  for start, count in dmx_intervals(fixtures)]
+        return {**read, "fixtures": rows, "blocks": blocks, "enabled": enabled, "allow_fixture_read": safety["allow_fixture_read"],
+                "dmx_seconds": dmx_seconds, "connected": link.ready, "mock": mock,
+                "patched_fixtures": len(patched), "mapped_types": len(valid), "types": len(kinds),
+                "actual_fixtures": len(live), "unknown_fixtures": len(patched) - len(live),
+                "fresh_values": len(fresh), "last_success": state.get("last_dmx_success"),
+                "stage": stage, "summary": reason, "cycle_seconds": cycle,
+                "ttl_seconds": 6, "capacity_exceeded": cycle is not None and cycle >= 6,
+                "rendering": "not_observed"}
 
     async def read_dmx():
         """One read; refusals back off and stop sending after READ_ATTEMPTS until a context reset."""
@@ -1280,24 +1435,29 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             state["background_type_read"] = False
         if epoch != state["plan_epoch"] or gen != link._gen or not link.ready:
             return dmx_seconds
-        retry = state.get("dmx_retry")
-        if retry is None or retry["context"] != (epoch, gen):
-            retry = state["dmx_retry"] = {"context": (epoch, gen), "failures": 0, "after": 0}
-        if retry["failures"] >= READ_ATTEMPTS or time.monotonic() < retry["after"]:
-            return READ_RETRY_S
+        retries = state.get("dmx_retry")
+        if retries is None or retries["context"] != (epoch, gen):
+            retries = state["dmx_retry"] = {"context": (epoch, gen), "blocks": {}}
         intervals = dmx_intervals(cfg["fixtures"])
         if not intervals:
             return dmx_seconds
         key = (epoch, gen, tuple(intervals))
         if dmx_cycle["key"] != key:
-            dmx_cycle.update(key=key, index=0, initial=True, seen={}, started=None, seconds=None)
+            dmx_cycle.update(key=key, index=0, initial=True, seen={}, started=None, seconds=None, retry_after={})
             # A new show (even with identical addresses) must not inherit old output.
             state["dmx"] = {}
             state["live"] = {}
         chunks = [(a, min(DMX_CHUNK, start + count - a))
                   for start, count in intervals for a in range(start, start + count, DMX_CHUNK)]
         span = chunks[dmx_cycle["index"]]
-        pause = dmx_seconds / len(chunks)
+        pause = max(.1, dmx_seconds / len(chunks))
+        retry = retries["blocks"].setdefault(span, {"failures": 0, "after": 0})
+        if retry["failures"] >= READ_ATTEMPTS or time.monotonic() < retry["after"]:
+            dmx_cycle["index"] = (dmx_cycle["index"] + 1) % len(chunks)
+            return READ_RETRY_S if len(chunks) == 1 else pause
+        if time.monotonic() < dmx_cycle["retry_after"].get(span, 0):
+            dmx_cycle["index"] = (dmx_cycle["index"] + 1) % len(chunks)
+            return pause
         nonce = uuid.uuid4().hex[:16]
         lines = ([DMX_CANARY.format(a=span[0])] if dmx_cycle["initial"] else []) + dmx_lua(*span, nonce=nonce)
         export_extra.update(lines)
@@ -1336,22 +1496,28 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         sample_age = now - sampled_at
         if sample_age >= 6:
             dmx = {}
-        panel_vars = " | ".join(ln.strip()[:200] for ln in listvar.splitlines() if "$PANEL" in ln)
+        unreadable = not dmx and re.search(
+            rf'PANELDMX{span[0]}\s*=\s*"?T{nonce} {span[0]} -1(?:,-1){{{span[1] - 1}}}"?[ \t]*$', listvar, re.M)
+        panel_vars = " | ".join(ln.strip()[:200] for ln in listvar.splitlines()
+                                if re.search(r'\bPANEL(?:DMX\d+|ST|V)\s*=', ln))
         state["dmx_read"] = {"t": time.strftime("%H:%M:%S"), "span": span, "values": len(dmx),
                              "chunks": len(chunks), "pause_seconds": pause,
                              "read_seconds": sample_age, "cycle_seconds": dmx_cycle["seconds"],
-                             "reason": "ответ DMX старше 6 с" if sample_age >= 6 else "" if len(dmx) == span[1] else "неполный или недостоверный ответ DMX: маркер, диапазон или байты",
+                             "reason": "ответ DMX старше 6 с" if sample_age >= 6 else "Lua/getdmx не вернул доступных байтов" if unreadable else "" if len(dmx) == span[1] else "неполный или недостоверный ответ DMX: маркер, диапазон или байты",
                              "reply": " || ".join(replies) + " || ListVar: " + (panel_vars or "нет $PANELDMX")}
+        state["dmx_read"]["stage"] = ("lua" if refused else "transport" if not ok else "freshness" if sample_age >= 6
+                                      else "getdmx" if unreadable else "output" if len(dmx) == span[1] else "dmx_parser")
         if refused:
             retry["failures"] += 1
             retry["after"] = time.monotonic() + READ_RETRY_S
+            dmx_cycle["retry_after"][span] = retry["after"]
             dmx_cycle["initial"] = True
             if retry["failures"] >= READ_ATTEMPTS:
                 state["dmx_read"]["reason"] = "MA2 отказал в чтении DMX трижды; переподключитесь или получите приборы заново"
                 log.warning("чтение DMX приостановлено после трёх отказов MA2; ответ в диагностике")
             else:
                 state["dmx_read"]["reason"] = "MA2 отказал в чтении DMX; следующая попытка не раньше чем через 30 с"
-            return READ_RETRY_S
+            return READ_RETRY_S if len(chunks) == 1 else pause
         # Missing/unreadable channels cease to be evidence. Other chunks age independently.
         for a in list(state["dmx"]):
             if span[0] <= a < span[0] + span[1] or now - dmx_cycle["seen"].get(a, 0) >= 6:
@@ -1361,9 +1527,13 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         state["dmx_read"]["max_age_seconds"] = max((now - t for t in dmx_cycle["seen"].values()), default=None)
         state["dmx"].update(dmx)
         if not dmx:
+            # A bad universe backs off independently; healthy universes keep their cadence.
+            dmx_cycle["retry_after"][span] = now + READ_RETRY_S
             state["live"] = live_from_dmx(cfg["fixtures"], state["dmx"], cfg.get("dmx_map", {}))
             await broadcast({"live": state["live"], "values_meta": values_meta()})
-            return 30
+            return READ_RETRY_S if len(chunks) == 1 else pause
+        dmx_cycle["retry_after"].pop(span, None)
+        state["last_dmx_success"] = time.strftime("%Y-%m-%d %H:%M:%S")
         value_evidence.observe("live", True)
         retry.update(failures=0, after=0)
         dmx = state["dmx"]
@@ -1416,10 +1586,17 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         await confirm_scene_show(context)
         return scenes, added, unrecognised
 
+    def catalogue_meta():
+        now = time.monotonic()
+        return {pool: {**meta, "freshness": "fresh" if meta.get("status") in ("complete", "empty")
+                      and link.ready and meta.get("context") == (state["plan_epoch"], link._gen)
+                      and now - meta.get("observed", 0) < 6 else "stale"}
+                for pool, meta in state.get("ma2_read_meta", {}).items()}
+
     async def read_ma2():
-        """Read all three pools under action_lock; raw replies also stay in link diagnostics."""
-        result = {"groups": [], "colors": [], "positions": [], "raw": {}}
-        gen = link._gen
+        """All pools must be complete; errors never turn a previous catalogue into empty."""
+        result = {"groups": [], "colors": [], "positions": [], "raw": {}, "meta": {}}
+        gen, epoch = link._gen, state["plan_epoch"]
         requests = [("groups", ma2["list_group_cmd"], "group_regex", None)]
         for kind, pool in (("color", "colors"), ("position", "positions")):
             typ = ma2["preset_types"][kind]
@@ -1427,26 +1604,51 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         for pool, cmd, regex, typ in requests:
             ok, reply = await link.send(cmd, gen=gen)
             result["raw"][pool] = reply
-            if not ok:
-                return {**result, "ok": False, "err": reply.strip() or "ошибка пульта"}
-            result[pool] = parse_ma2_objects(reply, ma2[regex], typ)
-        result["ok"] = any(result[pool] for pool in ("groups", "colors", "positions"))
+            rows = parse_ma2_objects(reply, ma2[regex], typ) if ok else []
+            lines = []
+            for line in reply.splitlines():
+                line = re.sub(r"^(?:\s*\[[^\]]*\]>\s*)+", "", line).strip()
+                if not line or line == cmd or re.match(r"(?i)^Executing\s*:", line):
+                    continue
+                if re.fullmatch(r"(?i)No\.\s+Name(?:\s+(?:Special|Info))*", line):
+                    continue
+                lines.append(line)
+            empty = bool(lines) and all(re.fullmatch(ma2["group_empty_regex"], ln) for ln in lines)
+            matches = list(re.finditer(ma2[regex], reply))
+            complete = bool(rows) and len(rows) == len(matches) and all(re.search(ma2[regex], ln) for ln in lines)
+            valid = ok and not is_error_reply(reply) and gen == link._gen and epoch == state["plan_epoch"] and link.ready
+            status = "empty" if valid and empty else "complete" if valid and complete else "partial" if valid and rows else "error"
+            result[pool] = rows
+            meta = {"status": status, "observed": time.monotonic(), "updated_at": time.time(),
+                    "context": (epoch, gen), "count": len(rows),
+                    "reason": "" if status in ("complete", "empty") else "ответ MA2 не распознан полностью"}
+            previous = state.setdefault("ma2_read_meta", {}).get(pool, {})
+            meta["last_success"] = meta["updated_at"] if status in ("complete", "empty") else previous.get("last_success")
+            state["ma2_read_meta"][pool] = meta
+            result["meta"][pool] = meta
+        result["ok"] = all(m["status"] in ("complete", "empty") for m in result["meta"].values())
         if not result["ok"]:
-            result["err"] = "ответ MA2 не распознан: сырой ответ в Диагностике"
+            result["err"] = "ответ MA2 не распознан полностью: сырой ответ в Диагностике"
         return result
 
-    async def send_ma2_lines(lines, gen):
+    async def send_ma2_lines(lines, gen, ticket=None):
         # Preflight the whole operation so a bad store template cannot first change selection.
         for line in lines:
             if why := guard(line):
                 raise ActionError(f"заблокировано защитой: {why}")
         for line in lines:
+            if ticket is not None and not ticket_valid(ticket):
+                raise ActionError("действие отменено затемнением или сменой контекста")
             ok, reply = await link.send(line, gen=gen)
+            if ticket is not None and not ticket_valid(ticket):
+                raise ActionError("действие прервано затемнением или сменой контекста")
             if not ok:
                 raise ActionError(reply.strip() or "ошибка пульта")
 
-    async def ma2_action(a, action, s):
+    async def ma2_action(a, action, s, ticket=None):
         async with action_lock:
+            if ticket is not None and not ticket_valid(ticket):
+                raise ActionError("действие отменено затемнением или сменой контекста")
             if state["loading"]:
                 raise ActionError("идёт загрузка шоу")
             link.new_action()
@@ -1459,6 +1661,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                         raise ActionError("groups: нужен список номеров 1-999")
                     if any(type(action.get(k, False)) is not bool for k in ("colors", "positions", "scenes")):
                         raise ActionError("colors, positions, scenes: требуется bool")
+                    await confirm_write_show(gen)
+                    scene_context = offer_context()
                 result = await read_ma2()
                 state["read_freshness"]["ma2"] = bool(result["ok"])
                 await broadcast(status_msg())
@@ -1466,15 +1670,24 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     return {**result, "a": a}
                 if set(nums) - {g["n"] for g in result["groups"]}:
                     raise ActionError("выбранная группа не найдена в MA2")
+                require_scene_context(scene_context)
                 presets = cfg.get("ma2presets", {})
-                groups = [g for g in result["groups"] if g["n"] in nums]
-                if any(not g.get("ids") for g in groups):
+                old_groups = {g["n"]: g for g in cfg.get("ma2groups", [])}
+                groups = [{**old_groups.get(g["n"], {}), **g} for g in result["groups"] if g["n"] in nums]
+                if groups:
                     try:
                         listed = {g["n"]: g["name"] for g in result["groups"]}
                         members = await export_once(ma2["group_export_cmd"], "group", lambda text, file: parse_group_export(text, listed), "group_export_trace.json")
-                        groups = [{**g, "ids": members[g["n"]]} if members.get(g["n"]) else g for g in groups]
+                        if any(g["n"] not in members for g in groups):
+                            raise ActionError("экспорт содержит не все выбранные группы")
+                        groups = [{**g, "ids": members[g["n"]]} for g in groups]
                     except (ActionError, ValueError) as e:
                         result["members_err"] = f"состав групп не прочитан: {e}"
+                        state["read_freshness"]["ma2"] = False
+                        state["ma2_read_meta"]["groups"].update(status="partial", reason=result["members_err"])
+                        await broadcast(status_msg())
+                        return {**result, "ok": False, "err": result["members_err"]}
+                require_scene_context(scene_context)
                 changes = {
                     "ma2groups": groups,
                     "ma2presets": {pool: result[pool] if action.get(pool, False) else presets.get(pool, [])
@@ -1495,13 +1708,30 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 group = next((g for g in cfg.get("ma2groups", []) if g["n"] == n), None)
                 if group is None:
                     raise ActionError("группа не импортирована из MA2")
-                ids = group.get("ids", [])
+                await confirm_write_show(gen)
+                scene_context = offer_context()
+                catalogue = await read_ma2()
+                require_scene_context(scene_context)
+                listed = {g["n"]: g["name"] for g in catalogue["groups"]}
+                if not catalogue["ok"] or n not in listed:
+                    raise ActionError("группа MA2 и её состав не подтверждены свежим чтением")
+                members = await export_once(ma2["group_export_cmd"], "group", lambda text, file: parse_group_export(text, listed), "group_export_trace.json", gen=gen,
+                                            validate=lambda: require_scene_context(scene_context))
+                require_scene_context(scene_context)
+                if n not in members:
+                    raise ActionError("состав группы MA2 прочитан не полностью")
+                ids = members[n]
                 if not ids:  # Group n would select fixtures the panel cannot see or check
                     raise ActionError("состав группы MA2 не прочитан: выберите приборы в панели")
                 check_ids(ids)
                 if any(find(cfg["fixtures"], fid).get("missing") for fid in ids):
                     raise ActionError("приборов группы нет в шоу")
-                await send_ma2_lines([ma2["group_go_cmd"].format(n=n)], gen)
+                if ticket is not None and not ticket_valid(ticket):
+                    raise ActionError("действие отменено затемнением или сменой контекста")
+                groups = [{**g, "name": listed[n], "ids": ids} if g["n"] == n else g for g in cfg["ma2groups"]]
+                save_config(config_path, {**cfg, "attrs": original_attrs, "ma2groups": groups})
+                cfg["ma2groups"] = groups
+                await send_ma2_lines([ma2["group_go_cmd"].format(n=n)], gen, ticket=ticket)
                 s["selection"], s["base"] = list(ids), None
                 result = {"ok": True, "a": a}
             elif a == "ma2_preset_go":
@@ -1518,7 +1748,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     raise ActionError("выбранного прибора нет в шоу")
                 if highlight["state"] != "idle":
                     highlight_stuck("новый пресет MA2; прежнее снятие подсветки запрещено")
-                await send_ma2_lines([select_line(ids), ma2["preset_go_cmd"].format(type=ma2["preset_types"][kind], n=n)], gen)
+                await send_ma2_lines([select_line(ids), ma2["preset_go_cmd"].format(type=ma2["preset_types"][kind], n=n)], gen, ticket=ticket)
                 # A named preset gives no numerical feedback; forget only affected values.
                 for fid in ids:
                     for key in (("rgb",) if kind == "color" else ("pan", "tilt")):
@@ -1547,7 +1777,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 ok, reply = await link.send(f"List Group {n}", gen=gen)
                 if not ok or not group_slot_empty(reply, n, ma2["group_regex"], ma2["group_empty_regex"]):
                     raise ActionError("группа занята или ответ не распознан: запись отменена; сырой ответ в Диагностике")
-                await send_ma2_lines(lines, gen)
+                await send_ma2_lines(lines, gen, ticket=ticket)
                 result = {"ok": True, "a": a}
         if a == "ma2_import":
             await broadcast(config_msg())
@@ -1657,10 +1887,20 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     def check_show():
         current, bound = state["show"]["name"], cfg.get("show")
-        if not current and not bound:
+        if not bound:
             raise ActionError("привяжите план к шоу")
-        if current and bound and current != bound:
+        if not current or state["show"].get("source") != "ma2":
+            raise ActionError("текущее шоу не подтверждено пультом")
+        if current != bound:
             raise ActionError("на пульте другое шоу, откройте его план")
+
+    async def confirm_write_show(gen):
+        """A fresh read under action_lock before scene mutations, never auto-bind."""
+        ok, reply = await link.send("ListVar", gen=gen)
+        if gen != link._gen or not ok:
+            raise ActionError("принадлежность текущему шоу не подтверждена; запись отменена")
+        update_show(show_from(reply))
+        check_show()
 
     def import_context():
         return (state["plan_epoch"], state["show"]["name"], link._gen, config_revision())
@@ -1682,7 +1922,6 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                                        "no_id": no_id, "request_token": token, "context": import_context()}
             return {"ok": False, "ambiguous": ambiguous, "request_token": token,
                     "err": "Неоднозначная перепривязка: подтвердите выбор", "no_id": no_id[:50]}
-        invalidate_profiles()
         return commit_import(fixtures, found, source, file, no_id)
 
     def confirm_import(action):
@@ -1697,21 +1936,45 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         if "choices" not in action or action["choices"] is None:
             raise ActionError("нужен явный выбор для каждого прибора")
         fixtures = merge_fixtures(cfg["fixtures"], pending["found"], choices=action["choices"])
-        invalidate_profiles()
-        return commit_import(fixtures, pending["found"], pending["source"], pending["file"], pending["no_id"])
+        result = commit_import(fixtures, pending["found"], pending["source"], pending["file"], pending["no_id"])
+        if result.get("ok") and link.ready:
+            state["recovering"] = False
+            state.pop("recovery_error", None)
+        return result
 
     def commit_import(fixtures, found, source, file, no_id):
         moved = {f.pop("repatched_from"): f["id"] for f in fixtures if "repatched_from" in f}
+        replaced = {f["id"] for f in fixtures if f.pop("identity_reset", False)} - set(moved)
         for f in fixtures:
             f.pop("ambiguous_candidates", None)  # clean up if any remain
         old_ids = {f["id"] for f in cfg["fixtures"]} | set(moved.values())  # a re-patched fixture is not new
-        groups = [{**g, "fixtures": [moved.get(i, i) for i in g["fixtures"]]} if "n" not in g else g for g in cfg["groups"]]
-        changes = {"fixtures": fixtures, "groups": groups, "fixtures_read": {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "source": source, "count": len(found)}}
+        groups = [{**g, "fixtures": list(dict.fromkeys(moved.get(i, i) for i in g["fixtures"] if i not in replaced))} for g in cfg["groups"]]
+        ma2groups = [{**g, "ids": list(dict.fromkeys(moved.get(i, i) for i in g.get("ids", []) if i not in replaced))} for g in cfg.get("ma2groups", [])]
+        presets = [{**p, "pos": {str(moved.get(int(i), int(i))): v for i, v in p["pos"].items()
+                               if int(i) not in replaced}} if "pos" in p else dict(p)
+                   for p in cfg.get("presets", [])]
+        scenes = [{**sc, "fixtures": list(dict.fromkeys(moved.get(i, i) for i in sc["fixtures"] if i not in replaced))}
+                  if "fixtures" in sc else dict(sc) for sc in cfg["scenes"]]
+        saved_maps = {k: list(v) if isinstance(v, list) else [v] for k, v in cfg.get("dmx_map_saved", {}).items()}
+        for kind, spec in cfg.get("dmx_map", {}).items():
+            if not spec.get("stale") and spec not in saved_maps.get(kind, []):
+                saved_maps.setdefault(kind, []).append(dict(spec))
+        changes = {"fixtures": fixtures, "groups": groups, "ma2groups": ma2groups, "presets": presets, "scenes": scenes, "dmx_map_saved": saved_maps, "dmx_map": {k: {**v, "stale": True} for k, v in cfg.get("dmx_map", {}).items()}, "fixtures_read": {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "source": source, "count": len(found)}}
         # An unbound plan takes the console's show name, so a later show switch saves it instead of dropping it.
         if not cfg.get("show") and state["show"]["name"]:
             changes["show"] = state["show"]["name"]
         save_config(config_path, {**cfg, "attrs": original_attrs, **changes})
         cfg.update(changes)
+        # Fixture numbers may now name different objects. Old extracted intents,
+        # offers and Undo snapshots cannot cross a committed Patch import.
+        state["plan_epoch"] += 1
+        invalidate_scene_offers()
+        invalidate_profiles()
+        invalidate_evidence()
+        throttle.clear()
+        for session in sessions.values():
+            session["selection"] = [moved.get(i, i) for i in session["selection"] if i not in replaced and not next((f.get("missing") for f in fixtures if f["id"] == moved.get(i, i)), True)]
+            session["base"] = None
         state.pop("pending_import", None)
         if file:
             state["export_file"] = file
@@ -1865,17 +2128,43 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             attempts = type_retries.get(kind, (0, 0))[0] + 1
             type_retries[kind] = (attempts, time.monotonic() + READ_RETRY_S)
 
+        kinds = sorted({f.get("type") or "" for f in cfg["fixtures"] if not f.get("missing")})
+        sizes = {}
+
+        async def read_type_table():
+            validate()
+            ok, reply = await send("List FixtureType", quiet=True, gen=gen)
+            validate()
+            if epoch != state["plan_epoch"] or gen != link._gen:
+                raise ActionError("контекст чтения типов изменился")
+            sizes = parse_type_footprints(reply) if ok else {}
+            if sizes:
+                types_tried.add(" list")
+                type_retries.pop(" list", None)
+                state["type_names"] = parse_type_names(reply)
+            else:
+                failed(" list")
+            return sizes
+
+        # Fixture exports may carry only the LongName, without a pool number.
+        # Resolve it from this connection's table before revalidating a saved map.
+        if (any(not type_no(f.get("type")) and
+                (not maps.get(f.get("type")) or maps[f.get("type")].get("stale") or "footprint" not in f)
+                for f in cfg["fixtures"] if not f.get("missing"))
+                and (force or " list" not in types_tried and can_retry(" list"))):
+            sizes = await read_type_table()
+        number = lambda kind: type_no(kind) or state.get("type_names", {}).get(kind)
         attempted = 0
-        for kind in sorted({f.get("type") or "" for f in cfg["fixtures"] if not f.get("missing")}):
-            m = re.match(r"(\d+) ", kind)
-            if not m or (not force and ("has" in maps.get(kind, {}) and not maps[kind].get("stale") or kind in types_tried or not can_retry(kind))):
+        for kind in kinds:
+            no = number(kind)
+            if not no or (not force and ("has" in maps.get(kind, {}) and not maps[kind].get("stale") or kind in types_tried or not can_retry(kind))):
                 continue
             if max_types is not None and attempted >= max_types:
                 break
             attempted += 1
             try:
                 validate()
-                spec = await export_type(int(m[1]), gen=gen, validate=validate, send=send)
+                spec = await export_type(int(no), gen=gen, validate=validate, send=send)
                 validate()
             except (ActionError, OSError, ValueError, ET.ParseError) as e:
                 validate()
@@ -1891,19 +2180,10 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if spec and maps.get(kind) != spec:
                 maps[kind], changed = spec, True
         fixtures = cfg["fixtures"]
-        if force or " list" not in types_tried and can_retry(" list") and any(type_no(f.get("type")) and "footprint" not in f for f in fixtures if not f.get("missing")):
-            validate()
-            ok, reply = await send("List FixtureType", quiet=True, gen=gen)
-            validate()
-            if epoch != state["plan_epoch"] or gen != link._gen:
-                return
-            sizes = parse_type_footprints(reply) if ok else {}
-            if sizes:
-                types_tried.add(" list")
-                type_retries.pop(" list", None)
-            else:
-                failed(" list")
-            new = [{**f, "footprint": sizes[type_no(f.get("type"))]} if type_no(f.get("type")) in sizes and not maps.get(f.get("type"), {}).get("unsupported") else f for f in fixtures]
+        if not sizes and (force or " list" not in types_tried and can_retry(" list") and any(number(f.get("type")) and "footprint" not in f for f in fixtures if not f.get("missing"))):
+            sizes = await read_type_table()
+        if sizes:
+            new = [{**f, "footprint": sizes[number(f.get("type"))]} if number(f.get("type")) in sizes and not maps.get(f.get("type"), {}).get("unsupported") else f for f in fixtures]
             if new != fixtures:
                 fixtures, changed = new, True
         def commit():
@@ -2040,7 +2320,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             check, observed, verified_sides = {}, set(), set()
             def applied():
                 nonlocal context
-                context = (*context[:3], cfg.get("show"), context[4])
+                # The synchronous import advances the plan's own epoch. Keep
+                # the admitted transport/show/stop boundaries for later reads.
+                context = (context[0], state["plan_epoch"], context[2], cfg.get("show"), context[4])
             try:  # never apply readback from another operation context
                 require_patch_context(context)
                 if plan["physical"] and steps:
@@ -2074,7 +2356,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                             verified_sides.add("physical")
                         for fixture in cfg["fixtures"]:
                             if fixture["id"] == fid:
-                                fixture["rdm"]["address"] = device["address"]
+                                fixture.setdefault("rdm", {})["address"] = device["address"]
+                                fixture["rdm"].pop("stale", None)
                         save_config(config_path, {**cfg, "attrs": original_attrs})
                 require_patch_context(context)
             except (ActionError, OSError, ValueError) as e:
@@ -2233,6 +2516,10 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return {"ok": False, "err": "нужен объект с полем a"}
         a = action["a"]
         s = sessions[ws]
+        needs_epoch = "blackout_epoch" in action or state["blackout_epoch"] > 0 and a != "blackout"
+        if a in LIGHT_ACTIONS and needs_epoch and (type(action.get("blackout_epoch")) is not int or action["blackout_epoch"] != state["blackout_epoch"]):
+            return {"ok": False, "a": a, "err": "действие устарело после затемнения или восстановления связи; начните новое управление"}
+        intent_ticket = action_ticket(ws)
         if s.get("simple") and a not in ("scene_go", "scene_off", "blackout"):
             return {"ok": False, "a": a, "err": "в простом режиме недоступно"}
         if a == "scene_slot_cancel":
@@ -2276,11 +2563,15 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             app.state.mock.drop()
             return {"ok": True, "a": a}
         if a in ("edit_begin", "edit_end", "highlight", "highlight_off", "highlight_ping"):
+            if state.get("recovering") and a in ("highlight", "highlight_off"):
+                return {"ok": False, "a": a, "err": "восстанавливается контекст MA2"}
             try:
                 return await highlight_action(ws, action)
             except (ActionError, OSError, ValueError) as e:
                 return {"ok": False, "a": a, "err": str(e)}
         if a in ("rdm_prepare", "rdm_start", "rdm_stop", "rdm_check"):
+            if a == "rdm_start" and state.get("recovering"):
+                return {"ok": False, "a": a, "err": "восстанавливается контекст MA2"}
             # One RDM coordinator for every client; the actions bypass the halted check on purpose:
             # rdm_stop ends the window, rdm_check only reads (the coordinator itself refuses writes without a link).
             if safety["allow_rdm"] is not True and a != "rdm_stop":
@@ -2301,7 +2592,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return {"ok": False, "a": a, "err": HALTED}
         if why := blocked(a):
             return {"ok": False, "a": a, "err": why}
-        deleted_scene = None
+        cancelled_ops = []
         try:
             if a == "scene_slot_find":
                 request = action.get("request")
@@ -2386,6 +2677,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if a == "import_confirm_merge":
                 async with action_lock:
                     result = confirm_import(action)
+                await broadcast(status_msg())
                 await broadcast(config_msg())
                 return {**result, "a": a}
             if a in ("show_bind", "show_open_plan"):
@@ -2404,8 +2696,18 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 if a == "show_open_plan":
                     await broadcast(shown_msg())
                 return {"ok": True, "a": a}
-            if a in PLAN_WRITES and state["show"]["name"] and cfg.get("show") and state["show"]["name"] != cfg["show"]:
-                raise ActionError("на пульте другое шоу: откройте его план (кнопка в баннере сверху)")
+            if a in PLAN_WRITES:
+                check_show()
+            if a == "scene_fade":
+                fade_suffix(action, cfg)
+                async with action_lock:
+                    changes = {"scene_fade": action.get("fade", 0)}
+                    save_config(config_path, {**cfg, "attrs": original_attrs, **changes})
+                    cfg.update(changes)
+                await broadcast(config_msg())
+                return {"ok": True, "a": a}
+            if a in ("scene_go", "scene_off"):
+                action = {**action, "fade": cfg.get("scene_fade", 0)}
             if a in SLIDERS:
                 check_move(action) if a == "move" else build(action, {**cfg, "master": settings.get("master", cfg.get("master", {"cmd": "Master 2.1 At {v}"}))})  # reject bad values now, not on the tick
                 if a == "master":
@@ -2424,7 +2726,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     if action.get("fade") and (starts := fade_starts(a, ids)):
                         if op := operation.get():
                             op.update(retain=True, deferred=True, stage="fade")
-                        throttle.fades[key + ":fade"] = asyncio.create_task(play_fade(key + ":fade", ws, a, action, starts, action_ticket(ws)))
+                        throttle.fades[key + ":fade"] = asyncio.create_task(play_fade(key + ":fade", ws, a, action, starts, intent_ticket))
                         return None
                 merged = False
                 prev = throttle.pending(key) if a == "jog" else None
@@ -2443,9 +2745,21 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                         await finish_operation(old_op, {"ok": False, "err": "заменено более новым значением до отправки"})
                 if op := operation.get():
                     op.update(retain=True, stage="queued")
-                throttle.put(key, {"ws": ws, "a": a, "action": action, "ids": ids, "operation": operation.get(), "ticket": action_ticket(ws)})
+                if not ticket_valid(intent_ticket):
+                    raise ActionError("действие отменено затемнением или сменой контекста")
+                throttle.put(key, {"ws": ws, "a": a, "action": action, "ids": ids, "operation": operation.get(), "ticket": intent_ticket})
                 return None
-            if a in ("blackout", "scene_go", "scene_off"):  # a fade still running would light the fixtures again
+            if a == "blackout":
+                # No await before the barrier: cancel queued values instead of flushing them.
+                state["blackout_epoch"] += 1
+                intent_ticket = action_ticket(ws)
+                cancelled_ops = [op for op in active_operations.values() if op.get("retain") and op["a"] in SLIDERS]
+                throttle.clear()
+                invalidate_evidence()
+                if highlight["state"] != "idle":
+                    highlight_stuck("затемнение отменило прежнее восстановление подсветки")
+                spawn_broadcast(status_msg())
+            elif a in ("scene_go", "scene_off"):
                 for k in list(throttle.fades):
                     throttle.stop(k)
             # Waiting slider values land before anything sent after them: a new gesture, a scene, a preset, a selection.
@@ -2453,7 +2767,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if state["loading"]:
                 raise ActionError("идёт загрузка шоу")
             if a in ("ma2_read", "ma2_import", "ma2_group_go", "ma2_preset_go", "group_store_ma2"):
-                return await ma2_action(a, action, s)
+                return await ma2_action(a, action, s, ticket=intent_ticket if a in ("ma2_group_go", "ma2_preset_go", "group_store_ma2") else None)
             if a in ("select_group", "select_fixtures"):
                 ids = targets(action, cfg)
                 missing = [i for i in ids if next(f for f in cfg["fixtures"] if f["id"] == i).get("missing")]
@@ -2489,10 +2803,13 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     raise ActionError("в имени нельзя кавычки")
                 page = page_number(action, "page" if a == "scene_create" else "n")
                 async with action_lock:
+                    if not ticket_valid(intent_ticket):
+                        raise ActionError("контекст действия изменился; запись отменена")
                     if state["loading"]:
                         raise ActionError("идёт загрузка шоу")
-                    scenes, pages = cfg["scenes"], cfg.get("pages", [])
                     gen = link._gen
+                    await confirm_write_show(gen)
+                    scenes, pages = cfg["scenes"], cfg.get("pages", [])
                     if a == "scene_create":
                         ex = canonical_exec(str(action.get("exec")))
                         old = None
@@ -2505,39 +2822,109 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                                 raise ActionError("предложение места не предназначено для перезаписи")
                         if not re.fullmatch(r"\d+\.\d+", ex):
                             raise ActionError("executor: нужен номер в формате 1.101")
-                        if action.get("replace") is True:  # overwrite (owner 2026-10-21): Delete Executor, then the same checked store; never /Overwrite
-                            old = next((s for s in scenes if str(s["exec"]) == ex), None)
-                            if not old:
-                                raise ActionError(f"сцены {ex} нет в панели")
-                            if str(action.get("confirm")) != ex:
-                                raise ActionError("запись не подтверждена: confirm должен совпасть с номером executor")
-                            if highlight["state"] != "idle":
-                                highlight_stuck("перезапись сцены; прежнее снятие подсветки запрещено")
-                            ok, reply = await link.send(f"Delete Executor {ex}", gen=gen)
+                        ids = selected(s)
+                        if any(find(cfg['fixtures'], fid).get('missing') for fid in ids):
+                            raise ActionError('выбранного прибора нет в текущем шоу')
+                        if highlight['state'] != 'idle':
+                            raise ActionError('сначала снимите подсветку приборов; сцена не записана')
+                        old = next((sc for sc in scenes if str(sc["exec"]) == ex), None)
+                        replacing = action.get("replace") is True
+                        if replacing and not old:
+                            raise ActionError(f"сцены {ex} нет в панели")
+                        if str(action.get("confirm")) != ex:
+                            raise ActionError("запись не подтверждена: confirm должен совпасть с номером executor")
+                        if mode == "store" and ex not in store_execs:
+                            raise ActionError(f"{ex} не входит в store_execs")
+                        spare = None
+                        if replacing:
+                            # Never copy/delete the live Executor: its Cue 1 is backed up separately.
+                            ok, reply = await link.send(f"List Executor {ex}", gen=gen)
+                            if not ok or exec_verdict(reply, ex, empty_re)[0] != "occupied":
+                                raise ActionError("предыдущая сцена не подтверждена; запись отменена")
+                            candidates = slot_candidates(mode, store_execs, {sc['exec'] for sc in scenes})
+                            for candidate in candidates[:250]:
+                                ok, reply = await link.send(f"List Executor {candidate}", gen=gen)
+                                if not ok:
+                                    raise ActionError("не удалось проверить резервное место; запись отменена")
+                                verdict, reason = exec_verdict(reply, candidate, empty_re)
+                                if verdict == "unknown":
+                                    raise ActionError(reason)
+                                if verdict == "empty":
+                                    spare = candidate
+                                    break
+                            if spare is None:
+                                raise ActionError("нет подтверждённого пустого Executor для безопасного обновления")
+                        else:
+                            await store_checked(ex, action, gen=gen)
+                        context = (state["plan_epoch"], gen, link._stop_epoch, cfg.get("show"))
+                        recovery_path = Path(config_path).parent / f"scene-write-{ex}.json"
+                        if recovery_path.exists():
+                            raise ActionError("осталась незавершённая запись сцены; проверьте резерв на MA2 и журнал " + recovery_path.name)
+                        recovery = {"target": ex, "spare": spare, "show": cfg.get("show"), "phase": "preparing"}
+                        save_config(recovery_path, recovery)
+                        async def send_scene(line):
+                            if not ticket_valid(intent_ticket):
+                                raise ActionError("контекст действия изменился; запись отменена")
+                            if context != (state["plan_epoch"], link._gen, link._stop_epoch, cfg.get("show")):
+                                raise ActionError("контекст записи изменился; оставшиеся команды отменены")
+                            # Detect a desk-side show change before each mutation; no retry.
+                            await confirm_write_show(gen)
+                            if context != (state["plan_epoch"], link._gen, link._stop_epoch, cfg.get("show")):
+                                raise ActionError("контекст записи изменился; оставшиеся команды отменены")
+                            if not ticket_valid(intent_ticket):
+                                raise ActionError("контекст действия изменился; запись отменена")
+                            ok, reply = await link.send(line, gen=gen)
                             if not ok:
-                                raise ActionError(reply.strip() or "ошибка пульта")
-                            deleted_scene = old
-                            scene_evidence.invalidate([old["id"]])
-                            await broadcast(scenes_msg())
-                        await store_checked(ex, action, gen=gen)
-                        lines = store_lines(ex, label)
-                        entry = {"id": old["id"] if old else new_id(scenes, "s"), "exec": ex, "label": label, "named": True}
+                                raise ActionError((reply.strip() or "ошибка MA2") + "; повторно не отправлено; резерв: " + str(spare or ex))
+                            if context != (state["plan_epoch"], link._gen, link._stop_epoch, cfg.get("show")):
+                                raise ActionError("контекст записи изменился; оставшиеся команды отменены")
+                            return reply
+                        def prepared():
+                            save_config(recovery_path, {**recovery, "phase": "committing"})
+                            old['write_error'] = 'обновление Cue не подтверждено; проверьте резерв ' + spare
+                            save_config(config_path, {**cfg, 'attrs': original_attrs})
+                        await store_scene(send_scene, ex, label, ids, spare=spare, prepared=prepared)
+                        ok, reply = await link.send(f"List Executor {ex}", gen=gen)
+                        if not ok or exec_verdict(reply, ex, empty_re)[0] != "occupied":
+                            raise ActionError("запись не подтверждена чтением; повторно не отправлено; резерв: " + str(spare or ex))
+                        await confirm_write_show(gen)
+                        entry = {"id": old["id"] if old else new_id(scenes, "s"), "exec": ex,
+                                 "label": old["label"] if replacing else label, "named": True, "fixtures": ids}
+                        if spare:
+                            entry["backup_exec"] = spare
+                            save_config(recovery_path, {**recovery, "phase": "completed"})
                         changes = {"scenes": [entry if sc is old else sc for sc in scenes] if old else scenes + [entry]}
+                        # Name updates are deliberately separate from the Cue commit.
+                        lines = [f'Label Executor {ex} "{label}"'] if replacing else []
                     else:
                         lines = [f'Label Page {page} "{label}"']
                         changes = {"pages": [p for p in pages if p["n"] != page] + [{"n": page, "label": label}]}
                     label_error = None
                     for i, line in enumerate(lines):
-                        ok, reply = await link.send(line, gen=gen)
+                        if a == 'scene_create':
+                            try:
+                                reply = await send_scene(line)
+                                ok = True
+                            except ActionError as e:
+                                ok, reply = False, str(e)
+                        else:
+                            if not ticket_valid(intent_ticket):
+                                raise ActionError('контекст действия изменился; запись отменена')
+                            await confirm_write_show(gen)
+                            ok, reply = await link.send(line, gen=gen)
                         if not ok:
                             if a == "scene_create" and i == 0 and reply.startswith("результат неизвестен"):
                                 raise ActionError(f"результат записи неизвестен: проверьте Executor {ex} на пульте. Повторно не отправлено")
-                            if a == "scene_create" and i == 1:
+                            if a == "scene_create":
                                 label_error = f"сцена записана в {ex}, но имя не подтверждено: {reply.strip() or 'ошибка пульта'}"
                                 break
                             raise ActionError(reply.strip() or "ошибка пульта")
+                    if a == "scene_create" and not label_error:
+                        entry['label'] = label
                     save_config(config_path, {**cfg, "attrs": original_attrs, **changes})
                     cfg.update(changes)
+                    if a == "scene_create":
+                        recovery_path.unlink(missing_ok=True)
                 await broadcast(config_msg())
                 return {"ok": False, "a": a, "err": label_error} if label_error else {"ok": True, "a": a}
             if a == "scenes_import":
@@ -2566,6 +2953,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 async with action_lock:
                     if state["loading"]:
                         raise ActionError("идёт загрузка шоу")
+                    if a == "scene_rename":
+                        await confirm_write_show(link._gen)
                     scene = find(cfg["scenes"], action.get("id"))
                     if a == "scene_rename":
                         label = parse_label(action)
@@ -2577,6 +2966,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                         scenes = [{**s, "label": label, "named": True} if s is scene else s for s in cfg["scenes"]]
                     else:  # desk: true also deletes the executor on the console (owner 2026-10-21), else only the panel forgets it
                         if action.get("desk") is True:
+                            await confirm_write_show(link._gen)
                             if mode not in ("full", "store"):
                                 raise ActionError(f"удаление на пульте заблокировано в режиме {mode}")
                             if highlight["state"] != "idle":
@@ -2634,6 +3024,10 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                         raise ActionError("идёт загрузка шоу")
                     switched = await follow_desk_show()
                     result = await fetch_fixtures()
+                    if result.get("ok"):
+                        state["recovering"] = False
+                        state.pop("recovery_error", None)
+                await broadcast(status_msg())
                 await broadcast(config_msg())
                 if switched:
                     await broadcast(shown_msg())
@@ -2647,7 +3041,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     raise ActionError("swap: нужен список id сцен")
                 for sid in swap:
                     check_scene(find(cfg["scenes"], sid)["exec"])
-            err = await execute(a, action, s, [])
+            err = await execute(a, action, s, [], ticket=intent_ticket)
             if not err and a == "scene_go" and capture and len(captured["execs"]) < 3:  # a running scene's row: the status word is a guess
                 exec_ = find(cfg["scenes"], action["id"])["exec"]
                 if exec_ not in captured["execs"]:
@@ -2655,18 +3049,11 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     spawn_capture([f"List Executor {exec_}"], f"после Go сцены {exec_}")
         except (ActionError, ValueError) as e:
             err = str(e)
-            if deleted_scene:
-                err = "Предыдущая сцена удалена, новая запись не подтверждена: " + err
-                async with action_lock:
-                    cfg["scenes"] = [{**sc, "write_error": err} if sc["id"] == deleted_scene["id"] else sc for sc in cfg["scenes"]]
-                    try:
-                        save_config(config_path, {**cfg, "attrs": original_attrs})
-                    except OSError:
-                        err += ". Не удалось сохранить отметку ошибки"
-                await broadcast(config_msg())
         except OSError as e:
             log.error("config save failed: %s", e)
             err = "не удалось сохранить конфиг"
+        for old_op in cancelled_ops:
+            await finish_operation(old_op, {"ok": False, "err": "отменено затемнением"})
         if err:
             log.warning("%s rejected: %s", a, err)
             return {"ok": False, "a": a, "err": err}
@@ -2675,7 +3062,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     def on_result(entry):
         if op := operation.get():
             # Read replies do not establish that any mutation has succeeded.
-            if entry.get("status") == "unknown" or not re.match(r"^(?:List|Get|cd |CD )", entry.get("cmd", "")):
+            if entry.get("status") == "unknown" or not re.match(r"^(?:List|Get|Lua |cd |CD )", entry.get("cmd", "")):
                 op["evidence"].append(entry["status"])
         app.state.last_send = time.monotonic()
         if entry.get("status") == "unknown":

@@ -75,25 +75,25 @@ def gh(*args):
 
 def notes(tag, changes):
     base = f'https://github.com/coldmoth/ma2-panel/releases/download/{tag}/'
-    return f'''## Download for Windows
-[Download ma2-panel-win.zip]({base}ma2-panel-win.zip) — the complete app, including Python.
+    return f'''## Скачать для Windows
+[ma2-panel-win.zip]({base}ma2-panel-win.zip) — полное приложение с Python и зависимостями.
 
-## How to install
-Extract the whole ZIP to a writable folder. Open the outer **start.bat**, keep its window open, and follow the setup wizard. No separate Python installation is needed.
+## Установка
+Распакуйте весь ZIP в папку с правом записи. Запустите внешний **start.bat**, оставьте окно открытым и пройдите мастер настройки. Отдельно устанавливать Python не нужно.
 
-## What's new
+## Изменения
 {changes.strip()}
 
-## How to update
-**From v3.2.0–v3.2.4:** stop the app, extract [ma2-panel-update-usb.zip]({base}ma2-panel-update-usb.zip) outside the installation, run **update-usb.bat** and select the existing **program** folder. The old in-app updater cannot accept this release. Do not replace updater files by hand.
+## Обновление
+**С v3.2.0–v3.2.4:** остановите приложение, распакуйте [ma2-panel-update-usb.zip]({base}ma2-panel-update-usb.zip) отдельно от установки, запустите **update-usb.bat** и выберите установленную папку **program**. Старый встроенный updater не принимает этот выпуск. Не заменяйте файлы updater вручную.
 
-From a compatible newer installation, use **ma2-panel-update.zip**. Settings, passwords, shows and backups are preserved. Keep **previous/** and **.updates/** for rollback; follow the included USB instructions. Fresh installations can use the full ZIP independently.
+**С v3.2.5 и совместимых новых версий:** используйте [ma2-panel-update.zip]({base}ma2-panel-update.zip). Настройки, пароли, шоу и backups сохраняются. Сохраните **previous/** и **.updates/** для отката; следуйте инструкции USB-комплекта. На новый компьютер устанавливайте полный ZIP.
 
-## Requirements
-Windows 10/11 x64, a modern browser, and grandMA2 onPC 3.9 with Telnet Remote configured. Use a trusted local network.
+## Требования
+Windows 10/11 x64, современный браузер и grandMA2 onPC 3.9 с настроенным Telnet Remote. Используйте доверенную локальную сеть.
 
-## Known limitations
-The interface is in Russian. Real MA2 hardware acceptance is incomplete. SHA256 files accompany all three ZIPs.
+## Ограничения проверки
+Интерфейс на русском языке. Полная аппаратная приёмка новой интеграции не завершена: в этой сессии использовался mock. Исторический onPC 3.9.63.11 проверял команды и пустые Cue без физических приборов. Crossfade реального света, HTP/LTP/Programmer и сложные профили требуют проверки на целевой MA2; подробности — docs/RELEASE-3.3.md и docs/hardware-acceptance.md в репозитории. Каждый из трёх ZIP сопровождается SHA256.
 '''
 
 

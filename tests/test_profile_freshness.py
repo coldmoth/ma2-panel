@@ -8,7 +8,7 @@ from test_status_evidence import context  # noqa: F401
 @pytest.mark.parametrize('kind', ['1 Old', '2 New'])
 def test_import_drops_old_footprint_even_with_same_type(kind):
     old = [{'id': 10, 'type': '1 Old', 'footprint': 17, 'channels': 14, 'label': 'Keep'}]
-    f = merge_fixtures(old, [{'id': 10, 'name': 'F', 'type': kind, 'address': '1.100', 'channels': 2}])[0]
+    f = merge_fixtures(old, [{'id': 10, 'name': 'F', 'type': kind, 'address': '1.100', 'channels': 2}], choices={'10': 10})[0]
     assert 'footprint' not in f
     assert f['label'] == 'Keep'
 
@@ -48,7 +48,9 @@ def test_context_and_offline_import_invalidate_maps(context, event):
         elif event == 'show':
             c.update_show({'name': 'Other'})
         else:
-            c.import_xml('<MA><Fixture id="10" type="1 Old"><Patch><Address>100</Address></Patch></Fixture></MA>', 'xml')
+            preview = c.import_xml('<MA><Fixture id="10" type="1 Old"><Patch><Address>100</Address></Patch></Fixture></MA>', 'xml')
+            assert preview['ambiguous'] and c.cfg['fixtures'][0]['footprint'] == 17
+            c.confirm_import({'request_token': preview['request_token'], 'choices': {'10': 10}})
         assert 'footprint' not in c.cfg['fixtures'][0]
         assert c.state['live'] == {} and c.state['dmx'] == {}
         assert c.config_msg()['config']['dmx_map'] == {}

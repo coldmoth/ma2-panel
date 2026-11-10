@@ -157,7 +157,7 @@ def test_dmx_refusal_limit_rearms_only_after_context_reset(context, clock, reset
         for stamp in (0, 30, 60, 90, 120):
             clock[0] = stamp
             await c.read_dmx()
-        assert len(lines) == 3
+        assert sum(line.startswith('Lua ') for line in lines) == 3
         if reset == 'connection':
             c.link._gen += 1
         else:
@@ -165,5 +165,5 @@ def test_dmx_refusal_limit_rearms_only_after_context_reset(context, clock, reset
         c.state['types_context'] = (c.state['plan_epoch'], c.link._gen)
         c.cfg['fixtures'][0]['footprint'] = 4
         await c.read_dmx()
-        assert len(lines) == 4
+        assert sum(line.startswith('Lua ') for line in lines) == 4
     asyncio.run(go())

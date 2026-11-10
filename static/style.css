@@ -578,3 +578,224 @@ button.waiting::after { content: '…'; margin-left: 6px; color: var(--ink); }
 .planbox { display: flex; flex-direction: column; }
 .planbox .hall-wrap { flex: 1; height: auto; }
 .planbox > .note { flex-shrink: 0; }
+
+/* View controls affect only the control plan, never fixture placement. */
+.pick .bd.plan-mini { display: flex; flex-direction: column; overflow: hidden; }
+.plan-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: none; padding-bottom: 4px; }
+.plan-toolbar output { min-width: 42px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.plan-toolbar .btn { padding-inline: 8px; }
+.plan-toolbar .seg { margin-left: auto; }
+.plan-toolbar .seg button { min-width: 44px; min-height: 44px; padding-inline: 8px; }
+.hall-wrap.plan-viewport { display: block; overflow: auto; overscroll-behavior: contain; touch-action: none; min-height: 80px; flex: 1; height: auto; padding: 32px; box-sizing: border-box; scrollbar-width: thin; }
+.plan-viewport .hall { margin: 0; }
+.plan-viewport[data-mode=pan] { cursor: grab; }
+.plan-source { flex: none; margin: 4px 0; }
+.plan-source summary { cursor: pointer; }
+
+/* Fixture lookup stays above the scrolling list; search never changes selection. */
+.fixture-search { display: grid; gap: 6px; margin-top: 8px; }
+.fixture-search .search-line { display: flex; gap: 4px; }
+.fixture-search input { width: 100%; min-width: 0; padding: 0 10px; font-size: 14px; }
+.fixture-search .search-line button { flex: none; padding: 0; }
+.fixture-search [role=status] { font-size: 12px; font-variant-numeric: tabular-nums; }
+.pick .fixture-row { gap: 8px; }
+.pick .fixture-row .id { min-width: 28px; }
+.pick .fixture-row .grow > b { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+
+/* Keep the control target and mode visible while the attributes scroll beneath. */
+.ctl-context { position: sticky; top: 0; z-index: 3; align-self: start; background: var(--ground); display: grid; gap: 8px; padding-bottom: 4px; }
+.ctl-context .control-tabs { display: flex; margin-bottom: 0; }
+.ctl-context .control-tabs button { flex: 1; }
+
+/* Hall tools occupy their own rows instead of shrinking tabs into each other. */
+.hallbar { display: grid; gap: 4px; padding: 8px 12px; border-radius: var(--r); }
+.hallbar-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.hallbar-options > .btn { margin-left: auto; flex: none; align-self: center; }
+.hallbar .seg { flex: none; overflow: visible; }
+.hallbar .seg button { flex: none; }
+.hallbar-options { display: flex; flex-wrap: wrap; gap: 4px 24px; border-top: 1px solid var(--s3); }
+.hallbar .chk { white-space: normal; font-size: 14px; }
+.hallbar .chk input { flex: none; }
+.hall-highlight { margin-right: auto; }
+.hall.compact-labels .l { display: none; }
+.hall.compact-labels .i { display: block; font-size: 11px; font-weight: 700; margin-top: 2px; line-height: 1; color: var(--ink-2); }
+.hall.compact-labels .cur .i { color: var(--edit); }
+.hall.compact-labels .sel .i { color: var(--sel); }
+.hallpage .now-card { border-radius: var(--r); padding: 8px 12px; gap: 8px; }
+.hallpage .now-card .who { min-width: 0; flex-basis: 240px; overflow-wrap: anywhere; }
+.hallpage .now-card .who b { font-size: 16px; }
+.hallpage .side .grow > b { white-space: normal; overflow-wrap: anywhere; }
+.place-hint { max-width: calc(100% - 16px); white-space: normal; text-align: center; border-radius: var(--r); }
+@media (max-width: 860px) {
+  .hallpage { display: flex; flex-direction: column; }
+  .hallbar { order: 0; }
+  .hallbody { display: contents; }
+  .hallbody .planbox { order: 1; height: clamp(280px, 36vh, 400px); flex: none; }
+  .hallpage > .now-card { order: 2; }
+  .hallbody .side { order: 3; max-height: 320px; min-height: 0; flex: none; }
+  .hallbar-main { flex-wrap: wrap; gap: 4px; }
+  .hallbar .seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
+  .hallbar .seg button { padding: 0 4px; font-size: 13px; }
+  .hallbar-options > .btn { min-height: 44px; }
+  .hallbar-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 8px; }
+  .hall-highlight { grid-column: 1 / -1; margin-right: 0; }
+  .hallpage .fixture-settings { min-width: 0; }
+  .hallpage .fixture-settings > summary { font-size: 13px; }
+  .hallpage .now-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hallpage .now-card .who { grid-column: 1 / -1; }
+  .hallpage .now-card > .btn { grid-row: 2; }
+  .hallpage .fixture-settings { grid-column: 1 / -1; grid-row: 3; }
+  .hallpage .now-card > .stack { grid-column: 1 / -1; }
+  .hallpage .fixture-settings-body > .seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .hallpage .fixture-settings-body button { min-width: 0; max-width: 100%; white-space: normal; }
+}
+
+/* Approved operator prototype, package 1: shell, concert lists and target picker.
+   Preparation tools retain their existing forms and handlers. */
+body.panel { grid-template-columns: 176px minmax(0,1fr); padding-top: 88px; }
+.panel .top { position: fixed; inset: 0 0 auto; height: 88px; z-index: 20; background: var(--s1); border-bottom: 1px solid var(--s3); padding: 12px 24px; gap: 20px; }
+.brand { display: grid; min-width: 100px; }
+.brand b { font-size: 24px; }
+.brand small { font-size: 12px; color: var(--ink-2); }
+.panel .top .show { flex: 1; }
+.panel .rail { padding: 24px 12px; border-right: 1px solid var(--s3); gap: 8px; }
+.panel .rail button { display: flex; justify-content: flex-start; gap: 12px; min-height: 52px; padding: 10px 12px; font-size: 15px; text-align: left; }
+.nav-icon { font-size: 24px; width: 28px; text-align: center; }
+.panel .rail button[aria-current=page] { background: var(--s2); box-shadow: inset 3px 0 var(--sel); }
+.panel .rail .badge { top: 6px; right: 6px; width: 7px; height: 7px; }
+.panel .top .link .lt { display: inline; }
+.panel .page { padding: 22px 28px 28px; }
+.panel .page.fill { display: block; overflow: auto; }
+.panel .ph { margin-bottom: 20px; }
+.panel .col.setup { background: var(--ground); }
+.panel .col.setup .top { background: var(--s1); }
+.panel .mode, .panel #selpill { display: none; }
+.preparation-links { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 16px; margin-top: 24px; }
+.preparation-links .btn { min-height: 80px; justify-content: flex-start; background: var(--s1); border: 1px solid var(--s3); }
+.concert-workspace { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 24px; align-items: start; margin-top: 16px; }
+.concert-list { min-width: 0; }
+.concert-list > input { width: 100%; margin-bottom: 16px; }
+.concert-side { display: grid; gap: 16px; }
+.concert-side .master-card { max-width: none; width: 100%; }
+.panel .scene-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; border: 1px solid var(--s3); background: var(--s3); border-radius: 8px; margin: 0; overflow: hidden; }
+.panel .scene-list .tile-wrap { display: flex; border-radius: 0; min-width: 0; align-items: stretch; }
+.panel .scene-list .tile { min-height: 84px; padding: 14px 12px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 10px; align-content: center; flex: 1; width: auto; min-width: 0; }
+.panel .scene-list .scene-number { grid-row: 1 / 3; align-self: center; }
+.panel .scene-list .scene-name { font-size: 16px; }
+.panel .scene-list .scene-state { grid-column: 2; overflow-wrap: anywhere; }
+.panel .scene-list .tile-controls { border: 0; padding: 6px; flex-direction: column; justify-content: center; }
+.panel .scene-list .tile-controls:empty { display: none; }
+.panel .scene-list .tile-controls button { padding: 0 8px; font-size: 13px; }
+.panel .concert-light { display: flex; flex-direction: column; height: auto; gap: 16px; }
+.light-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.light-heading .light-master { width: 280px; padding: 0 12px; }
+.light-master summary, .staff-help summary { min-height: 48px; cursor: pointer; align-content: center; }
+.target-bar { display: flex; gap: 14px; align-items: center; justify-content: space-between; border-left: 3px solid var(--sel); background: var(--s2); border-radius: 6px; padding: 14px 16px; }
+.target-bar .grow { min-width: 0; }
+.target-bar b, .target-bar .note { display: block; overflow-wrap: anywhere; }
+.panel .concert-light .ctl { overflow: visible; }
+.panel .concert-light .ctl-context { position: static; }
+.panel .concert-light .selbar .who { display: none; }
+.panel .concert-light .empty-sec { min-height: 200px; }
+#fixture-picker { max-width: min(720px,calc(100vw - 24px)); max-height: calc(100dvh - 32px); padding: 16px; }
+#fixture-picker[open] { display: flex; flex-direction: column; gap: 12px; }
+.picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
+#fixture-picker .pick { min-height: 0; overflow: hidden; }
+#fixture-picker .bd { max-height: 55dvh; }
+#fixture-picker .bd.plan-mini { height: 50dvh; }
+#fixture-picker .row-item .grow > b { white-space: normal; overflow-wrap: anywhere; }
+.staff main { max-width: 1044px; padding: 24px 24px 160px; display: grid; gap: 20px; }
+.staff header { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.staff header small { color: var(--ink-2); }
+.staff .staff-help { color: var(--ink-2); }
+.staff .simple-tiles { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; border: 1px solid var(--s3); background: var(--s3); border-radius: 8px; overflow: hidden; }
+.staff .simple-scene { background: var(--s1); display: flex; min-width: 0; padding: 6px; gap: 6px; align-items: center; }
+.staff .simple-scene .go { flex: 1; background: transparent; min-height: 80px; text-align: left; justify-content: flex-start; overflow-wrap: anywhere; min-width: 0; }
+.staff .simple-scene.running { background: #1d3026; box-shadow: inset 3px 0 var(--live); }
+.staff .simple-scene.running .go { color: var(--live); }
+.staff-footer { position: fixed; inset: auto 0 0; z-index: 20; padding: 12px max(24px,calc((100% - 996px)/2)); display: flex; align-items: center; gap: 16px; background: var(--s1); border-top: 1px solid var(--s3); padding-bottom: max(12px,env(safe-area-inset-bottom)); }
+.staff-footer #blackout { min-width: 240px; min-height: 56px; font-size: 20px; }
+.staff-footer p { color: var(--ink-2); font-size: 13px; }
+@media (max-width: 1200px) { .concert-workspace { grid-template-columns: minmax(0,1fr); } .concert-side { grid-row: 1; } .concert-side > .note { display: none; } .concert-side .master-card { padding: 12px 16px; } }
+@media (min-width: 861px) and (max-width: 1100px) { body.panel { grid-template-columns: 136px minmax(0,1fr); } .panel .top { gap: 12px; padding: 12px 16px; } .panel .brand { display: none; } .panel .rail { padding: 20px 8px; } .panel .rail button { font-size: 13px; padding: 10px 8px; } }
+@media (max-width: 860px) {
+  body.panel { grid-template-columns: minmax(0,1fr); padding-top: 126px; }
+  .panel .top { height: 126px; align-content: center; gap: 8px 12px; padding: 8px 12px; }
+  .panel .top .brand { display: none; }
+  .panel .top .show { flex: 1 1 55%; }
+  .panel .top .link { max-width: 40%; }
+  .panel .top .link .lt { display: inline; font-size: 12px; white-space: normal; }
+  .panel .top .spacer { display: none; }
+  .panel .top .btn { flex: 1; font-size: 13px; padding: 0 8px; }
+  .panel .top .mock { font-size: 10px; }
+  .panel .page { padding: 18px 20px 24px; }
+  .panel .rail { padding: 6px 12px max(6px,env(safe-area-inset-bottom)); border: 0; border-top: 1px solid var(--s3); gap: 4px; }
+  .panel .rail button { flex-direction: column; justify-content: center; text-align: center; gap: 0; font-size: 12px; padding: 4px 2px; min-height: 60px; }
+  .panel .rail button[aria-current=page] { box-shadow: inset 0 3px var(--sel); }
+  .panel .ctl-grid { grid-template-columns: minmax(0,1fr); }
+  .panel .light-heading .light-master { width: auto; max-width: 60%; }
+}
+@media (max-width: 540px) {
+  .panel .page { padding: 18px 12px 24px; }
+  .panel .scene-list, .staff .simple-tiles { grid-template-columns: minmax(0,1fr); }
+  .panel .ph { margin-bottom: 16px; gap: 8px; }
+  .panel .ph h1 { font-size: 22px; }
+  .target-bar { padding: 12px; gap: 8px; }
+  .target-bar b { font-size: 15px; }
+  .picker-heading h2 { font-size: 16px; }
+  .staff main { padding: 22px 12px 180px; }
+  .staff header { flex-wrap: wrap; gap: 8px; }
+  .staff-footer { padding: 12px; display: grid; gap: 6px; }
+  .staff-footer #blackout { width: 100%; min-height: 52px; }
+  .staff-footer p { font-size: 12px; }
+}
+.color-details summary, .light-options summary { min-height: 48px; cursor: pointer; align-content: center; }
+.light-options { color: var(--ink-2); }
+.panel .concert-light .ctl-grid { display: flex; flex-direction: column; max-width: 960px; }
+.panel .concert-light .ctl-context { padding: 0; }
+.panel .concert-light .c-color .now { margin: 8px 0; }
+@media (max-width: 860px) {
+  .panel .top { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); grid-template-rows: 48px 48px; justify-content: stretch; }
+  .panel .top .show { max-width: none; margin: 0; padding-top: 8px; }
+  .panel .top .show b { max-width: 100%; }
+  .panel .top .link { max-width: none; justify-self: end; }
+  .panel .top #mock { display: inline; position: absolute; left: 12px; top: 3px; font-size: 9px; padding: 0 4px; }
+  .panel .top .btn { width: 100%; }
+  .panel .top #halt { grid-row: 2; grid-column: 1; }
+  .panel .top #blackout { grid-row: 2; grid-column: 2; }
+}
+.panel .concert-light { gap: 12px; }
+.panel .concert-light .c-dim, .panel .concert-light .c-color { padding: 12px; gap: 6px; }
+.panel .concert-light .primary-colors { grid-template-columns: repeat(6,minmax(44px,1fr)); gap: 8px; }
+@media (max-width: 860px) { .panel .concert-light { gap: 8px; } }
+.panel .control-tabs button[aria-pressed=true] { color: var(--sel); box-shadow: inset 0 0 0 1px var(--sel); background: transparent; }
+.staff .scene-number { flex: none; width: 24px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.staff .scene-body { display: grid; min-width: 0; gap: 6px; }
+.staff .scene-name { font-size: 17px; }
+.staff .scene-state { font-size: 13px; color: var(--ink-2); font-weight: 400; }
+.panel .concert-light .ctl-context { align-self: stretch; }
+.panel .concert-light .color-heading > b { font-size: 13px; color: var(--ink-2); font-weight: 400; }
+
+@media (min-width: 1400px) { .panel .scene-list { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+.staff #error { color: var(--bad-text); }
+.staff #error.sent { color: var(--ink-2); }
+.target-names summary { min-height: 48px; cursor: pointer; align-content: center; font-weight: 650; }
+.target-names[open] .note { max-height: 180px; overflow: auto; }
+
+.panel .compact-master { display: none; margin-bottom: 12px; }
+@media (max-width: 1200px) {
+  .panel .compact-master { display: inline-flex; }
+  .concert-side { display: none; }
+}
+
+/* A short landscape screen needs the height for the plan, not stacked tabs. */
+@media (orientation: landscape) and (max-height: 520px) and (min-width: 600px) {
+  #fixture-picker:has(.plan-mini) { width: calc(100vw - 16px); max-width: none; max-height: calc(100dvh - 16px); padding: 8px; gap: 4px; }
+  #fixture-picker:has(.plan-mini) .picker-heading h2 { font-size: 16px; margin: 0; }
+  #fixture-picker:has(.plan-mini) .pick { display: grid; grid-template-columns: 140px minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto; height: calc(100dvh - 80px); flex: none; }
+  #fixture-picker:has(.plan-mini) .hd { grid-column: 1; grid-row: 1; padding: 4px; }
+  #fixture-picker:has(.plan-mini) .hd .seg { flex-direction: column; }
+  #fixture-picker .bd.plan-mini { grid-column: 2; grid-row: 1 / 3; height: auto; max-height: none; }
+  #fixture-picker:has(.plan-mini) .pick-tip { display: none; }
+  #fixture-picker:has(.plan-mini) .ft { grid-column: 1; grid-row: 2; flex-direction: column; padding: 4px; }
+}

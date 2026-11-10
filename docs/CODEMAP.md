@@ -26,6 +26,7 @@ Backend расположен в `ma2panel/`; имена модулей ниже 
 |---|---|
 | `commands.py` | Чистое: `build(action, cfg)` → строки MA2; множества `SIMPLE`/`FULL`/`SLIDERS` (какие действия существуют); `parse_*` ответов `List ...`; `validate_hall`; `fade_suffix`. Новое действие начинается тут |
 | `safety.py` | `DEFAULT_SAFETY`, `DEFAULT_MA2` (шаблоны команд и регулярки ответов), `make_guard` (белый список строк), `load_settings`, `validate_settings`, `redact` |
+| `scene_runtime.py` | Проверка List Executor (Normal/LTP, SoftLTP, Chaser), nonce/Cue Part CMD, bounded read-only readback, native fade/Off, резерв/commit с CueOnly, чтение/журнал/возврат Grand. Вызывается под action_lock; регрессии test_stage1_scenes.py. |
 | `status_evidence.py` | Источник подтверждения, монотонное устаревание через 6 с и метаданные; используется мостом для сцен и источников значений |
 | `link.py` | `MA2Link` (вход, одна строка за раз, ждёт `]>`), `Throttle` (последнее значение слайдера, `rate_hz`), `READY`/`NO_LINK`/`HALTED` |
 | `migrations.py`, `show_plans.py` | Проверенная миграция config v1–4→v5 с резервными копиями; перенос настроек площадки; безопасные пути планов с проверкой поля show и чтением legacy |
@@ -48,12 +49,12 @@ Backend расположен в `ma2panel/`; имена модулей ниже 
 | Состояние и рассылка | `status_msg`, `config_msg`, `shown_msg`, `scenes_msg`, `values_meta`, `invalidate_evidence`, `expire_evidence`, `broadcast`, `state`, `sessions`, `clients`; сцены bool/null + метаданные, рассылки упорядочены, медленный клиент закрывается |
 | Разрешение действия | `blocked`, `check_ids`, `check_scene`, `features`, `safety`/`mode` |
 | Свет (строки + «что показано») | `lines_for` (`jog`/`nudge` → `commands.rel_lines`), `execute`, `no_attribute` (Error #14), `remember`, `throttled`, `heads`, `selected` |
-| Сцены | `scene_pages`, `list_execs`, `poll_running`, `read_scenes`, `swap_off` (плавный переход), ветки `scene_*`/`page_save` в `handle` |
+| Сцены | `scene_pages`, `list_execs`, `poll_running`, `read_scenes`, `scene_runtime.transition_lines` (штатный fade/Off), `GrandMasterBlackout`, ветки `scene_*`/`page_save` в `handle` |
 | Правка конфига (группы, пресеты, луч) | `config_edit`, `layout_save`, `mover`, ветка `fixture_flag` в `handle` |
-| Чтение MA2 (группы, пресеты, сцены) | `read_ma2`, `ma2_action`, `store_checked` |
+| Чтение MA2 (группы, пресеты, сцены) | `read_ma2`, `catalogue_meta` (complete/empty/partial/error/stale), `ma2_action` (свежий состав группы), `store_checked` |
 | Подсветка в редакторе | `highlight_*`, `release_highlight`, `highlight_action`, `highlight_lease` |
 | Шоу | `identify_show`, `list_shows`, `load_show`, `open_show_plan`, `check_show`, `import_xml` |
-| Экспорт приборов | `fetch_fixtures`, `read_types` (каналы цвета по типам); сами экспорты — `exports.py` |
+| Экспорт приборов | `fetch_fixtures`, `read_types` (каналы/ограниченные повторы), `commit_import` (все ссылки IDs, атомарность); сами экспорты — `exports.py` |
 | Патч и RDM (спека 21) | `patch_action`, `send_planned`, `rdm_read` |
 | Поиск RDM (2026-11-03) | `rdm` (`RDMSearch`, `rdm_search.py`): prepare/start/stop/check, журнал `rdm-search.json`; ветка в `handle` до `blocked`, строка `rdm_search` в `status_msg`, `rdm_extra`/`RDM_GLOBAL` в `safety.make_guard`; UI — `rdmCard`/`rdmSearchBanner` в `patch.js`; тесты `test_rdm_search.py`, `test_rdm_integration.py`, `rdm-search-ui.cjs` |
 | Запись ответов пульта (спека 23) | `capture_replies`, `spawn_capture`; включает `main()` (`capture=not args.mock`), файлы в `field-data/auto/` |
@@ -73,7 +74,7 @@ Backend расположен в `ma2panel/`; имена модулей ниже 
 | `patch.js` | `SECTIONS.patch` (спека 21): таблица патча, RDM, поиск RDM (подтверждение, фазы, восстановление), режим правки, окно плана; бэкенд — `patch_action` и координатор `rdm` в `bridge.py`, `patch_plan`/`patch_rows`/`parse_rdm_list` в `commands.py` |
 | `simple.html`, `simple.js` | простой режим для учителей (спека 24): второй порт `simple_port`, только сцены и «Погасить всё»; мост (`serve_ws(simple=True)`, проверка в начале `handle`) отклоняет всё остальное |
 | `settings.*`, `diag.*`, `log.html` | отдельные страницы для ПК; `diag-upload.js` — отправка/проверка диагностики, без действий MA2 |
-| `style.css` | токены дизайна в `:root`; правила дизайна в `DESIGN.md`, продукта в `PRODUCT.md` |
+| `style.css`, `concert.css` | токены дизайна в `:root`; концертная компоновка в `concert.css`; правила дизайна в `DESIGN.md`, продукта в `PRODUCT.md` |
 
 ## Интерфейс 3.2.0
 
@@ -121,7 +122,7 @@ Browser preflight также проверяет мастер на 1024×768 и 3
 - Ничего не отправляется повторно после `unknown`; `/Overwrite` и `SaveShow` — только по явным разрешениям.
 - Реальный пульт (onPC 3.9.60): ответ начинается `Executing : <cmd>` и кончается `[Group]>`; `List Executor 1.1 Thru 1.250` даёт Error #9 (мост сам уменьшает диапазон); адрес в XML абсолютный DMX.
 - Стробоскоп (спека 24) идёт не по шаблону `attrs.strobe`, а по `dmx_map[тип].strobe` из `Export FixtureType` (`fixtures.parse_fixture_type`, ветка `strobe` в `lines_for`); `has` там же прячет слайдеры в панели (`attributeVisible` в `light.js`). Формат `ChannelSet` в экспорте 3.9.60 не проверен: сырой файл лежит в `diag/fixture_type_<n>.xml`.
-- Что не проверено на пульте: `Goto Cue 1 Executor N Fade T` (плавные сцены; синтаксис из руководства MA2 3.9, с. 1110), угаданные головы по имени типа.
+- Что не проверено на пульте: переход на настоящих приборах и содержимое резервов Copy. На изолированной onPC 3.9.63.11 проверены свойства Cue/Grand, синтаксис Goto/Masterfade/Off и Copy/CueOnly пустых Cue; целевая 3.9.60 ещё не принята. См. ma2-command-evidence.md. Угаданные головы по имени типа также требуют проверки.
 
 Блок В: `tests/test_migration_v5.py`, `test_data_startup.py`, `test_plan_path.py`,
 `test_import_confirm.py` проверяют реальные миграции/startup, переключение планов,
@@ -139,3 +140,26 @@ prepare/confirm (WS и loopback HTTP), stale/replay и соответствия 
 Регрессии: `tests/test_protocol.py`, `tests/test_absolute_axes.py`, `tests/test_dmx_intervals.py`; `tests/protocol-panel.cjs` и `tests/absolute-axes.cjs` включены в основной Node-набор. Настоящие движки: `scripts/browser_smoke.py`/`.cjs`, dev-only pinned Playwright в `scripts/browser_smoke/`; [повторяемый запуск](browser-preflight.md).
 
 [Подготовка и первый сеанс зала](pre-hall-3.1.md), [заметки кандидата](RELEASE-3.1.md). Лицензия исходников — root LICENSE, в программном payload — docs/LICENSE.txt.
+
+## Этап 2: readback и синхронизация (2026-11-10)
+
+`read_dmx`/`dmx_cycle`: retry и TTL отдельных блоков, dmx_wake при reconnect.
+`dmx_diagnostics`: адреса, карты и состояние блоков; /api/diag → export.dmx_read.
+`fixtures.merge_fixtures`: неизменяемые исходные записи при перестановке IDs;
+`commit_import` обновляет локальные и MA2-ссылки, сохраняет прежние карты.
+`identify_show`/`blocked`: recovering до подтверждения контекста и refresh Patch.
+Регрессии: test_stage2_state, test_stage2_pipeline, test_dmx_recovery_regression,
+test_read_recovery; полная браузерная приёмка относится к этапу 4.
+
+
+## Исправления review этапа 4 (2026-11-10)
+
+Публичная база v3.2.5: backend только в ma2panel/, root bridge.py — recovery launcher.
+`on_state` отменяет transport epoch и старые клиентские токены; `execute` проверяет
+recovery после lock/перед строкой. `confirm_import` общий для HTTP/WS; `commit_import`
+переносит/разрывает ссылки групп/позиционных пресетов и меняет plan_epoch.
+`patch_action.applied` принимает только собственный синхронный импорт, сохраняя
+исходные gen/show/stop для последующих readback. `build(scene_off)` задаёт Masterfade
+перед Off; `hallPlan` не подсвечивает нулевой/неполный RGB.
+Регрессии: test_stage4_review_fixes, live-output.cjs, stage4-integration.cjs;
+браузер: scripts/stage3_browser.cjs, scripts/browser_smoke.py (только mock/копии).

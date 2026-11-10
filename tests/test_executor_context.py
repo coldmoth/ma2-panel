@@ -44,6 +44,8 @@ def test_import_discards_all_pages_when_context_changes(context, action, phase, 
                     return False, "Error #9: NUMBER TOO LARGE\n[Group]>"
                 page = cmd.split()[2].split(".")[0]
                 return True, f"Executor {page}.102 {'OLD' if page == '1' else 'NEW'}\n[Group]>"
+            if cmd.startswith('List Preset'):
+                return True, 'No objects found\n[Group]>'
             return True, 'Group 1 "Existing"\n[Group]>'
         c.link.send = send
         ws = object()
@@ -82,6 +84,8 @@ def test_import_verifies_show_identity_again_before_save(context, action):
             if cmd.startswith("List Executor"):
                 listed = True
                 return True, "Executor 1.102 Mixed\n[Group]>"
+            if cmd.startswith('List Preset'):
+                return True, 'No objects found\n[Group]>'
             return True, 'Group 1 "Existing"\n[Group]>'
         c.link.send = send
         ws = object()

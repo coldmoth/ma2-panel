@@ -102,7 +102,7 @@ def test_model_changes_wait_for_action_lock(tmp_path, monkeypatch, action):
     entered, release = threading.Event(), threading.Event()
     original = bridge.MA2Link.send
     async def delayed(link, cmd, *args, **kwargs):
-        if cmd == 'Go Executor 1.101':
+        if cmd == 'Goto Cue 1 Executor 1.101 Fade 0':
             entered.set()
             while not release.is_set():
                 await asyncio.sleep(.01)

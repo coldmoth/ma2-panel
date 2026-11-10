@@ -1,22 +1,33 @@
-# TASK_STATE — 2026-11-09 (МСК)
-- Копия: /tmp/ma2-panel-pr1-20261109; ветка refactor/repository-structure.
-- База PR: 94ddfca; main: a1ccfae; включён tag v3.2.4 (2e6eb0e).
-- Цель: завершить PR #1, 13 элементов корня, сохранить исправления 3.2.1–3.2.4.
-- Основная рабочая копия/codex/token-workflow и её dirty tree не изменялись.
-- v3.2.4: опубликован 08.11, только update ZIP, не полный Windows-комплект.
-- Корневой launcher: recovery ищется в папке приложения, до backend imports.
-- Исправления bridge/exports/readback и UI перенесены с адаптацией импортов.
-- commands/safety/link сверены с реальным опубликованным ZIP v3.2.4.
-- Старый updater 3.2.0–3.2.4 отвергает ma2panel/: нужен внешний USB updater.
-- Windows acceptance: полный 3.2.0 runtime + реальный update 3.2.4 → USB → rollback.
-- Обе опубликованные ZIP закреплены SHA256; runtime guard не ослаблен.
-- Metadata/lock 3.2.0 сохранены ради runtime identity; это не номер актуального релиза.
-- Проверки 09.11: recovery regression RED→GREEN; адресный pytest PASS (1 skip).
-- Node panel-v4.cjs PASS; локальные ссылки README существуют.
-- Download for Windows указывает на существующий полный ZIP; v3.2.4 обозначен отдельно.
-- Индекс функций обновлён; diff --check PASS.
-- Следующий шаг: push PR, один полный CI и Windows acceptance, проверка результатов.
-- Субагенты, Clodex и настоящий MA2 не использовались; квота здесь недоступна.
-- Независимый review помощником не проводился: пользователь запретил субагентов.
-- CI/mock не доказывают MA2-приёмку: остаются проверки зала, разделы 12–13 hall-test-plan.
-- Существующие Releases не изменять; новый релиз не создавать; force push запрещён.
+# TASK_STATE — 2026-11-11 (МСК), выпуск 3.3.0
+- Worktree /Users/nevereply/.codex/worktrees/stage4-review-fixes/release-repo.
+- Ветка codex/stage4-review-fixes; исходный HEAD d95220f (main/v3.2.5).
+- Исходные 95 staged-файлов этапов 1–4 интегрированы; готовится релизный коммит.
+- Основной checkout и прежние worktree/данные сохранены.
+- Цель владельца: исправить A/B/C, аудит, проверить миграцию, выпустить v3.3.0.
+- Commit/push/main/tag/Release разрешены после программных gates и без блокеров.
+- A: перенумерация+reuse ID, конкурирующие кандидаты, одновременный перенос ссылок.
+- Добавлены ссылки fixtures метаданных сцен; другие планы не переписываются.
+- B: MA2 Group и Store Group сохраняют ticket через lock/read/send.
+- C: Off только прежних запусков панели в текущем плане/шоу; 2 вместо 297.
+- Unknown Goto сохраняет возможное владение; свежий Off-readback снимает его.
+- После перезапуска/смены плана/шоу владельцы старых playback не угадываются.
+- Runtime-ID канонизирует LF/CRLF к прежнему Windows-ID; uv.lock не менялся.
+- Версия 3.3.0; README/русские notes/spec/history и code-index обновлены.
+- 2026-11-11: полный pytest 1525 PASS/1 SKIP/0 failures, 118.047 с.
+- JUnit /tmp/ma2-v330-final-pytest.xml, лог /tmp/ma2-v330-final-pytest.log.
+- После runtime-ID/дополнений регрессий адресные release/update tests PASS.
+- Логи /tmp/ma2-v330-runtime-focused.log, /tmp/ma2-v330-precommit.log.
+- Node panel-v4 PASS, /tmp/ma2-v330-node.log.
+- HTTP/WS full/simple mock PASS, /tmp/ma2-v330-httpws.log.
+- Chromium/WebKit общий+stage3 PASS, 4 viewport/touch/WS/input/store/rewrite.
+- PNG /tmp/ma2-v330-stage3/ осмотрены; процессы изолированных mock остановлены.
+- Настоящий v3.2.5 ZIP: SHA256/runtime guard/update/rollback/data preservation PASS.
+- Миграция host-only: /tmp/ma2-v330-migration-final.log; native Windows впереди.
+- Независимый один local codex review разрешён владельцем; запуск после фиксации diff.
+- Clodex не использован; подписочный счётчик квоты недоступен.
+- Реальная MA2/физический свет не подключались; старая 3.9.63.11 приёмка историческая.
+- Зал: hardware-acceptance.md и hall-test-plan.md §12–13; явные ограничения в notes.
+- Аудит docs/release-3.3-audit.md; план docs/release-3.3-plan.md.
+- Git diff --check и staged --check PASS. main по ls-remote остаётся d95220f.
+- Следующий шаг: независимый review + branch Windows CI; затем main/tag/Release/assets.
+- Публикация ещё не выполнена; Windows CI и независимый review ещё не завершены.

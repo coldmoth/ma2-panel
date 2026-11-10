@@ -21,7 +21,7 @@
     row.append(message, close); errors.append(row); errors.hidden = false;
   }
   function ready() {
-    return ws && ws.readyState === WebSocket.OPEN && status.ma2 === 'logged_in' && !status.halted && !status.show_file_active &&
+    return ws && ws.readyState === WebSocket.OPEN && status.ma2 === 'logged_in' && !status.recovering && !status.halted && !status.show_file_active &&
       (!status.show_load || status.show_load.state !== 'loading');
   }
   function enabled() {
@@ -29,8 +29,9 @@
   }
   function send(action) {
     if (!enabled() || pending.length) return;
+    if (action.a === 'blackout' && (!status.safety || status.safety.mode !== 'full')) return;
     error.hidden = true;
-    action = Object.assign({}, action, {request_id: prefix + ':' + (++serial)});
+    action = Object.assign({blackout_epoch: status.blackout_epoch || 0}, action, {request_id: prefix + ':' + (++serial)});
     const request = {...action, sent:true, sentAt:Date.now(), waitMs:commandWaitMs(action)};
     result = null;
     try { ws.send(JSON.stringify(action)); }
@@ -53,9 +54,12 @@
     renderFeedback();
     connection.textContent = !ws || ws.readyState !== WebSocket.OPEN ? 'Нет связи с мостом' :
       status.halted ? 'Передача остановлена' : status.ma2 !== 'logged_in' ? 'Нет связи с пультом' :
+      status.recovering ? 'Восстановление данных MA2…' :
+      status.blackout && status.blackout.phase === 'unknown' ? status.blackout.reason || 'Проверьте Grand Master на MA2 вручную' :
       status.show_file_active ? 'Передача файла шоу · управление светом временно недоступно' :
       status.show_load && status.show_load.state === 'loading' ? 'Загружается шоу…' : status.mock ? 'Имитация · подключено' : 'Подключено';
-    blackout.disabled = !enabled() || !!pending.length;
+    blackout.disabled = !enabled() || !!pending.length || !status.safety || status.safety.mode !== 'full' || !!(status.blackout && status.blackout.phase === 'unknown');
+    blackout.textContent = status.blackout && status.blackout.phase === 'unknown' ? 'Проверьте Grand Master' : status.blackout && status.blackout.phase === 'active' ? 'Восстановить свет' : 'Blackout MA2';
     scenes.replaceChildren();
     const list = Array.isArray(config.scenes) ? config.scenes : [];
     if (!list.length) {
@@ -98,7 +102,7 @@
     pending.forEach(action => reportError('Связь прервана: результат неизвестен. Команда не повторена.', action, 'warning'));
     pending = []; result = null;
   }
-  blackout.onclick = () => { if (confirm('Погасить всё?')) send({a: 'blackout'}); };
+  blackout.onclick = () => send({a:'blackout'});
   function connect() {
     ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
     const socket = ws;

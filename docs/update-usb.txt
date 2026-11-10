@@ -1,7 +1,7 @@
 ﻿ОБНОВЛЕНИЕ ПАНЕЛИ С ФЛЕШКИ (существующая установка)
 
 Сохраняется: config.json, settings.json (пользователь Remote, 127.0.0.1:30000), secret.env (пароль),
-shows\ (расстановки и группы по шоу), highlight.json, rdm-search.json (включая pending/target или повреждённое состояние). Обновление их не перезаписывает,
+shows\ (расстановки и группы по шоу), highlight.json, blackout.json, scene-write-*.json, rdm-search.json (включая pending/target или повреждённое состояние). Обновление их не перезаписывает,
 а перед заменой копирует в backups\before-update-<дата>\. Файлы MA2 не трогаются.
 
 Для первого перехода старой установки без runtime.json/runtime-files.json нужен полный

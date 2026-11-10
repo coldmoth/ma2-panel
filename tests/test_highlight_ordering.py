@@ -17,13 +17,14 @@ def context(tmp_path, monkeypatch):
                       settings={'safety': {'mode': 'full', 'allow_highlight': True}})
     c = captured[0]
     c.link.state = 'logged_in'
+    c.state['show'] = {'name':'Mock show','source':'ma2'}
     yield c
     bridge.log.removeHandler(c.diag_handler)
 
 
 def active(c):
     c.safety['allow_highlight'] = True
-    c.highlight.update(state='active', zone=[12], owner=object(), show=None, target=12,
+    c.highlight.update(state='active', zone=[12], owner=object(), show='Mock show', target=12,
                        restore={12: {'dim': 40}})
     c.highlight_path.write_text('{"zone":[12],"target":12}')
 
@@ -134,7 +135,9 @@ def test_direct_mutations_also_supersede_highlight(context, newer):
     c = context
     active(c)
     calls = []
-    async def send(line, **kw): calls.append(line); return True, 'OK'
+    async def send(line, **kw):
+        calls.append(line)
+        return True, 'Global : $SHOWFILE = Mock show' if line == 'ListVar' else 'OK'
     c.link.send = send
     c.safety['allow_rdm'] = True
     async def go():

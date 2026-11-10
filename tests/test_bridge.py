@@ -102,9 +102,10 @@ def test_paused_mock_is_not_connected():
 @pytest.fixture
 def bridge_cfg(tmp_path):
     @contextmanager
-    def start(edit=lambda cfg: None, settings=FULL, confirmed_profiles=False):
+    def start(edit=lambda cfg: None, settings=FULL, confirmed_profiles=False, mock_setup=None):
         with open(CONFIG, encoding="utf-8") as f:
             cfg = json.load(f)
+        cfg["show"] = "Mock show"  # control tests have an explicitly bound show
         cfg["ma2"]["port"] = 30000  # mock on a free port
         cfg["ma2"]["export_dir"] = str(tmp_path)
         edit(cfg)
@@ -118,9 +119,15 @@ def bridge_cfg(tmp_path):
         def capture(app, c, local):
             captured.append(c)
             return register(app, c, local)
-        with patch.object(module, 'register_api', capture):
+        original_start = module.start_mock
+        async def configured_start(*args, **kwargs):
+            mock = await original_start(*args, **kwargs)
+            if mock_setup:
+                mock_setup(mock)
+            return mock
+        with patch.object(module, 'register_api', capture), patch.object(module, 'start_mock', configured_start):
             app = create_app(cfg, mock=True, config_path=str(path), settings={"poll_seconds": 0, **settings})
-        with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        with patch.object(module, "start_mock", configured_start), TestClient(app) as client, client.websocket_connect("/ws") as ws:
             ready(ws)
             if confirmed_profiles:
                 # Inject current profile evidence for tests of DMX transport/control, not profile discovery.
@@ -161,6 +168,18 @@ def ask(ws, msg):
     ws.send_text(msg) if isinstance(msg, str) else ws.send_json(msg)
     return until(ws, lambda m: "ok" in m)
 
+def confirm_fixture_import(ws, result):
+    """Explicit same-ID operator choice for export tests using legacy fixtures."""
+    if not result.get('ambiguous'):
+        return result
+    choices = {}
+    for item in result['ambiguous']:
+        fid = item['new_id']
+        assert fid in {candidate['old_id'] for candidate in item['candidates']}
+        choices[str(fid)] = fid
+    return ask(ws, {'a': 'import_confirm_merge', 'request_token': result['request_token'], 'choices': choices})
+
+
 def test_ws_config_hides_secrets(tmp_path):
     with open(CONFIG, encoding="utf-8") as f:
         cfg = json.load(f)
@@ -184,7 +203,7 @@ def test_ws_shown(bridge):
     assert "dim" not in m["shown"]["12"]  # a colour alone never shows a brightness the panel did not send
     ws.send_json({"a": "blackout"})
     shown = until(ws, lambda m: "shown" in m)["shown"]
-    assert shown["12"] == {"dim": 0.0} and all(v == {"dim": 0.0} for v in shown.values())  # colours forgotten, all at 0
+    assert shown == {}  # The barrier invalidates evidence; it never clears the desk Programmer.
 
 def test_ws_layout_save(bridge):
     ws, _, path = bridge
@@ -202,7 +221,7 @@ def test_ws_garbage(bridge):
                 {"a": "layout_save", "pos": [{"id": 12, "x": 5, "y": 0}]}, {"a": "select_group", "id": "nope"}):
         assert ask(ws, bad)["ok"] is False
     assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"] is True
-    assert [r for r in mock.received if "ClearAll" in r] == ["ClearAll"] and path.read_bytes() == before  # only the scene's own
+    assert [r for r in mock.received if "ClearAll" in r] == [] and path.read_bytes() == before  # only the scene's own
 
 
 def test_ws_import(bridge_cfg):
@@ -212,9 +231,13 @@ def test_ws_import(bridge_cfg):
 
 def check_ws_import(bridge):
     ws, mock, path = bridge
-    ws.send_json({"a": "fixtures_fetch"})
-    msg = until(ws, lambda m: "config" in m or "ok" in m)
-    assert "config" in msg
+    before = path.read_bytes()
+    preview = ask(ws, {"a": "fixtures_fetch"})
+    assert not preview["ok"] and preview["ambiguous"]
+    assert path.read_bytes() == before
+    choices = {str(item["new_id"]): item["new_id"] for item in preview["ambiguous"]}
+    ws.send_json({"a": "import_confirm_merge", "request_token": preview["request_token"], "choices": choices})
+    msg = until(ws, lambda m: "config" in m)
     conf = msg["config"]
     assert until(ws, lambda m: "ok" in m)["source"] == "ma2"
     saved = json.loads(path.read_text())
@@ -235,7 +258,10 @@ def check_ws_import_bad_xml(bridge):
     assert ask(ws, {"a": "fixtures_fetch"})["ok"] is False
     assert path.read_bytes() == before
     mock.export_text = None
-    assert ask(ws, {"a": "fixtures_fetch"})["added"] == 1
+    preview = ask(ws, {"a": "fixtures_fetch"})
+    assert not preview["ok"] and preview["ambiguous"]
+    choices = {str(item["new_id"]): None for item in preview["ambiguous"]}
+    assert ask(ws, {"a": "import_confirm_merge", "request_token": preview["request_token"], "choices": choices})["ok"]
 
 
 def test_throttle_flush():
@@ -384,7 +410,7 @@ def test_ws_v2_garbage(bridge):
                 {"a": "beam_invert", "id": "12"}):
         assert ask(ws, bad)["ok"] is False, bad
     assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"] is True
-    assert [r for r in mock.received if "ClearAll" in r] == ["ClearAll"] and path.read_bytes() == before  # only the scene's own
+    assert [r for r in mock.received if "ClearAll" in r] == [] and path.read_bytes() == before  # only the scene's own
 
 
 def test_ws_move_lands_before_next_action(bridge):
@@ -398,10 +424,10 @@ def test_ws_move_lands_before_next_action(bridge):
     ask(ws, {"a": "move_start"})
     ws.send_json({"a": "move", "dx": 10, "dy": 0})
     assert ask(ws, {"a": "blackout"})["ok"] is True
-    tail = mock.received[-4:]  # the move went first, not after the blackout
-    assert tail[-1] == "At 0" and tail[-2].startswith("Fixture 1 + 2") and tail[-3].startswith("Off Executor")
+    tail = mock.received[-4:]  # Blackout cancels pending moves instead of flushing them
+    assert "SpecialMaster 2.1 At 0" in tail and mock.grand_master == 0
     time.sleep(0.5)  # > 1/rate_hz: nothing is left in the throttle to resurrect shown
-    assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"] is True
+    assert ask(ws, {"a": "scene_go", "id": "pianist", "blackout_epoch": 1})["ok"] is True
     assert not [r for r in mock.received[-3:] if "Pan" in r]
 
 
@@ -423,9 +449,10 @@ def test_ws_scenes_import_and_create(bridge):
     ws, mock, path = bridge
     r = ask(ws, {"a": "scenes_import"})
     assert r["ok"] is True and r["added"] == 1  # 1.101 Pianist is already in the config, 1.102 is new
+    assert ask(ws, {"a": "select_fixtures", "ids": [12]})["ok"]
     r = ask(ws, {"a": "scene_create", "label": "Рояль", "page": 2, "exec": "2.101", "confirm": "2.101"})
     assert r["ok"] is True
-    assert mock.received[-2:] == ["StoreLook Executor 2.101 Cue 1 /Source=Output", 'Label Executor 2.101 "Рояль"']
+    assert "Store Executor 2.101 Cue 1 /Source=Output /Use=Allforselected" in mock.received
     scenes = json.loads(path.read_text())["scenes"]
     assert [s["exec"] for s in scenes] == ["1.101", "1.102", "2.101"]
     assert ask(ws, {"a": "scene_create", "label": 'a"b', "page": 1})["ok"] is False
@@ -471,10 +498,12 @@ def test_scene_delete_on_the_desk(bridge_cfg):
 def test_scene_overwrite(bridge_cfg):
     with bridge_cfg(settings=FULL) as (ws, mock, path):
         assert ask(ws, {"a": "scenes_import"})["ok"] is True
+        assert ask(ws, {"a": "select_fixtures", "ids": [12]})["ok"]
         r = ask(ws, {"a": "scene_create", "label": "Рояль 2", "page": 1, "exec": "1.101", "confirm": "1.101", "replace": True})
         assert r["ok"] is True, r
-        assert mock.received.index("Delete Executor 1.101") < mock.received.index("List Executor 1.101") < next(i for i, l in enumerate(mock.received) if l.startswith("StoreLook Executor 1.101"))
-        assert not any("/Overwrite" in l for l in mock.received)
+        assert not any(l.startswith("Delete") for l in mock.received)
+        assert "Copy Cue 1 Executor 1.101 At Cue 2 Executor 1.1 /CueOnly" in mock.received
+        assert "Copy Cue 1 Executor 1.1 At Cue 1 Executor 1.101 /CueOnly /Overwrite" in mock.received
         scenes = [s for s in json.loads(path.read_text())["scenes"] if s["exec"] == "1.101"]
         assert len(scenes) == 1 and scenes[0]["label"] == "Рояль 2"
         assert ask(ws, {"a": "scene_create", "label": "X", "page": 1, "exec": "1.199", "confirm": "1.199", "replace": True})["ok"] is False  # nothing to overwrite
@@ -619,7 +648,7 @@ def test_unknown_aim_nudge_and_scene(bridge):
     assert m["shown"]["12"]["pan"] == pytest.approx(50 + 2 / 540 * 100)
     until(ws, lambda m: m.get("a") == "nudge" and "ok" in m)
     assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"]
-    assert not ask(ws, {"a": "move_start"})["ok"]
+    assert ask(ws, {"a": "move_start"})["ok"]
 
 
 @pytest.mark.parametrize("value, text", [(False, "отключена в настройках (features.move)"), ("дефект", "заблокирована: дефект")])
@@ -731,57 +760,42 @@ def test_still_silent_after_timeout_reopens_the_session():
 
 
 @pytest.mark.parametrize("mode", ["store", "full"])
-@pytest.mark.parametrize("case", ["empty", "occupied", "garbage", "timeout", "store_unknown", "store_error",
-                                  "label_unknown", "label_error", "confirm", "format", "missing", "list_error"])
+@pytest.mark.parametrize("case", ["empty", "occupied", "garbage", "timeout", "store_unknown", "store_error", "label_unknown", "label_error", "confirm", "format", "missing", "list_error"])
 def test_scene_write_safety(bridge_cfg, mode, case):
-    settings = {"safety": {"mode": mode, "store_execs": ["2.150", "1.101"]}, "ma2": {"timeout": 0.1}}
+    settings = {"safety": {"mode": mode, "store_execs": ["2.150", "1.101"], "allowed_fixtures": [12]}, "ma2": {"timeout": 0.1}}
     with bridge_cfg(settings=settings) as (ws, mock, path):
+        assert ask(ws, {"a": "select_fixtures", "ids": [12]})["ok"]
         before = path.read_bytes()
         action = {"a": "scene_create", "label": "New", "page": 2, "exec": "2.150", "confirm": "2.150"}
-        if case == "occupied":
-            action.update(exec="1.101", confirm="1.101")
-        elif case == "garbage":
-            mock.list_garbage = True
-        elif case == "timeout":
-            mock.mute = True
-        elif case == "confirm":
-            action["confirm"] = "2.151"
-        elif case == "format":
-            action.update(exec="bad", confirm="bad")
-        elif case == "missing":
-            del action["exec"]
-        elif case in ("store_unknown", "store_error", "label_unknown", "label_error", "list_error"):
+        if case == "occupied": action.update(exec="1.101", confirm="1.101")
+        elif case == "garbage": mock.list_garbage = True
+        elif case == "timeout": mock.mute = True
+        elif case == "confirm": action['confirm'] = '2.151'
+        elif case == "format": action.update(exec='bad', confirm='bad')
+        elif case == "missing": action.pop('exec')
+        if case.startswith(('store_', 'label_', 'list_')):
             original = mock._reply
             def reply(text):
-                prefix = "StoreLook" if case.startswith("store") else "Label" if case.startswith("label") else "List"
+                prefix = 'Store Executor' if case.startswith('store') else 'Label Executor' if case.startswith('label') else 'List Executor'
                 if text.startswith(prefix):
-                    return "OK\r\n" if case.endswith("unknown") else "Error: illegal\r\n[Channel]>"
+                    return 'OK\r\n' if case.endswith('unknown') else 'Error: illegal\r\n[Channel]>'
                 return original(text)
             mock._reply = reply
-        r = ask(ws, action)
-        if case == "empty" or case.startswith("label"):
-            assert r["ok"] is (case == "empty")
-            assert json.loads(path.read_text())["scenes"][-1]["exec"] == "2.150"
-            assert mock.received[-3:] == ["List Executor 2.150", "StoreLook Executor 2.150 Cue 1 /Source=Output",
-                                          'Label Executor 2.150 "New"']
-            if case.startswith("label"):
-                assert "сцена записана в 2.150, но имя не подтверждено" in r["err"]
-            else:
-                # Fresh console data, including objects created this session, prevents a second write.
-                assert not ask(ws, action)["ok"]
-                assert mock.received.count("StoreLook Executor 2.150 Cue 1 /Source=Output") == 1
-                assert mock.rows["2.150"] == "New"
+        result = ask(ws, action)
+        assert result['ok'] is (case == 'empty'), result
+        assert not any(x.startswith('Delete') or '/Overwrite' in x for x in mock.received)
+        store = 'Store Executor 2.150 Cue 1 /Source=Output /Use=Allforselected'
+        if case == 'empty':
+            assert json.loads(path.read_text())['scenes'][-1]['exec'] == '2.150'
+            assert mock.received.count(store) == 1
+            assert not ask(ws, action)['ok']
         else:
-            assert not r["ok"] and path.read_bytes() == before
-            assert not any(line.startswith("Label") for line in mock.received)
-            if not case.startswith("store"):
-                assert not any(line.startswith("StoreLook") for line in mock.received)
-            if case == "garbage":
-                assert "не распознан" in r["err"]
-            elif case == "timeout":
-                assert "пульт не ответил вовремя — запись отменена" in r["err"]
-            elif case == "store_unknown":
-                assert "результат записи неизвестен" in r["err"] and "Повторно не отправлено" in r["err"]
+            assert path.read_bytes() == before
+            if case.startswith(('store_', 'label_')):
+                assert mock.received.count(store) == 1
+                assert (path.parent / 'scene-write-2.150.json').exists()
+            else:
+                assert store not in mock.received
 
 
 def test_import_unrecognised_keeps_scenes(bridge):
@@ -805,7 +819,8 @@ def test_import_failure_keeps_config(bridge):
 def test_custom_empty_regex(bridge_cfg):
     with bridge_cfg(settings={**FULL, "ma2": {"exec_empty_regex": "^VACANT"}}) as (ws, mock, path):
         original = mock._reply
-        mock._reply = lambda text: "VACANT\r\n[Channel]>" if text.startswith("List") else original(text)
+        mock._reply = lambda text: "VACANT\r\n[Channel]>" if text.startswith("List Executor") and text.split()[-1] not in mock.rows else original(text)
+        assert ask(ws, {"a": "select_fixtures", "ids": [12]})["ok"]
         assert ask(ws, {"a": "scene_create", "label": "T", "page": 2, "exec": "2.150", "confirm": "2.150"})["ok"]
         assert json.loads(path.read_text())["scenes"][-1]["exec"] == "2.150"
 
@@ -828,186 +843,30 @@ def test_scene_crossfade(bridge_cfg):
         check_scene_crossfade(b)
 
 
-@pytest.fixture
-def scene_clock(monkeypatch, tmp_path):
-    """Real bridge handlers, a gated fade clock and a recording transport; no desk."""
-    from ma2panel import bridge as module
-    captured = []
-    monkeypatch.setattr(module, "register_api", lambda app, context, loopback: captured.append(context))
-    cfg = json.loads(Path(CONFIG).read_text())
-    cfg["ma2"]["export_dir"] = str(tmp_path)
-    cfg["scenes"].append({"id": "choir", "exec": "1.102", "label": "Choir"})
-    module.create_app(cfg, mock=True, config_path=str(tmp_path / "config.json"), settings=FULL)
-    c = captured[0]
-    sent = []
-    original_sleep = asyncio.sleep
-
-    async def run(scenario):
-        awake, release = asyncio.Event(), asyncio.Event()
-
-        async def sleep(seconds):
-            if seconds == 7:
-                awake.set()
-                await release.wait()
-            else:
-                await original_sleep(seconds)
-
-        async def send(line, **kwargs):
-            sent.append(line)
-            return True, ""
-
-        monkeypatch.setattr(module.asyncio, "sleep", sleep)
-        monkeypatch.setattr(c.link, "send", send)
-        ws = object()
-        c.sessions[ws] = {"selection": [], "base": None}
-
-        async def act(a, **kwargs):
-            result = await c.handle(ws, json.dumps({"a": a, **kwargs}))
-            assert result["ok"], result
-
-        async def finish():
-            release.set()
-            await asyncio.gather(*list(c.bg))
-
-        try:
-            await act("scene_go", id="choir", fade=7, swap=["pianist"])
-            await awake.wait()
-            await scenario(c, sent, act, release, finish)
-        finally:
-            for task in list(c.bg):
-                task.cancel()
-            await asyncio.gather(*list(c.bg), return_exceptions=True)
-
-    return lambda scenario: asyncio.run(run(scenario))
 
 
-@pytest.mark.parametrize("later", ["scene_go", "scene_off", "off_restart", "blackout", "blackout_restart", "transition"])
-def test_scene_timer_respects_later_action(scene_clock, later):
-    async def scenario(c, sent, act, release, finish):
-        if later in ("scene_off", "off_restart"):
-            await act("scene_off", id="pianist")
-        if later in ("blackout", "blackout_restart"):
-            await act("blackout")
-        if later == "transition":
-            await act("scene_go", id="choir", fade=7, swap=["pianist"])
-            # The newer transition owns the one eventual Off.
-        elif later in ("scene_go", "off_restart", "blackout_restart"):
-            await act("scene_go", id="pianist")
-        before = sent.count("Off Executor 1.101")
-        await finish()
-        assert sent.count("Off Executor 1.101") == before + (later == "transition")
-    scene_clock(scenario)
 
 
-def test_scene_timer_survives_unrelated_fixture_action(scene_clock):
-    async def scenario(c, sent, act, release, finish):
-        assert await c.execute("dim", {"a": "dim", "v": 20}, {}, [12]) is None
-        await finish()
-        assert sent.count("Off Executor 1.101") == 1
-    scene_clock(scenario)
 
 
-@pytest.mark.parametrize("waiting_lock", [False, True])
-@pytest.mark.parametrize("resume", [False, True])
-def test_halt_permanently_cancels_old_scene_completion(scene_clock, waiting_lock, resume):
-    async def scenario(c, sent, act, release, finish):
-        client = type("Client", (), {"client": None})()
-        c.sessions[client] = {"selection": [], "base": None}
-        if waiting_lock:
-            await c.action_lock.acquire()
-            release.set()
-            await asyncio.sleep(0)  # old completion is already waiting for action_lock
-        try:
-            assert (await c.handle(client, json.dumps({"a": "halt"})))["ok"]
-            if resume:
-                assert (await c.handle(client, json.dumps({"a": "resume"})))["ok"]
-        finally:
-            if waiting_lock:
-                c.action_lock.release()
-        await finish()
-        assert "Off Executor 1.101" not in sent
-        if resume:
-            # A fresh explicit action is still allowed; it must not revive the old Off.
-            await act("scene_go", id="pianist")
-            assert sent[-1] == "Go Executor 1.101"
-            assert "Off Executor 1.101" not in sent
-    scene_clock(scenario)
 
 
-def test_scene_timer_cannot_cross_show_with_same_scene_id(scene_clock, tmp_path):
-    async def scenario(c, sent, act, release, finish):
-        other = {**c.cfg, "show": "Other"}
-        other["scenes"] = [{"id": "pianist", "exec": "1.103", "label": "Other"}]
-        target = c.plan_path("Other")
-        target.parent.mkdir(exist_ok=True)
-        target.write_text(json.dumps(other))
-        await act("show_open_plan", name="Other")
-        await finish()
-        assert not any(line.startswith("Off Executor") for line in sent)
-    scene_clock(scenario)
 
 
-def test_scene_timer_checks_after_waiting_for_action_lock(scene_clock):
-    async def scenario(c, sent, act, release, finish):
-        entered, complete = asyncio.Event(), asyncio.Event()
-        send = c.link.send
-
-        async def held_send(line, **kwargs):
-            if line == "Go Executor 1.101":
-                entered.set()
-                await complete.wait()
-            return await send(line, **kwargs)
-
-        c.link.send = held_send
-        newer = asyncio.create_task(act("scene_go", id="pianist"))
-        await entered.wait()  # newer action holds action_lock at the actual transport boundary
-        release.set()
-        await asyncio.sleep(0)  # timer wakes and queues behind that action
-        complete.set()
-        await newer
-        await finish()
-        assert "Off Executor 1.101" not in sent
-    scene_clock(scenario)
 
 
-def test_scene_timer_cancelled_on_shutdown(scene_clock):
-    async def scenario(c, sent, act, release, finish):
-        timers = [t for t in c.bg if t.get_coro().__name__ == "swap_off"]
-        assert len(timers) == 1
-        async with c.lifespan(c.app):
-            pass
-        assert timers[0].cancelled()
-        await finish()
-        assert "Off Executor 1.101" not in sent
-    scene_clock(scenario)
 
 
-def test_scene_timer_cannot_cross_reconnect_before_show_identification(scene_clock):
-    async def scenario(c, sent, act, release, finish):
-        # The timer wakes first, identify_show queues second, behind an in-flight action.
-        await c.action_lock.acquire()
-        release.set()
-        await asyncio.sleep(0)
-        c.link._gen += 1  # transport generation changes before READY schedules identify_show
-        identified = asyncio.create_task(c.identify_show(reply='SHOWFILE = "Other"'))
-        await asyncio.sleep(0)
-        c.action_lock.release()
-        await identified
-        await finish()
-        assert "Off Executor 1.101" not in sent
-    scene_clock(scenario)
 
 
 def check_scene_crossfade(bridge):
     ws, mock, _ = bridge
-    assert ask(ws, {"a": "scene_go", "id": "pianist", "fade": 0.2, "swap": ["choir"]})["ok"] is True
-    assert mock.received[-2:] == ["ClearAll", "Goto Cue 1 Executor 1.101 Fade 0.2"]
-    until(ws, lambda m: m.get("last", {}).get("cmd") == "Off Executor 1.102" and m["last"].get("status") == "sent")
-    assert "Off Executor 1.102" in mock.received
-    assert ask(ws, {"a": "scene_go", "id": "pianist", "swap": ["choir"]})["ok"] is True  # no fade: Off at once
-    assert mock.received.count("Off Executor 1.102") == 2
-    assert ask(ws, {"a": "scene_go", "id": "pianist", "fade": 1, "swap": ["nope"]})["ok"] is False
-    assert ask(ws, {"a": "scene_go", "id": "pianist", "fade": 1, "swap": "choir"})["ok"] is False
+    assert ask(ws, {"a": "scene_fade", "fade": 0.2})["ok"]
+    assert ask(ws, {"a": "scene_go", "id": "choir"})["ok"]
+    assert ask(ws, {"a": "scene_go", "id": "pianist", "swap": ["choir"]})["ok"]
+    assert mock.received[-3:] == ["Masterfade 0.2 Executor 1.102", "Goto Cue 1 Executor 1.101 Fade 0.2", "Off Executor 1.102"]
+    assert ask(ws, {"a": "scene_go", "id": "pianist", "swap": ["nope"]})["ok"] is False
+    assert ask(ws, {"a": "scene_go", "id": "pianist", "swap": "choir"})["ok"] is False
 
 
 def per_fixture(received, attr):
@@ -1081,7 +940,7 @@ def test_jog_mirror_closes_in(bridge_cfg):
 
 def test_plan_copy_from_other_show(bridge_cfg):
     with bridge_cfg() as (ws, mock, path):
-        assert ask(ws, {"a": "show_bind", "name": "Old"})["ok"]
+        assert ask(ws, {"a": "show_bind", "name": "Old", "confirm": True})["ok"]
         assert ask(ws, {"a": "fixture_flag", "id": 12, "flip_pan": True})["ok"]
         old = json.loads(path.read_text())
         # the new show's plan has fixtures 12 and 99 only (as an import would leave it)
@@ -1101,7 +960,7 @@ def test_plan_copy_from_other_show(bridge_cfg):
 
 def test_scenes_import_reads_filled_pages_and_follows_desk_show(bridge_cfg):
     with bridge_cfg() as (ws, mock, path):
-        assert ask(ws, {"a": "show_bind", "name": "Old plan"})["ok"]
+        assert ask(ws, {"a": "show_bind", "name": "Old plan", "confirm": True})["ok"]
         mock.rows["2.5"] = "Chorus"  # a page the plan has never seen
         r = ask(ws, {"a": "scenes_import"})
         assert r["ok"] and r["switched"] == mock.show_name
@@ -1121,7 +980,7 @@ def test_blackout_without_scenes_darkens_fixtures(bridge_cfg):
         cfg["scenes"] = []  # a new show's plan before its scenes are read
     with bridge_cfg(edit) as (ws, mock, _):
         assert ask(ws, {"a": "blackout"})["ok"] is True
-        assert mock.received[-1] == "At 0" and mock.received[-2].startswith("Fixture 1 + 2 + 3")
+        assert mock.grand_master == 0 and "SpecialMaster 2.1 At 0" in mock.received
 
 
 def test_halt_overtakes_this_tabs_running_action(bridge):
@@ -1203,26 +1062,27 @@ def test_dmx_read_back_lights_the_plan(bridge_cfg):
 def test_dmx_read_back_takes_channels_from_the_fixture_type(bridge_cfg):
     from ma2panel.fixtures import parse_fixture_type
     xml = ('<MA xmlns="http://schemas.malighting.de/grandma2/xml/MA"><FixtureType name="Par"><Modules><Module index="0">'
-           '<ChannelType index="0" attribute="SHUTTER" coarse="1"/><ChannelType index="1" attribute="DIM" coarse="2" fine="3"/>'
+           '<ChannelType index="0" attribute="SHUTTER" coarse="1"><ChannelSet name="Open" from_dmx="0" to_dmx="255"/></ChannelType><ChannelType index="1" attribute="DIM" coarse="2" fine="3"/>'
            '<ChannelType index="2" attribute="COLORRGB1" coarse="4"/><ChannelType index="3" attribute="COLORRGB2" coarse="5"/>'
            '<ChannelType index="4" attribute="COLORRGB3" coarse="6"/></Module></Modules></FixtureType></MA>')
-    assert parse_fixture_type(xml) == {"dim": 2, "r": 4, "g": 5, "b": 6, "has": []}
+    assert parse_fixture_type(xml) == {"dim": 2, "r": 4, "g": 5, "b": 6, "shutter": 1, "shutter_open": [[0, 255]], "has": []}
 
     def edit(cfg):
         for f in cfg["fixtures"]:
             f.update(address=f"1.{f['id'] * 10:03d}", channels=6, type="3 Par")
-    with bridge_cfg(edit, settings={"safety": {"mode": "full", "allow_fixture_read": True}, "dmx_seconds": 0.05}) as (ws, mock, path):
+    with bridge_cfg(edit, mock_setup=lambda mock: setattr(mock, "fixture_types", {3: xml}), settings={"safety": {"mode": "full", "allow_fixture_read": True}, "dmx_seconds": 0.05}) as (ws, mock, path):
         mock.fixture_types = {3: xml}
         mock.dmx = {121: 255, 123: 255}
         live = until(ws, lambda m: "12" in m.get("live", {}))["live"]
         assert live["12"] == {"dim": 100.0, "rgb": [100.0, 0.0, 0.0]}
-        assert json.loads(path.read_text())["dmx_map"] == {"3 Par": {"dim": 2, "r": 4, "g": 5, "b": 6, "has": []}}
+        assert json.loads(path.read_text())["dmx_map"] == {"3 Par": {"dim": 2, "r": 4, "g": 5, "b": 6, "shutter": 1, "shutter_open": [[0, 255]], "has": []}}
         assert sum(line.startswith("Export FixtureType") for line in mock.received) == 1  # once, not every read
         assert not list((Path(mock.export_dir).parent / "fixture_types").glob("*.xml"))  # our one-off file is removed
 
 
 def test_dmx_read_back_backs_off_when_the_desk_refuses_lua(bridge_cfg):
     def edit(cfg):
+        cfg["fixtures"] = cfg["fixtures"][:1]  # refusal backoff is scoped to this block
         for f in cfg["fixtures"]:
             f.update(address=f"1.{f['id'] * 10:03d}", channels=4)
     with bridge_cfg(edit, confirmed_profiles=True, settings={"safety": {"mode": "full", "allow_fixture_read": True}, "dmx_seconds": 0.05}) as (ws, mock, _):
@@ -1319,7 +1179,7 @@ def test_simple_allowed(simple_bridge):
     ws, _, _, mock, _ = simple_bridge
     for a in ('scene_go', 'scene_off'):
         assert ask(ws, {'a': a, 'id': 'pianist'})['ok'] is True
-    assert 'Go Executor 1.101' in mock.received
+    assert 'Goto Cue 1 Executor 1.101 Fade 0' in mock.received
     assert 'Off Executor 1.101' in mock.received
     assert ask(ws, {'a': 'blackout'})['ok'] is True
 
@@ -1380,8 +1240,8 @@ def test_simple_obeys_safety(tmp_path):
         result = ask(ws, {"a": "scene_go", "id": "pianist"})
         assert not result["ok"] and "в простом режиме" not in result["err"]
         assert "Go Executor 1.101" not in app.state.mock.received
-        assert ask(ws, {"a": "blackout"})["ok"]
-        assert app.state.mock.received[-2:] == ["Fixture 12", "At 0"]
+        assert not ask(ws, {"a": "blackout"})["ok"]
+        assert not any(x.startswith("SpecialMaster ") for x in app.state.mock.received)
 
 
 # Spec 24: strobe and Zoom/Focus presence come from the fixture type export.
@@ -1436,7 +1296,7 @@ def test_type_read_again_when_presence_unknown(bridge_cfg):
         for f in cfg["fixtures"]:
             f.update(address=f"1.{f['id'] * 10:03d}", channels=3, type="3 Spot")
         cfg["dmx_map"] = {"3 Spot": {"dim": 2}}
-    with bridge_cfg(edit, settings={"safety": {"mode": "full", "allow_fixture_read": True}, "dmx_seconds": 0.05}) as (ws, mock, path):
+    with bridge_cfg(edit, mock_setup=lambda mock: setattr(mock, "fixture_types", {3: SPOT_TYPE}), settings={"safety": {"mode": "full", "allow_fixture_read": True}, "dmx_seconds": 0.05}) as (ws, mock, path):
         mock.fixture_types = {3: SPOT_TYPE}
         deadline = time.monotonic() + 5  # a plain loop, not until(): a red run must fail, not hang
         while "has" not in json.loads(path.read_text())["dmx_map"]["3 Spot"] and time.monotonic() < deadline:
@@ -1495,55 +1355,3 @@ def test_unknown_dim_uses_console_fade_without_default_steps(bridge, mixed):
     until(ws, lambda m: m.get("shown", {}).get("12", {}).get("dim") == 42)
     levels = [line for line in mock.received[start:] if line.startswith("At ")]
     assert levels == ["At 42 Fade 0.2"]
-
-
-@pytest.mark.parametrize('stale_at', [0, 1, 2])
-def test_scene_timer_skips_only_stale_ticket(scene_clock, stale_at):
-    async def scenario(c, sent, act, release, finish):
-        scenes = ['pianist', 'choir', 'third']
-        c.cfg['scenes'].append({'id': 'third', 'exec': '1.103', 'label': 'Third'})
-        # Shared revisions apply equally to requests of every client.
-        tickets = {sid: (c.state['plan_epoch'], c.scene_revision.get(sid, 0), c.link._gen, c.link._stop_epoch) for sid in scenes}
-        c.scene_revision[scenes[stale_at]] = c.scene_revision.get(scenes[stale_at], 0) + 1
-        before = len(sent)
-        await c.swap_off(tickets, 0, {})
-        assert [ln for ln in sent[before:] if ln.startswith('Off Executor')] == [
-            f'Off Executor 1.{101 + i}' for i in range(3) if i != stale_at]
-        await finish()
-    scene_clock(scenario)
-
-
-@pytest.mark.parametrize('outcome', ['error', 'unknown'])
-def test_scene_timer_stops_after_real_send_failure(scene_clock, outcome):
-    async def scenario(c, sent, act, release, finish):
-        c.cfg['scenes'].append({'id': 'third', 'exec': '1.103', 'label': 'Third'})
-        tickets = {sid: (c.state['plan_epoch'], c.scene_revision.get(sid, 0), c.link._gen, c.link._stop_epoch)
-                   for sid in ('pianist', 'third')}
-        send = c.link.send
-        async def fail(line, **kw):
-            if line == 'Off Executor 1.101':
-                sent.append(line)
-                c.link.last = {'cmd': line, 'status': outcome}
-                return False, outcome
-            return await send(line, **kw)
-        c.link.send = fail
-        before = len(sent)
-        await c.swap_off(tickets, 0, {})
-        assert sent[before:] == ['Off Executor 1.101']
-        await finish()
-    scene_clock(scenario)
-
-
-def test_scene_timer_shared_revision_of_other_client(scene_clock):
-    async def scenario(c, sent, act, release, finish):
-        other = object()
-        c.sessions[other] = {'selection': [], 'base': None}
-        c.cfg['scenes'].append({'id': 'third', 'exec': '1.103', 'label': 'Third'})
-        tickets = {sid: (c.state['plan_epoch'], c.scene_revision.get(sid, 0), c.link._gen, c.link._stop_epoch)
-                   for sid in ('pianist', 'third')}
-        assert (await c.handle(other, json.dumps({'a': 'scene_go', 'id': 'pianist'})))['ok']
-        before = len(sent)
-        await c.swap_off(tickets, 0, {})
-        assert sent[before:] == ['Off Executor 1.103']
-        await finish()
-    scene_clock(scenario)

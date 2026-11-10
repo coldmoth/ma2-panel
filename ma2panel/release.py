@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
-DOCS = ('SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'RELEASE-3.2.md', 'ONPC-HALL-TEST-3.2.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md')
+DOCS = ('SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'RELEASE-3.2.md', 'RELEASE-3.3.md', 'ONPC-HALL-TEST-3.2.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'hardware-acceptance.md', 'ma2-command-evidence.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md')
 MAX_FILE = 16 * 1024 * 1024
 MAX_TOTAL = 64 * 1024 * 1024
 
@@ -158,7 +158,10 @@ def identity(root):
 
 
 def runtime(root):
-    return {'python': '3.12', 'lock_sha256': hashlib.sha256((Path(root) / 'uv.lock').read_bytes()).hexdigest()}
+    # Published Windows runtimes used Git's CRLF checkout. Preserve that identity
+    # on every host without making the dependency content host-dependent.
+    lock = (Path(root) / 'uv.lock').read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+    return {'python': '3.12', 'lock_sha256': hashlib.sha256(lock).hexdigest()}
 
 
 def _json(value):

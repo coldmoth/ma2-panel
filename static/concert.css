@@ -1,0 +1,101 @@
+/* Concert workspace; colours and typography inherit the panel design tokens. */
+.panel .shared-fade { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 16px; }
+.shared-fade label { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.shared-fade input { width: 80px; min-height: 44px; }
+.shared-fade .src { margin-left: auto; max-width: 290px; }
+.panel .concert-workspace { grid-template-columns: minmax(220px,.75fr) minmax(0,2.6fr); gap: 16px; }
+.panel .concert-side { display: grid; min-width: 0; grid-row: auto; }
+.panel .concert-light { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(280px,1fr); align-items: start; height: auto; gap: 12px; }
+.concert-light > .light-heading, .concert-light > .target-bar { grid-column: 1 / -1; }
+.concert-light .light-heading { min-width: 0; }
+.concert-light .light-heading h1, .concert-light .light-heading h2 { margin: 0; }
+.concert-light .light-heading .light-master { width: auto; max-width: 60%; }
+.concert-light > .live-plan { min-width: 0; display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; }
+.live-plan > .plan-viewport { height: clamp(340px,54dvh,640px); flex: none; border: 1px solid var(--s3); border-radius: var(--r); }
+.live-plan .plan-toolbar { flex-wrap: wrap; }
+#fixture-picker .live-plan { width: 100%; min-height: 0; }
+#fixture-picker .live-plan > .plan-viewport { height: 40dvh; }
+.live-plan > .note { margin: 0; font-size: 12px; }
+.panel .concert-light > .ctl { min-width: 0; overflow: visible; container-type: normal; }
+.panel .concert-light .ctl-grid { width: 100%; max-width: none; }
+.panel .concert-light .primary-colors { grid-template-columns: repeat(3,minmax(44px,1fr)); }
+.panel .concert-light .light-options { padding: 0; }
+.panel .concert-light .light-options .selbar { padding: 8px 0; }
+.panel .concert-light .light-options .btn { width: 100%; }
+.panel .concert-light .empty-sec { padding: 20px 12px; }
+.panel .scene-list { grid-template-columns: minmax(0,1fr); gap: 8px; background: transparent; border: 0; overflow: visible; }
+.panel .scene-list .tile-wrap { flex-wrap: wrap; border: 1px solid var(--s3); border-radius: var(--r); overflow: hidden; background: var(--s1); }
+.panel .scene-list .tile { min-height: 92px; padding: 14px 12px; }
+.panel .scene-list .tile-controls { width: 100%; flex-direction: row; padding: 0 8px 8px; gap: 8px; }
+.panel .scene-list .tile-controls:has(> button[hidden]:only-child) { display: none; }
+.panel .scene-list .tile-controls button { flex: 1; min-height: 44px; }
+.panel .scene-list .tile.run { box-shadow: inset 4px 0 var(--live); }
+.panel .concert-list { position: sticky; top: 0; }
+.panel .concert-list > input { min-height: 44px; }
+.panel .concert-list .scene-list { max-height: max(240px,calc(100dvh - 380px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.panel .concert-light button, .panel .shared-fade button { min-height: 44px; }
+.panel .concert-light input[type=range] { min-height: 44px; }
+.panel .concert-light .picker { flex-wrap: wrap; }
+.panel .concert-light .picker-side { min-width: 0; flex-basis: 160px; }
+.panel .concert-light .wheel { max-width: 100%; }
+.panel .concert-light .target-bar { padding: 10px 12px; }
+.panel .concert-light .target-names { overflow-wrap: anywhere; }
+.panel .concert-light details > summary { min-height: 44px; }
+.panel .concert-side .light-heading h2 { font-size: 18px; }
+.panel .scene-state { font-size: 13px; line-height: 1.4; }
+.panel .ph { flex-wrap: wrap; }
+.panel .ph h1 { margin-right: auto; }
+.panel .compact-master { display: none; }
+.panel :focus-visible { outline: 2px solid var(--sel); outline-offset: 3px; }
+.panel .preparation-links a { display: flex; align-items: center; }
+.panel .sync-summary { margin: 0; }
+.panel .sync-summary dt { color: var(--ink-2); }
+.panel .sync-summary dd { margin: 0 0 8px; }
+@media (max-width: 1250px) {
+  .panel .concert-workspace { grid-template-columns: minmax(220px,.8fr) minmax(0,2fr); }
+  .panel .concert-side .concert-light { grid-template-columns: minmax(0,1fr); }
+  .concert-side .concert-light > .live-plan { position: static; }
+  .concert-side .live-plan > .plan-viewport { height: 360px; }
+  .panel .concert-side .concert-light .primary-colors { grid-template-columns: repeat(6,minmax(44px,1fr)); }
+}
+@media (max-width: 1000px) {
+  .panel .concert-light { grid-template-columns: minmax(0,1fr); }
+  .concert-light > .live-plan { position: static; }
+  .live-plan > .plan-viewport { height: 380px; }
+}
+@media (max-width: 860px) {
+  .panel .concert-workspace { grid-template-columns: minmax(0,1fr); }
+  .panel .scene-list { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .panel .concert-list > input { margin-bottom: 10px; }
+  .panel .concert-list { position: static; }
+  .panel .concert-list .scene-list { max-height: 220px; }
+  .panel .concert-light .primary-colors { grid-template-columns: repeat(6,minmax(44px,1fr)); }
+  .panel .shared-fade .src { margin: 0; max-width: none; flex-basis: 100%; }
+}
+@media (max-width: 540px) {
+  .panel .scene-list { grid-template-columns: minmax(0,1fr); }
+  .panel .concert-light .primary-colors { grid-template-columns: repeat(3,minmax(44px,1fr)); }
+  .concert-side .live-plan > .plan-viewport, .live-plan > .plan-viewport { height: 300px; }
+}
+
+/* Public selection overview retained in the concert workspace. */
+.selection-home { padding:16px 0; }
+.home-heading { display:flex;align-items:center;gap:12px; }
+.home-heading>.icon,.home-heading>span { color:var(--sel); }
+.home-heading h1 { font-size:24px;font-weight:500;letter-spacing:-.02em; }
+.selection-home>.note { margin-top:10px;max-width:30ch; }
+.selection-home h2 { font-size:14px;font-weight:600;margin:30px 0 12px; }
+.home-groups { display:grid;gap:8px; }
+.home-group { justify-content:flex-start;min-height:72px;background:var(--s1);padding:12px 16px;gap:12px;text-align:left; }
+.home-group .grow { display:grid;gap:4px;flex:1; }
+.home-group b { font-size:14px;font-weight:600; }
+.home-group .note { font-size:12px; }
+.home-group>span:first-child { color:var(--sel); }
+.home-section-title { display:flex;align-items:center;justify-content:space-between;margin-top:24px; }
+.home-section-title h2 { margin:0; }
+.home-live { display:flex;align-items:center;gap:10px;padding:14px 0; }
+.home-live b { font-weight:500;font-size:14px; }
+.home-live .note { margin-left:auto;font-size:12px;color:var(--live); }
+.home-scenes>.src { margin-top:8px; }
+.home-shortcuts { display:grid;gap:8px;border-top:1px solid var(--line);padding-top:16px;margin-top:24px; }
+.home-shortcuts .btn { justify-content:flex-start;padding-left:0;font-size:13px;font-weight:500;color:var(--ink-2); }

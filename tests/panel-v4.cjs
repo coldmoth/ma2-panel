@@ -67,7 +67,7 @@ for (const path of ['static/command-feedback.js', 'static/app.js', 'static/light
 vm.runInContext('connect()', context);
 const ws = () => context.state.ws;
 // Semantic assertions omit transport fields; protocol-panel.cjs checks their exact lifecycle.
-const semanticAction = ({request_id,config_revision,...action}) => action;
+const semanticAction = ({request_id,config_revision,blackout_epoch,...action}) => action;
 const sent = () => ws().sent.map(semanticAction);
 const reply = message => {
   const action = ws().sent.slice().reverse().find(action => action.a === message.a && context.pending[action.request_id]);
@@ -129,7 +129,7 @@ console.log('shows: explicit load, confirmation, save passed');
 // Highlight lifecycle in Зал.
 context.receive({config: {show: 'Mock show', hall: {w: 18, d: 14, stage: 'top', stageDepth: 4}, groups: [], scenes: [], presets: [], pages: {}, plan: {},
   attrs: {pan: {min: -270, max: 270}, tilt: {min: -135, max: 135}},
-  fixtures: [{id: 12, label: 'Head', x: .1, y: .2, moves: true}, {id: 14, label: 'Other'}, {id: 90, label: 'Work', service: true}]}});
+  fixtures: [{id: 12, label: 'Head', params:['Dimmer','ColorRGB_Red','ColorRGB_Green','ColorRGB_Blue'], x: .1, y: .2, moves: true}, {id: 14, label: 'Other',params:['Dimmer','ColorRGB_Red','ColorRGB_Green','ColorRGB_Blue']}, {id: 90, label: 'Work', service: true}]}});
 status({highlight: {state: 'idle', available: [12, 14]}});
 context.go('hall');
 assert.equal(sent().at(-1).a, 'edit_begin');
@@ -179,12 +179,12 @@ assert.match(page.textContent, /У выбранных разные цвета/);
 assert.doesNotMatch(page.textContent, /NaN/);
 console.log('colour card passed');
 
-// Blackout needs a second press; a show switch drops selection and values.
+// Blackout is one reversible press; the server supplies the shared state.
 const count = sent().filter(a => a.a === 'blackout').length;
 document.getElementById('blackout').click();
-assert.equal(sent().filter(a => a.a === 'blackout').length, count);
-document.getElementById('blackout').click();
 assert.equal(sent().filter(a => a.a === 'blackout').length, count + 1);
+context.receive({status: Object.assign({}, {ma2:'logged_in',safety:{mode:'full'}}, {blackout:{phase:'active',previous:37.5}})});
+assert.ok(document.getElementById('blackout').textContent.includes('Восстановить свет'));
 context.receive({shown: {12: {dim: 50, rgb: [100, 0, 0]}}});
 context.receive({config: {show: 'Demo', fixtures: [], groups: [], scenes: [], presets: [], pages: {}, plan: {}, attrs: {}}});
 assert.equal(context.state.selection.length, 0);
@@ -197,15 +197,36 @@ context.receive({config: {show: 'Demo', fixtures: [], groups: [], scenes: [{id:'
 context.receive({master:99}); context.go('scenes');
 assert.match(page.textContent, /99%/);
 findBtn('2 с').click();
+context.receive({config:{...context.state.config,scene_fade:2}});
+reply({ok:true,a:'scene_fade'});
 assert.match(page.textContent, /99%/);
 context.go('shows'); context.go('scenes'); assert.match(page.textContent, /99%/);
 context.notice('Сохранено', 'success');
 assert.equal(document.getElementById('notice').classList.contains('success'), true);
-const resultButton = findBtn('+ Добавить'); const resultLabel = resultButton.textContent;
+findBtn('Изменить сцены').click();
+const resultButton = findBtn('Сохранить сцену'); const resultLabel = resultButton.textContent;
 context.feedback(resultButton, false, 'Пульт не ответил');
 assert.equal(resultButton.textContent, resultLabel);
 assert.match(document.getElementById('errors').textContent, /Пульт не ответил/);
 console.log('master persistence and durable feedback passed');
+
+// Concert browsing and editing are separate; search never sends or renumbers scenes.
+context.sceneUI.editing = false; context.sectionKey = null; context.go('scenes');
+assert.ok(findBtn('Сохранить сцену'), 'quick store is available during concert');
+const sceneSearch = page.all().find(n => n.id === 'scene-search');
+assert.ok(sceneSearch, 'concert scene search');
+const concertBeforeSearch = sent().length;
+sceneSearch.value = 'нет такой сцены'; sceneSearch.fire('input');
+assert.ok(page.all().filter(n => n.classList.contains('tile-wrap')).every(n => n.hidden));
+assert.equal(sent().length, concertBeforeSearch, 'search does not send commands');
+sceneSearch.value = 'Финал'; sceneSearch.fire('input');
+assert.equal(page.all().filter(n => n.classList.contains('tile-wrap') && !n.hidden).length, 1);
+findBtn('Изменить сцены').click(); assert.ok(findBtn('Сохранить сцену'));
+findBtn('К исполнению').click(); assert.ok(findBtn('Сохранить сцену'));
+context.go('prepare');
+for (const label of ['Подключение и синхронизация', 'План зала и группы', 'Приборы и Patch', 'Шоу', 'Редактировать сцены', 'История']) assert.ok(findBtn(label), label);
+context.go('help'); assert.match(page.textContent, /Диагностика/);
+console.log('concert search, editing separation and preserved tools passed');
 
 // Touch movement has an explicit fine-step cross and discoverable preset management.
 context.receive({config:{show:'Demo', fixtures:[{id:12,label:'Голова',moves:true}], groups:[], scenes:[],
@@ -213,7 +234,7 @@ context.receive({config:{show:'Demo', fixtures:[{id:12,label:'Голова',move
 context.state.selection=[12]; context.go('light');
 assert.ok(findBtn('Движение'));
 findBtn('Движение').click();
-assert.equal(page.all().some(n=>n.tagName==='INPUT' && n.type==='number'), false);
+assert.equal(page.all().some(n=>n.tagName==='INPUT' && n.type==='number' && n.getAttribute('aria-label') !== 'Время перехода, секунды'), false);
 const panRight = page.all().find(n=>n.tagName==='BUTTON' && n.getAttribute('aria-label')==='Pan +1°');
 assert.ok(panRight); panRight.click(); assert.equal(sent().at(-1).step,1);
 const mirrorButton = findBtn('Зеркально'); assert.equal(mirrorButton.tagName,'BUTTON');
@@ -330,11 +351,9 @@ status({ma2:'down'});assert.equal(findBtn('Pan наоборот').disabled,true)
 assert.match(context.moveState.els.flipHint.textContent,/Нет связи/);
 status();context.state.selection=[];context.renderMove(context.moveState.root);
 assert.match(context.moveState.els.flipHint.textContent,/Выберите голову/);
-status();context.state.selection=[12];context.lightUI.controlTab='movement';context.go('light');
+status();context.state.selection=[12];context.lightUI.controlTab='movement';context.sectionKey=null;context.render();
 assert.equal(findBtn('Pan наоборот').disabled,false,'selection and connection recovery restore inversion');
 console.log('FIELD-02 inversion availability, mixed flags and repeated gesture passed');
-
-
 
 // Unconfirmed writes must be visible and blocked in the teacher UI too.
 simpleSocket.onmessage({data:JSON.stringify(simpleReply({ok:true,a:'scene_go'}))});
@@ -531,6 +550,7 @@ require('./rdm-search-ui.cjs');
 require('./durable-feedback.cjs');
 require('./plan-keyboard.cjs');
 require('./plan-scroll.cjs');
+require('./plan-view.cjs');
 require('./show-file-busy.cjs');
 
 require('./plan-beams.cjs');
@@ -540,10 +560,9 @@ require('./command-feedback.cjs');
 require('./topbar-stability.cjs');
 
 require('./selection-stability.cjs');
-require('./original-panel.cjs');
-
-require('./stage-atlas.cjs');
-
-require('./plan-view.cjs');
-
 require('./live-output.cjs');
+require('./field03-blackout.cjs');
+
+require('./stage3-ui.cjs');
+
+require('./stage4-integration.cjs');

@@ -165,7 +165,15 @@ def local_archive(path, directory):
     return archive
 
 
-USER_DATA = ('config.json', 'settings.json', 'secret.env', 'highlight.json', 'rdm-search.json', 'update_url.txt', 'shows', 'diagnostic-upload.json', 'diag', 'field-data')
+USER_DATA = ('config.json', 'settings.json', 'secret.env', 'highlight.json', 'blackout.json', 'rdm-search.json', 'update_url.txt', 'shows', 'diagnostic-upload.json', 'diag', 'field-data')
+
+
+def user_data_names(root):
+    """Literal user files plus recovery journals of individual executors."""
+    journals = sorted(path.name for path in root.glob('scene-write-*.json')
+                      if re.fullmatch(r'scene-write-[0-9]+\.[0-9]+\.json', path.name)
+                      and path.is_file() and not path.is_symlink())
+    return (*USER_DATA, *journals)
 
 
 def backup_user_data(root):
@@ -184,7 +192,7 @@ def backup_user_data(root):
                        capture_output=True, check=True)
     else:
         os.chmod(folder, 0o700)
-    for name in USER_DATA:
+    for name in user_data_names(root):
         source = root / name
         if source.is_dir() and not source.is_symlink():
             shutil.copytree(source, folder / name)

@@ -24,10 +24,10 @@ def run(output: Path, node: str, script: Path = ROOT / "scripts/browser_smoke.cj
         shutil.copytree(ROOT / "static", app / "static")
         shutil.copytree(ROOT / "ma2panel", app / "ma2panel", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         config = json.loads((ROOT / "ma2panel/resources/config.example.json").read_text(encoding="utf-8"))
-        config.update(hall={"w": 18, "d": 14, "stage": "top", "stageDepth": 4}, fixtures=[{"id": 1, "label": "Тестовая голова", "type": "Mock head", "moves": True,
+        config.update(show="Mock show", hall={"w": 18, "d": 14, "stage": "top", "stageDepth": 4}, fixtures=[{"id": 1, "label": "Тестовая голова", "type": "Mock head", "moves": True,
                                  "params": ["Dimmer", "Pan", "Tilt", "Zoom", "Focus"], "x": .5, "y": .5}],
                       groups=[{"id": "smoke-head", "label": "Тестовая группа", "fixtures": [1]}],
-                      scenes=[{"id": "smoke-scene", "exec": "1.1", "label": "Тестовая сцена"}])
+                      scenes=[{"id": "smoke-scene", "exec": "1.101", "label": "Тестовая сцена"}])
         settings = json.loads((ROOT / "ma2panel/resources/settings.example.json").read_text(encoding="utf-8"))
         settings["ma2"]["export_dir"] = str(app / "exports")
         (app / "exports").mkdir()
