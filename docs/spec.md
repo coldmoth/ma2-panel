@@ -860,3 +860,8 @@ Journal scene-write в committing/completed либо нераспознанно�
 Go независимо от Undo конфига; preparing в том же шоу/target не менял старую сцену.
 Windows venv запускает фактический Python без дополнительного redirector-процесса,
 с сохранением venv; health продолжает проверять PID, версию и ID операции.
+
+Windows orphan handoff запускает стабильный worker через argv-list Popen
+и закрывает старый процесс после успешного spawn: пути с пробелами/кириллицей
+не разбиваются CRT execv. Worker ждёт former_pid и выполняет прежний recover
+со строгим подтверждением новой версии/ID операции/PID на обоих портах.

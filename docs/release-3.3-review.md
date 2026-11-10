@@ -28,3 +28,12 @@ Windows venv запускает настоящий Python с сохранени�
 
 Рецензент не проводил аппаратную приёмку. Native Windows и итоговый commit
 подтверждаются последующим CI; ограничения физического света остаются явными.
+
+## Короткое продолжение той же review-сессии
+
+Тот же разрешённый рецензент (session 01a1c796-b552-7842-8890-7f8a42487b27)
+проверил только исправления 59a55ab..6e8d751 и Windows watch_orphan patch:
+**no findings, P2 закрыт**. Подтверждены проверка после drain до write,
+конкурирующие identities, journal guard и Windows launch/handoff. Второго
+помощника нет; модель/reasoning не менялись. Лог /tmp/ma2-v330-review-followup.log.
+Фактический Windows source-worker всё ещё требует повторного CI.

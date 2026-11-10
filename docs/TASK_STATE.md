@@ -1,6 +1,6 @@
 # TASK_STATE — 2026-11-11 (МСК), выпуск 3.3.0
 - Worktree /Users/nevereply/.codex/worktrees/stage4-review-fixes/release-repo.
-- Ветка codex/stage4-review-fixes; HEAD 59a55ab, готовится commit исправлений review/CI; main ещё d95220f.
+- Ветка codex/stage4-review-fixes; HEAD 6e8d751, готовится Windows orphan handoff fix; main ещё d95220f.
 - Исходные 95 staged-файлов интегрированы в 59a55ab, branch опубликована.
 - Основной checkout и прежние worktree/данные сохранены.
 - Цель владельца: исправить A/B/C, аудит, проверить миграцию, выпустить v3.3.0.
@@ -27,7 +27,7 @@
 - Clodex не использован; подписочный счётчик квоты недоступен.
 - Реальная MA2/физический свет не подключались; старая 3.9.63.11 приёмка историческая.
 - Зал: hardware-acceptance.md и hall-test-plan.md §12–13; явные ограничения в notes.
-- Аудит docs/release-3.3-audit.md; план docs/release-3.3-plan.md.
-- CI 42915426010: show-load error wording + Windows redirector PID; оба исправлены.
+- Аудит release-3.3-audit.md; review+follow-up release-3.3-review.md: no findings/P2 закрыт.
+- CI2 42918908521: delivery/runtime/BAT/actual v3.2.5 update/rollback PASS; orphan execv исправлен.
 - Следующий шаг: повторный branch Windows CI; затем main/tag/Release/assets.
-- Публикация не выполнена; Windows delivery native gate ещё не пройден.
+- Публикация не выполнена; остался Windows source-worker gate, запускается CI3.

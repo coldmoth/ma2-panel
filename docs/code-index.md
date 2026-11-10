@@ -219,16 +219,16 @@
   - 435 `_run`
 - 476 `recover_pending`
 - 496 `watch_orphan`
-- 519 `orphan_worker`
-- 549 `register`
-  - 555 `local`
-  - 566 `denied`
-  - 570 `update_health`
-  - 574 `update_status`
-  - 580 `check_update`
-  - 592 `updater_idle`
-  - 598 `quiesce`
-  - 607 `start_update`
+- 527 `orphan_worker`
+- 557 `register`
+  - 563 `local`
+  - 574 `denied`
+  - 578 `update_health`
+  - 582 `update_status`
+  - 588 `check_update`
+  - 600 `updater_idle`
+  - 606 `quiesce`
+  - 615 `start_update`
 
 ## ma2panel/commands.py
 - 22 `ActionError`

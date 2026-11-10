@@ -77,3 +77,15 @@ needs tests. Причины исправлены; native acceptance повтор
 Финальный локальный набор после исправлений review/CI: 1532 PASS, 1 SKIP,
 0 failures/errors, 117.950 с; /tmp/ma2-v330-candidate2-pytest.xml и .log.
 Независимый review завершён; разрешённый один помощник, без Clodex.
+
+## Windows gate кандидата 2
+
+CI 42918908521: pytest/Node/browser и весь Windows delivery job PASS, включая
+два побайтно одинаковых build, embedded runtime/BAT, actual published v3.2.5
+upgrade/rollback с сохранением данных и legacy USB route. Runtime PID исправлен.
+Source browser-worker успешно обновился, затем воспроизвёл Windows execv:
+путь `panel space зал` разрезан до `panel`, orphan worker не стартовал.
+Windows handoff заменён на detached Popen с argv-list и выходом старого процесса
+только после успешного spawn. POSIX exec и строгие health/journal checks сохранены.
+Адресные browser_update/update tests PASS, /tmp/ma2-v330-orphan-focused.log.
+Тот же рецензент подтвердил ограниченные исправления: no findings, P2 закрыт.

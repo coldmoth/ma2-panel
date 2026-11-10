@@ -507,10 +507,18 @@ async def watch_orphan(app, root):
             app.state.update_hold = None
             folder = Path(root) / '.updates' / ('browser-' + ident) / 'worker'
             try:
-                # Replace this uncommitted bridge with the stable worker. Exec closes its sockets;
-                # on Windows the worker additionally waits for this exact process to terminate.
-                os.execv(sys.executable, [sys.executable, str(folder / 'browser_update.py'),
-                                         '--orphan', str(folder / 'job.json'), str(os.getpid())])
+                args = [sys.executable, str(folder / 'browser_update.py'),
+                        '--orphan', str(folder / 'job.json'), str(os.getpid())]
+                if sys.platform == 'win32':
+                    # Popen quotes Windows paths. The CRT execv would split the
+                    # Unicode/spaced worker path; exit only after a successful spawn.
+                    with (Path(root) / '.updates/startup.log').open('ab') as log:
+                        subprocess.Popen(args, cwd=folder, stdin=subprocess.DEVNULL,
+                                         stdout=log, stderr=log,
+                                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
+                    os._exit(0)  # close both HTTP listeners; orphan waits for this exact PID
+                else:
+                    os.execv(sys.executable, args)
             except OSError as exc:
                 progress(root, ident, 'failed', error=f'Нужен ручной recovery на ПК: {exc}')
                 return

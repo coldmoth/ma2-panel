@@ -752,3 +752,7 @@ MA2-группы сохраняют ticket до отправки; crossfade сн
 и исправлены reuse при одинаковых именах и обход scene journal через config Undo.
 Первый CI 42915426010: один несовпавший текст корректного отказа при show load
 и Windows venv redirector PID; тип отказа теста уточнён, PID-контроль не ослаблен.
+
+2026-11-11, CI 42918908521: Windows delivery/migration/rollback PASS; следующий
+source-worker этап выявил execv со spaced/Unicode path. Исправлен Windows-only
+handoff Popen+exit-after-spawn; тот же рецензент: no findings, P2 закрыт.
