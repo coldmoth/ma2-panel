@@ -894,6 +894,16 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             scene = find(cfg["scenes"], action.get("id"))
             if a == "scene_go" and scene.get("write_error"):
                 raise ActionError("запись сцены не подтверждена: проверьте её в редакторе")
+            if a == 'scene_go':
+                journal = Path(config_path).parent / f"scene-write-{scene['exec']}.json"
+                if journal.exists():
+                    try:
+                        record = json.loads(journal.read_text(encoding='utf-8-sig'))
+                    except (OSError, ValueError) as exc:
+                        raise ActionError('журнал записи сцены не прочитан; запуск отменён') from exc
+                    if (not isinstance(record, dict) or record.get('phase') != 'preparing'
+                            or record.get('target') != scene['exec'] or record.get('show') != cfg.get('show')):
+                        raise ActionError('осталась неподтверждённая запись сцены; проверьте резерв и журнал ' + journal.name)
             check_scene(scene["exec"])
         if a == "scene_go":
             return transition_lines(action, cfg, lambda ex: mode == "full" or ex in allowed_scenes, owned_scene_execs()), {}
@@ -1008,6 +1018,12 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 spawn_broadcast(scenes_msg())
             selected_ids = []
             native_context = (state["plan_epoch"], gen, stop_epoch, state["blackout_epoch"])
+            def still_current():
+                return (not state.get('recovering') and not state['loading']
+                        and native_context == (state['plan_epoch'], link._gen, link._stop_epoch, state['blackout_epoch'])
+                        and (ticket is None or ticket_valid(ticket))
+                        and (expected_context is None or expected_context == history_context())
+                        and (not expected_basis or all(sent_evidence.clock() - stamp < 6 for stamp in expected_basis.values())))
             for line in lines:
                 if state.get("recovering"):
                     return "восстанавливается контекст MA2; оставшиеся команды отменены"
@@ -1023,7 +1039,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     # A missing reply may still have started playback. Retain
                     # this address so the next panel transition can release it.
                     owned_scene_execs().add(find(cfg['scenes'], action['id'])['exec'])
-                ok, reply = await link.send(line, gen=gen)
+                ok, reply = await link.send(line, gen=gen, valid=still_current)
                 if stages is not None:
                     last = link.last or {}
                     stages.append({"cmd": line, "status": last.get("status") if last.get("cmd") == line else "sent" if ok else "error"})
@@ -1639,7 +1655,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         for line in lines:
             if ticket is not None and not ticket_valid(ticket):
                 raise ActionError("действие отменено затемнением или сменой контекста")
-            ok, reply = await link.send(line, gen=gen)
+            ok, reply = await link.send(line, gen=gen, valid=lambda: ticket is None or ticket_valid(ticket))
             if ticket is not None and not ticket_valid(ticket):
                 raise ActionError("действие прервано затемнением или сменой контекста")
             if not ok:
@@ -2873,7 +2889,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                                 raise ActionError("контекст записи изменился; оставшиеся команды отменены")
                             if not ticket_valid(intent_ticket):
                                 raise ActionError("контекст действия изменился; запись отменена")
-                            ok, reply = await link.send(line, gen=gen)
+                            ok, reply = await link.send(line, gen=gen, valid=lambda: ticket_valid(intent_ticket)
+                                                        and context == (state['plan_epoch'], link._gen, link._stop_epoch, cfg.get('show')))
                             if not ok:
                                 raise ActionError((reply.strip() or "ошибка MA2") + "; повторно не отправлено; резерв: " + str(spare or ex))
                             if context != (state["plan_epoch"], link._gen, link._stop_epoch, cfg.get("show")):

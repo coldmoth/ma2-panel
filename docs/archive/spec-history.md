@@ -746,3 +746,9 @@ MA2-группы сохраняют ticket до отправки; crossfade сн
 сохраняя ID опубликованной Windows v3.2.5 независимо от Git checkout на хосте.
 Зависимости и lockfile не меняются. Приёмка обновления проверяет runtime guard
 старого updater, установку нового пакета и откат с сохранением данных.
+
+2026-11-11, завершение независимого review: подтверждён P2 transport drain;
+добавлен transport validator ticket/context/freshness. Дополнительно подтверждены
+и исправлены reuse при одинаковых именах и обход scene journal через config Undo.
+Первый CI 42915426010: один несовпавший текст корректного отказа при show load
+и Windows venv redirector PID; тип отказа теста уточнён, PID-контроль не ослаблен.

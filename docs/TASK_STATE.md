@@ -1,7 +1,7 @@
 # TASK_STATE — 2026-11-11 (МСК), выпуск 3.3.0
 - Worktree /Users/nevereply/.codex/worktrees/stage4-review-fixes/release-repo.
-- Ветка codex/stage4-review-fixes; исходный HEAD d95220f (main/v3.2.5).
-- Исходные 95 staged-файлов этапов 1–4 интегрированы; готовится релизный коммит.
+- Ветка codex/stage4-review-fixes; HEAD 59a55ab, готовится commit исправлений review/CI; main ещё d95220f.
+- Исходные 95 staged-файлов интегрированы в 59a55ab, branch опубликована.
 - Основной checkout и прежние worktree/данные сохранены.
 - Цель владельца: исправить A/B/C, аудит, проверить миграцию, выпустить v3.3.0.
 - Commit/push/main/tag/Release разрешены после программных gates и без блокеров.
@@ -13,21 +13,21 @@
 - После перезапуска/смены плана/шоу владельцы старых playback не угадываются.
 - Runtime-ID канонизирует LF/CRLF к прежнему Windows-ID; uv.lock не менялся.
 - Версия 3.3.0; README/русские notes/spec/history и code-index обновлены.
-- 2026-11-11: полный pytest 1525 PASS/1 SKIP/0 failures, 118.047 с.
-- JUnit /tmp/ma2-v330-final-pytest.xml, лог /tmp/ma2-v330-final-pytest.log.
-- После runtime-ID/дополнений регрессий адресные release/update tests PASS.
-- Логи /tmp/ma2-v330-runtime-focused.log, /tmp/ma2-v330-precommit.log.
+- 2026-11-11: полный pytest кандидата 2: 1532 PASS/1 SKIP/0 failures, 117.950 с.
+- JUnit /tmp/ma2-v330-candidate2-pytest.xml и одноимённый .log.
+- После review: valid на transport gate, duplicate identity, journal против config Undo.
+- Логи /tmp/ma2-v330-late-focused.log, /tmp/ma2-v330-review-fixes.log.
 - Node panel-v4 PASS, /tmp/ma2-v330-node.log.
 - HTTP/WS full/simple mock PASS, /tmp/ma2-v330-httpws.log.
 - Chromium/WebKit общий+stage3 PASS, 4 viewport/touch/WS/input/store/rewrite.
 - PNG /tmp/ma2-v330-stage3/ осмотрены; процессы изолированных mock остановлены.
 - Настоящий v3.2.5 ZIP: SHA256/runtime guard/update/rollback/data preservation PASS.
 - Миграция host-only: /tmp/ma2-v330-migration-final.log; native Windows впереди.
-- Независимый один local codex review разрешён владельцем; запуск после фиксации diff.
+- Один local codex review 59a55ab завершён: P2 drain; воспроизведён и исправлен.
 - Clodex не использован; подписочный счётчик квоты недоступен.
 - Реальная MA2/физический свет не подключались; старая 3.9.63.11 приёмка историческая.
 - Зал: hardware-acceptance.md и hall-test-plan.md §12–13; явные ограничения в notes.
 - Аудит docs/release-3.3-audit.md; план docs/release-3.3-plan.md.
-- Git diff --check и staged --check PASS. main по ls-remote остаётся d95220f.
-- Следующий шаг: независимый review + branch Windows CI; затем main/tag/Release/assets.
-- Публикация ещё не выполнена; Windows CI и независимый review ещё не завершены.
+- CI 42915426010: show-load error wording + Windows redirector PID; оба исправлены.
+- Следующий шаг: повторный branch Windows CI; затем main/tag/Release/assets.
+- Публикация не выполнена; Windows delivery native gate ещё не пройден.

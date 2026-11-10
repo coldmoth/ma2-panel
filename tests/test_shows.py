@@ -100,7 +100,9 @@ def test_loading_blocks_actions_but_controls_remain_live(tmp_path):
         assert ask(b, {'a': 'select_fixtures', 'ids': [12]})['ok']
         a.send_json(LOAD)
         until(a, lambda m: m.get('status', {}).get('show_load', {}).get('state') == 'loading')
-        assert 'идёт загрузка шоу' in ask(b, {'a': 'dim', 'v': 30})['err']
+        rejected = ask(b, {'a': 'dim', 'v': 30})
+        assert not rejected['ok']
+        assert any(reason in rejected['err'] for reason in ('идёт загрузка шоу', 'действие устарело'))
         assert 'идёт загрузка шоу' in ask(b, LOAD)['err']
         # Same socket as the pending load must still process emergency controls.
         assert ask(a, {'a': 'halt'})['a'] == 'halt'

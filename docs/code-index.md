@@ -83,105 +83,105 @@
   - 764 `selected`
   - 770 `remember`
   - 800 `lines_for` — MA2 lines for the action and the head values they set: {id: {attr: 0-100}}.
-  - 904 `owned_scene_execs`
-  - 916 `action_ticket`
-  - 919 `ticket_valid`
-  - 924 `execute` — Send the action's lines; None on success, else the error text.
-  - 1080 `no_attribute` — Error #14 OBJECT DOES NOT EXIST on Zoom/Focus/Strobe: this fixture type has no such attrib
-  - 1092 `throttled`
-  - 1118 `fade_starts` — [(start, ids)] for a fade the bridge plays itself, or None when a start is unknown (then t
-  - 1130 `play_fade` — Values from each start to the target, one per throttle tick; the throttle sends them like
-  - 1160 `layout_save`
-  - 1169 `new_id`
-  - 1173 `mover`
-  - 1179 `config_edit` — New values for the changed config keys; raises ActionError before anything changes.
-  - 1244 `scene_pages`
-  - 1247 `list_cmd`
-  - 1250 `list_execs` — onPC 3.9.60 answers "List Executor 1.1 Thru 1.250" with Error #9: NUMBER TOO LARGE (hall 2
-  - 1270 `poll_running` — One shared reader. Exact configured addresses avoid guessed range boundaries.
-  - 1316 `expire_evidence`
-  - 1332 `poll_dmx` — What the desk outputs, read by Lua chunks with dmx_seconds idle time per sweep: the plan s
-  - 1354 `expire_dmx`
-  - 1370 `dmx_diagnostics` — Local, read-only snapshot. Never treats cached/sent values as actual output.
-  - 1422 `read_dmx` — One read; refusals back off and stop sending after READ_ATTEMPTS until a context reset.
-  - 1547 `require_scene_context`
-  - 1552 `confirm_scene_show`
-  - 1561 `read_scenes` — Existing scenes_import reader; caller holds action_lock and saves atomically.
-  - 1589 `catalogue_meta`
-  - 1596 `read_ma2` — All pools must be complete; errors never turn a previous catalogue into empty.
-  - 1634 `send_ma2_lines`
-  - 1648 `ma2_action`
-  - 1788 `invalidate_scene_offers`
-  - 1794 `offer_context`
-  - 1797 `find_scene_slot`
-    - 1802 `emit`
-  - 1851 `store_checked` — Check fresh console data while the caller holds action_lock, in every write mode.
-  - 1866 `record`
-  - 1879 `show_name`
-  - 1885 `plan_path`
-  - 1888 `check_show`
-  - 1897 `confirm_write_show` — A fresh read under action_lock before scene mutations, never auto-bind.
-  - 1905 `import_context`
-  - 1908 `import_xml`
-  - 1927 `confirm_import`
-  - 1945 `commit_import`
-  - 1987 `open_show_plan`
-  - 2033 `follow_desk_show` — Caller holds action_lock. A show made or loaded on the desk since: read its name now and m
-  - 2045 `plan_copy` — Placement and marks from another show's plan for fixtures with the same number here. Nothi
-  - 2075 `fetch_fixtures`
-    - 2080 `apply`
-  - 2092 `read_types` — Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureT
-    - 2114 `send`
-    - 2123 `can_retry`
-    - 2127 `failed`
-    - 2134 `read_type_table`
-    - 2189 `commit`
-  - 2204 `require_patch_context`
-  - 2208 `send_planned` — One write line of a confirmed patch/RDM plan: the guard lets out exactly this line, once.
-  - 2230 `rdm_read`
-  - 2245 `patch_offer`
-  - 2252 `patch_action` — Раздел «Патч» (spec 21). Every write needs its flag, a fresh plan token and the action loc
-  - 2391 `list_shows`
-  - 2410 `load_show`
-  - 2509 `handle`
-  - 3062 `on_result`
-  - 3079 `rdm_busy`
-  - 3094 `ProtocolThrottle`
-    - 3095 `clear`
-  - 3110 `lifespan`
-  - 3137 `mask`
-  - 3140 `safe_data`
-  - 3152 `DiagnosticHandler`
-    - 3153 `emit`
-  - 3168 `updating`
-  - 3178 `update_busy`
-  - 3185 `update_gate`
-  - 3192 `update_reopen`
-  - 3196 `update_stop`
-  - 3201 `perform_action_inner`
-  - 3238 `operation_reply`
-  - 3250 `finish_operation`
-  - 3266 `perform_action`
-  - 3310 `handle_load`
-  - 3319 `ws_endpoint`
-  - 3322 `simple_ws_endpoint`
-  - 3325 `serve_ws`
-    - 3335 `worker`
-    - 3339 `spawn`
-  - 3390 `no_cache`
-  - 3411 `simple_index`
-  - 3415 `simple_style`
-  - 3419 `simple_script`
-  - 3423 `simple_feedback_script`
-  - 3427 `simple_health`
-  - 3431 `update_health`
-- 3443 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
-- 3465 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
-- 3477 `local_addresses`
-- 3484 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
-- 3504 `stop_running`
-- 3516 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
-- 3529 `main`
+  - 914 `owned_scene_execs`
+  - 926 `action_ticket`
+  - 929 `ticket_valid`
+  - 934 `execute` — Send the action's lines; None on success, else the error text.
+  - 1096 `no_attribute` — Error #14 OBJECT DOES NOT EXIST on Zoom/Focus/Strobe: this fixture type has no such attrib
+  - 1108 `throttled`
+  - 1134 `fade_starts` — [(start, ids)] for a fade the bridge plays itself, or None when a start is unknown (then t
+  - 1146 `play_fade` — Values from each start to the target, one per throttle tick; the throttle sends them like
+  - 1176 `layout_save`
+  - 1185 `new_id`
+  - 1189 `mover`
+  - 1195 `config_edit` — New values for the changed config keys; raises ActionError before anything changes.
+  - 1260 `scene_pages`
+  - 1263 `list_cmd`
+  - 1266 `list_execs` — onPC 3.9.60 answers "List Executor 1.1 Thru 1.250" with Error #9: NUMBER TOO LARGE (hall 2
+  - 1286 `poll_running` — One shared reader. Exact configured addresses avoid guessed range boundaries.
+  - 1332 `expire_evidence`
+  - 1348 `poll_dmx` — What the desk outputs, read by Lua chunks with dmx_seconds idle time per sweep: the plan s
+  - 1370 `expire_dmx`
+  - 1386 `dmx_diagnostics` — Local, read-only snapshot. Never treats cached/sent values as actual output.
+  - 1438 `read_dmx` — One read; refusals back off and stop sending after READ_ATTEMPTS until a context reset.
+  - 1563 `require_scene_context`
+  - 1568 `confirm_scene_show`
+  - 1577 `read_scenes` — Existing scenes_import reader; caller holds action_lock and saves atomically.
+  - 1605 `catalogue_meta`
+  - 1612 `read_ma2` — All pools must be complete; errors never turn a previous catalogue into empty.
+  - 1650 `send_ma2_lines`
+  - 1664 `ma2_action`
+  - 1804 `invalidate_scene_offers`
+  - 1810 `offer_context`
+  - 1813 `find_scene_slot`
+    - 1818 `emit`
+  - 1867 `store_checked` — Check fresh console data while the caller holds action_lock, in every write mode.
+  - 1882 `record`
+  - 1895 `show_name`
+  - 1901 `plan_path`
+  - 1904 `check_show`
+  - 1913 `confirm_write_show` — A fresh read under action_lock before scene mutations, never auto-bind.
+  - 1921 `import_context`
+  - 1924 `import_xml`
+  - 1943 `confirm_import`
+  - 1961 `commit_import`
+  - 2003 `open_show_plan`
+  - 2049 `follow_desk_show` — Caller holds action_lock. A show made or loaded on the desk since: read its name now and m
+  - 2061 `plan_copy` — Placement and marks from another show's plan for fixtures with the same number here. Nothi
+  - 2091 `fetch_fixtures`
+    - 2096 `apply`
+  - 2108 `read_types` — Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureT
+    - 2130 `send`
+    - 2139 `can_retry`
+    - 2143 `failed`
+    - 2150 `read_type_table`
+    - 2205 `commit`
+  - 2220 `require_patch_context`
+  - 2224 `send_planned` — One write line of a confirmed patch/RDM plan: the guard lets out exactly this line, once.
+  - 2246 `rdm_read`
+  - 2261 `patch_offer`
+  - 2268 `patch_action` — Раздел «Патч» (spec 21). Every write needs its flag, a fresh plan token and the action loc
+  - 2407 `list_shows`
+  - 2426 `load_show`
+  - 2525 `handle`
+  - 3079 `on_result`
+  - 3096 `rdm_busy`
+  - 3111 `ProtocolThrottle`
+    - 3112 `clear`
+  - 3127 `lifespan`
+  - 3154 `mask`
+  - 3157 `safe_data`
+  - 3169 `DiagnosticHandler`
+    - 3170 `emit`
+  - 3185 `updating`
+  - 3195 `update_busy`
+  - 3202 `update_gate`
+  - 3209 `update_reopen`
+  - 3213 `update_stop`
+  - 3218 `perform_action_inner`
+  - 3255 `operation_reply`
+  - 3267 `finish_operation`
+  - 3283 `perform_action`
+  - 3327 `handle_load`
+  - 3336 `ws_endpoint`
+  - 3339 `simple_ws_endpoint`
+  - 3342 `serve_ws`
+    - 3352 `worker`
+    - 3356 `spawn`
+  - 3407 `no_cache`
+  - 3428 `simple_index`
+  - 3432 `simple_style`
+  - 3436 `simple_script`
+  - 3440 `simple_feedback_script`
+  - 3444 `simple_health`
+  - 3448 `update_health`
+- 3460 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
+- 3482 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
+- 3494 `local_addresses`
+- 3501 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
+- 3521 `stop_running`
+- 3533 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
+- 3546 `main`
 
 ## ma2panel/browser_update.py
 - 38 `trusted_url`
@@ -199,36 +199,36 @@
 - 156 `release_lock`
 - 160 `prepare`
 - 194 `launch`
-- 205 `stop_child`
-- 216 `health`
-  - 220 `record`
-- 253 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
-  - 255 `__init__`
-  - 260 `start`
-    - 264 `Handler`
-      - 265 `log_message`
-      - 268 `do_GET`
-  - 302 `stop`
-- 310 `apply`
-- 363 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
-  - 384 `wait`
-- 396 `worker`
-- 415 `Updater`
-  - 416 `__init__`
-  - 420 `begin`
-  - 429 `_run`
-- 470 `recover_pending`
-- 490 `watch_orphan`
-- 513 `orphan_worker`
-- 543 `register`
-  - 549 `local`
-  - 560 `denied`
-  - 564 `update_health`
-  - 568 `update_status`
-  - 574 `check_update`
-  - 586 `updater_idle`
-  - 592 `quiesce`
-  - 601 `start_update`
+- 211 `stop_child`
+- 222 `health`
+  - 226 `record`
+- 259 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
+  - 261 `__init__`
+  - 266 `start`
+    - 270 `Handler`
+      - 271 `log_message`
+      - 274 `do_GET`
+  - 308 `stop`
+- 316 `apply`
+- 369 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
+  - 390 `wait`
+- 402 `worker`
+- 421 `Updater`
+  - 422 `__init__`
+  - 426 `begin`
+  - 435 `_run`
+- 476 `recover_pending`
+- 496 `watch_orphan`
+- 519 `orphan_worker`
+- 549 `register`
+  - 555 `local`
+  - 566 `denied`
+  - 570 `update_health`
+  - 574 `update_status`
+  - 580 `check_update`
+  - 592 `updater_idle`
+  - 598 `quiesce`
+  - 607 `start_update`
 
 ## ma2panel/commands.py
 - 22 `ActionError`
@@ -358,7 +358,8 @@
 - 62 `parse_export` — Fixtures with a Fixture ID. skipped, if given, gets the names of <Fixture> entries without
 - 112 `parse_fixture_type` — {dim, r, g, b}: 1-based DMX channel of each attribute, from an Export FixtureType file (<C
 - 178 `merge_fixtures` — Preserve placement; only a one-to-one name/type match can be automatic.
-- 265 `save_config`
+  - 189 `unchanged`
+- 274 `save_config`
 
 ## ma2panel/link.py
 - 28 `Throttle`
@@ -388,10 +389,10 @@
   - 271 `_raw`
   - 274 `_result`
   - 278 `send` — (ok, reply or reason). ok means status "sent". gen: the link generation the caller started
-  - 333 `_drain` — Late answer to a timed-out line, so it is not read as the next line's answer. True when it
-  - 343 `_pump`
-  - 356 `_exchange`
-  - 368 `_collect` — (reply, prompt seen). The reply ends at the command prompt ("[Channel]>").
+  - 340 `_drain` — Late answer to a timed-out line, so it is not read as the next line's answer. True when it
+  - 350 `_pump`
+  - 363 `_exchange`
+  - 375 `_collect` — (reply, prompt seen). The reply ends at the command prompt ("[Channel]>").
 
 ## ma2panel/migrations.py
 - 19 `_read`

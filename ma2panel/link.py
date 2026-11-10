@@ -275,9 +275,10 @@ class MA2Link:
         self.last = {"t": time.strftime("%H:%M:%S"), "cmd": cmd, "status": status, "text": self.mask(text)}
         self.on_result(self.last)
 
-    async def send(self, cmd: str, quiet: bool = False, gen: int | None = None) -> tuple[bool, str]:
+    async def send(self, cmd: str, quiet: bool = False, gen: int | None = None, valid=None) -> tuple[bool, str]:
         """(ok, reply or reason). ok means status "sent". gen: the link generation the caller started under; a drop
-        and reconnect in between refuses the line."""
+        and reconnect in between refuses the line. valid is rechecked after
+        waiting/draining, immediately before writing the command."""
         if self.halted:
             return False, HALTED
         if self.guard and (why := self.guard(cmd)):
@@ -287,6 +288,9 @@ class MA2Link:
         stop_epoch = self._stop_epoch
         gen = self._gen if gen is None else gen
         async with self._lock:
+            if valid is not None and not valid():
+                self._result(cmd, 'not_sent', 'контекст действия изменился; строка не отправлена')
+                return False, 'контекст действия изменился; строка не отправлена'
             if self.halted or stop_epoch != self._stop_epoch:
                 return False, HALTED
             if not self.ready or gen != self._gen or self._closed.is_set():
@@ -309,6 +313,9 @@ class MA2Link:
                 # No await lies between this gate and the actual write in _exchange.
                 if not getattr(self, 'admission', lambda: True)():
                     return False, 'идёт обновление программы'
+                if valid is not None and not valid():
+                    self._result(cmd, 'not_sent', 'контекст действия изменился; строка не отправлена')
+                    return False, 'контекст действия изменился; строка не отправлена'
                 reply, seen = await self._exchange(cmd, self.timeout)
                 # Semantic errors do not complete a frame: its tail must be consumed
                 # before another line can leave this connection.

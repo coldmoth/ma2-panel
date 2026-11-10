@@ -186,8 +186,17 @@ def merge_fixtures(old: list[dict], found: list[dict], *, choices=None) -> list[
     old_by_id = {f["id"]: f for f in old}
     # Reserve unchanged identities first. An ID reused by another fixture is
     # available as a transfer source even though that number is still present.
-    stable = {f['id'] for f in found if f['id'] in old_by_id and f.get('name') and f.get('type')
-              and (f['name'], f['type']) == (old_by_id[f['id']].get('name'), old_by_id[f['id']].get('type'))}
+    def unchanged(f):
+        previous = old_by_id.get(f['id'])
+        identity = (f.get('name'), f.get('type'))
+        if not previous or not all(identity) or identity != (previous.get('name'), previous.get('type')):
+            return False
+        peers = [n for n in found if n['id'] != f['id'] and (n.get('name'), n.get('type')) == identity]
+        # A new row with the same generic name/type may be the old fixture at
+        # another ID. Reserve this number only with unique unchanged patch data.
+        return not peers or (previous.get('address') and f.get('address') == previous['address']
+                             and all(n.get('address') and n['address'] != previous['address'] for n in peers))
+    stable = {f['id'] for f in found if unchanged(f)}
     candidates, ambiguous = {}, {}
     for f in found:
         fid = f['id']

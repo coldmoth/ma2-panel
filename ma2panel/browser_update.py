@@ -194,9 +194,15 @@ def prepare(root, ident, info):
 def launch(spec):
     root = Path(spec['root'])
     env = {**os.environ, 'MA2_UPDATE_ID': spec['id']}
+    executable = sys.executable
+    if sys.platform == 'win32' and sys.prefix != sys.base_prefix:
+        # CPython 3.12 PC/launcher.c: run the interpreter directly, preserving
+        # venv discovery. Popen.pid must identify the actual HTTP process.
+        executable = sys._base_executable
+        env['__PYVENV_LAUNCHER__'] = sys.executable
     log = (root / '.updates/startup.log').open('ab')
     try:
-        return subprocess.Popen([sys.executable, str(root / 'bridge.py'), *spec['args']], cwd=root,
+        return subprocess.Popen([executable, str(root / 'bridge.py'), *spec['args']], cwd=root,
                                 env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
     finally:
         log.close()

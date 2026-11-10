@@ -62,3 +62,18 @@ Node: /tmp/ma2-v330-node.log; HTTP/WS: /tmp/ma2-v330-httpws.log.
 Историческая onPC 3.9.63.11 не подтверждает новую интеграцию и физический свет.
 Осталась целевая MA2/зал-приёмка hardware-acceptance.md и hall-test-plan.md §12–13.
 Публикация допустима только после независимого review и программных gates.
+
+## Завершение review и первый CI
+
+Один независимый reviewer завершил проверку 59a55ab: P2 transport drain,
+самостоятельно воспроизведён RGB-тестом и исправлен (release-3.3-review.md).
+Дополнительно исправлены reuse при одинаковых имени/типе и потеря write_error
+после Undo старого snapshot: теперь запуск защищён также файловым журналом.
+Первый Actions run 42915426010: 1527 PASS/1 FAIL/1 SKIP на Ubuntu (ожидание
+текста отказа при show load); Windows browser-worker показал PID redirector
+вместо фактического Python. Остальные jobs прошли; delivery был пропущен из-за
+needs tests. Причины исправлены; native acceptance повторяется на новом commit.
+
+Финальный локальный набор после исправлений review/CI: 1532 PASS, 1 SKIP,
+0 failures/errors, 117.950 с; /tmp/ma2-v330-candidate2-pytest.xml и .log.
+Независимый review завершён; разрешённый один помощник, без Clodex.

@@ -99,6 +99,18 @@ def test_competing_imported_identities_require_one_to_one_confirmation():
     assert merged[32]['label'] == 'A' and 'x' not in merged[32]
 
 
+@pytest.mark.parametrize('address', ['1.100', None])
+def test_reuse_with_identical_names_does_not_reserve_the_old_number(address):
+    old = [{'id': 23, 'name': 'Head', 'type': 'Head', 'address': address, 'label': 'Mine', 'x': .2}]
+    found = [{'id': 23, 'name': 'Head', 'type': 'Head', 'address': '1.200'},
+             {'id': 31, 'name': 'Head', 'type': 'Head', 'address': '1.100'}]
+    preview = merge_fixtures(old, found)
+    assert all(f.get('ambiguous_candidates') for f in preview if f['id'] in (23, 31))
+    merged = {f['id']: f for f in merge_fixtures(old, found, choices={'23': None, '31': 23})}
+    assert merged[31]['label'] == 'Mine' and merged[31]['x'] == .2
+    assert 'x' not in merged[23]
+
+
 @pytest.mark.parametrize('change', ['none', 'blackout', 'reconnect', 'show', 'plan', 'disconnect'])
 def test_group_read_cannot_outlive_its_client_ticket(context, change):
     c = context
@@ -230,4 +242,67 @@ def test_group_store_cannot_cross_blackout_after_empty_slot_read(context):
         assert not result['ok'], result
         assert not any(line.startswith(('Fixture ', 'Store Group')) for line in calls)
         assert 8 not in desk.groups
+    asyncio.run(go())
+
+
+def test_blackout_cancels_a_value_waiting_in_transport_drain(context):
+    from ma2panel.mock import MockMA2
+    c = context
+    desk, writes = MockMA2('panel', None), []
+    async def go():
+        ws, other = client(c), client(c)
+        entered, resume = asyncio.Event(), asyncio.Event()
+        c.link._closed.clear()
+        original = c.link.on_result
+        def result(last):
+            original(last)
+            if last['cmd'] == 'Fixture 12':
+                c.link._stale = True
+        c.link.on_result = result
+        async def drain():
+            entered.set()
+            await resume.wait()
+            c.link._stale = False
+            return True
+        async def exchange(line, timeout):
+            writes.append(line)
+            return desk._reply(line), True
+        c.link._drain, c.link._exchange = drain, exchange
+        old = asyncio.create_task(c.execute('color', {'a': 'color', 'r': 100, 'g': 0, 'b': 0},
+                                             c.sessions[ws], [12], ticket=c.action_ticket(ws)))
+        await asyncio.wait_for(entered.wait(), 3)
+        bo = asyncio.create_task(c.handle(other, json.dumps({'a': 'blackout'})))
+        await asyncio.sleep(0)
+        resume.set()
+        assert await old
+        assert (await bo)['ok']
+        assert 'Fixture 12' in writes
+        assert not any(line.startswith('Attribute "ColorRGB') for line in writes)
+    asyncio.run(go())
+
+
+def test_config_undo_cannot_release_an_unknown_scene_write(context):
+    c = context
+    c.cfg['scenes'].append({'id': 'other', 'exec': '1.102', 'label': 'Other'})
+    _, calls = desk_link(c)
+    original = c.link.send
+    async def send(line, **kw):
+        result = await original(line, **kw)
+        return (False, 'результат неизвестен: timeout') if line.endswith('/Overwrite') else result
+    c.link.send = send
+    async def go():
+        ws = client(c)
+        c.sessions[ws].update(requests=set(), legacy_revision=c.revision_token())
+        await c.perform_action(ws, json.dumps({'a': 'scene_delete', 'id': 'other', 'request_id': 'delete',
+                                               'config_revision': c.revision_token()}))
+        history_id = c.history[-1]['n']
+        result = await c.handle(ws, json.dumps({'a': 'scene_create', 'exec': '1.101', 'confirm': '1.101',
+                                                'replace': True, 'page': 1, 'label': 'New'}))
+        assert not result['ok']
+        assert c.cfg['scenes'][0].get('write_error')
+        assert (Path(c.config_path).parent / 'scene-write-1.101.json').exists()
+        assert (await c.handle(ws, json.dumps({'a': 'undo', 'n': history_id})))['ok']
+        result = await c.handle(ws, json.dumps({'a': 'scene_go', 'id': 'pianist'}))
+        assert not result['ok'], result
+        assert not any(line.startswith('Goto') for line in calls)
     asyncio.run(go())
