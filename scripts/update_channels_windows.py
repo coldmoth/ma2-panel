@@ -48,13 +48,13 @@ urllib.request.urlopen=lambda request,*a,**k: Opener().open(request,*a,**k) if s
 # original urlopen builds an opener once; initialize it before installing wrappers.
 urllib.request._opener=original_build()
 popen=subprocess.Popen
-def child(command,*a,**k):
-    if isinstance(command,(tuple,list)) and len(command)>1 and Path(str(command[1])).name in ('bridge.py','browser_update.py'):
-        command=[command[0],'-c',HOOK,str(root),str(transport),str(pids),*command[1:]]
-    process=popen(command,*a,**k)
-    with pids.open('a') as stream: stream.write(str(process.pid)+'\n')
-    return process
-subprocess.Popen=child
+class FixturePopen(popen):
+    def __init__(self,command,*a,**k):
+        if isinstance(command,(tuple,list)) and len(command)>1 and Path(str(command[1])).name in ('bridge.py','browser_update.py'):
+            command=[command[0],'-c',HOOK,str(root),str(transport),str(pids),*command[1:]]
+        super().__init__(command,*a,**k)
+        with pids.open('a') as stream: stream.write(str(self.pid)+'\n')
+subprocess.Popen=FixturePopen
 # The harness text is passed via argv code, so children can propagate it.
 HOOK=Path(str(transport)+'.hook').read_text(encoding='utf-8')
 def guard(event,args):
