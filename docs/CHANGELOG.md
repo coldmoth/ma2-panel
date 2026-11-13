@@ -1,3 +1,12 @@
+# 3.3.2-rc.1 — optional test updates
+
+- Add an off-by-default Russian setting for stable/RC/beta updates through the existing buttons.
+- Compare prerelease numbers and legacy VERSION spellings with SemVer precedence; never offer downgrades.
+- Bind test packages to successful CI evidence, exact source and ZIP hashes; retain all stable acceptance gates.
+- Preserve the existing SHA256/manifest checks, data backups, rollback and recovery.
+- Verify the published v3.3.0 client and embedded Windows runtime using fixture GitHub responses. The synthetic stable used in CI is never published.
+- A public stable bootstrap remains blocked by exact-candidate hardware, field and independent review acceptance.
+
 # История версий
 
 ## 3.3.1 — 2026-11-13 (кандидат, не опубликован)

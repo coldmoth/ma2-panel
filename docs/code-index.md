@@ -17,20 +17,20 @@
   - 102 `stop`
   - 111 `get_settings`
   - 123 `put_settings`
-  - 162 `restart`
-  - 172 `export_report` — Everything about reading the fixtures that is already known, without sending anything to t
-  - 184 `diagnostics`
-  - 198 `upload_status`
-  - 205 `upload_diagnostics`
-    - 236 `private_names`
-    - 255 `collect`
-  - 269 `link_test` — Read-only: the connection attempts so far, who holds port 30000 on this PC, and one bare T
-  - 310 `export_probe`
-  - 329 `probe_console`
-  - 346 `diagnostic_package` — Only reads what is already on disk or in memory: nothing is sent to the console. One faili
-    - 350 `part`
-    - 356 `read`
-  - 396 `quality_snapshot`
+  - 168 `restart`
+  - 178 `export_report` — Everything about reading the fixtures that is already known, without sending anything to t
+  - 190 `diagnostics`
+  - 204 `upload_status`
+  - 211 `upload_diagnostics`
+    - 242 `private_names`
+    - 261 `collect`
+  - 275 `link_test` — Read-only: the connection attempts so far, who holds port 30000 on this PC, and one bare T
+  - 316 `export_probe`
+  - 335 `probe_console`
+  - 352 `diagnostic_package` — Only reads what is already on disk or in memory: nothing is sent to the console. One faili
+    - 356 `part`
+    - 362 `read`
+  - 402 `quality_snapshot`
 
 ## ma2panel/bridge.py
 - 61 `is_loopback`
@@ -179,13 +179,13 @@
   - 3484 `simple_feedback_script`
   - 3488 `simple_health`
   - 3492 `update_health`
-- 3504 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
-- 3526 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
-- 3538 `local_addresses`
-- 3545 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
-- 3565 `stop_running`
-- 3577 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
-- 3590 `main`
+- 3505 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
+- 3527 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
+- 3539 `local_addresses`
+- 3546 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
+- 3566 `stop_running`
+- 3578 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
+- 3591 `main`
 
 ## ma2panel/browser_update.py
 - 39 `trusted_url`
@@ -194,45 +194,51 @@
 - 52 `_open`
 - 57 `supported_platform`
 - 61 `version_key`
-- 69 `newer`
-- 73 `download`
-- 87 `fetch_json`
-- 109 `latest`
-- 143 `status`
-- 156 `progress`
-- 164 `release_lock`
-- 168 `prepare`
-- 207 `launch`
-- 224 `stop_child`
-- 235 `health`
-  - 239 `record`
-- 272 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
-  - 274 `__init__`
-  - 279 `start`
-    - 283 `Handler`
-      - 284 `log_message`
-      - 287 `do_GET`
-  - 321 `stop`
-- 329 `apply`
-- 385 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
-  - 406 `wait`
-- 418 `worker`
-- 437 `Updater`
-  - 438 `__init__`
-  - 442 `begin`
-  - 451 `_run`
-- 493 `recover_pending`
-- 513 `watch_orphan`
-- 544 `orphan_worker`
-- 574 `register`
-  - 580 `local`
-  - 591 `denied`
-  - 595 `update_health`
-  - 599 `update_status`
-  - 605 `check_update`
-  - 617 `updater_idle`
-  - 623 `quiesce`
-  - 632 `start_update`
+- 78 `newer`
+- 82 `download`
+- 96 `fetch_json`
+- 118 `release_info`
+- 150 `latest`
+- 197 `test_updates`
+- 203 `verify_quality`
+- 213 `status`
+- 226 `progress`
+- 234 `release_lock`
+- 238 `prepare`
+- 276 `launch`
+- 293 `stop_child`
+- 304 `health`
+  - 308 `record`
+- 341 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
+  - 343 `__init__`
+  - 348 `start`
+    - 352 `Handler`
+      - 353 `log_message`
+      - 356 `do_GET`
+  - 390 `stop`
+- 398 `apply`
+- 453 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
+  - 474 `wait`
+- 486 `worker`
+- 505 `Updater`
+  - 506 `__init__`
+  - 511 `begin`
+  - 520 `_run`
+- 564 `recover_pending`
+- 584 `watch_orphan`
+- 615 `orphan_worker`
+- 645 `register`
+  - 650 `select`
+  - 657 `local`
+  - 668 `denied`
+  - 672 `update_channel`
+  - 678 `set_update_channel`
+  - 694 `update_health`
+  - 698 `update_status`
+  - 704 `check_update`
+  - 716 `updater_idle`
+  - 722 `quiesce`
+  - 731 `start_update`
 
 ## ma2panel/commands.py
 - 22 `ActionError`
@@ -512,7 +518,9 @@
 - 17 `fingerprint`
 - 21 `validate`
 - 43 `authenticate`
-- 64 `verify_archive`
+- 64 `validate_candidate`
+- 84 `authenticate_candidate`
+- 104 `verify_archive`
 
 ## ma2panel/safety.py
 - 76 `_atomic_bytes`

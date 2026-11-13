@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -9,6 +10,7 @@ import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ma2panel.release_quality import REQUIRED
+from ma2panel import release
 
 
 def hashes(assets):
@@ -70,6 +72,9 @@ def main():
                 raise ValueError('Record only a clean checked-out source SHA')
             report = {'schema': 1, 'source_sha': current, 'checks': json.loads(args.checks_json),
                       'assets': hashes(args.asset), 'blockers': [], 'field_v3': 'missing', 'hardware': None, 'review': None}
+            report['runtime'] = release.runtime(Path.cwd())
+            if os.environ.get('GITHUB_RUN_ID') and os.environ.get('GITHUB_RUN_ATTEMPT'):
+                report.update(candidate_run=int(os.environ['GITHUB_RUN_ID']), candidate_attempt=int(os.environ['GITHUB_RUN_ATTEMPT']))
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
         else:

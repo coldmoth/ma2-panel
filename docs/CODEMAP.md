@@ -110,6 +110,10 @@ Backend расположен в `ma2panel/`; имена модулей ниже 
 `tests/test_release.py`, `tests/test_update.py`, `tests/test_browser_update.py`, `tests/test_firewall.py` —
 упаковка/совместимость, сохранность/восстановление, локальные API и реальный detached-worker mock,
 firewall. `tests/update-ui.cjs` входит в Node-набор. `scripts/package_release.py` общий для ZIP;
+Каналы: `browser_update.version_key/latest/release_info`, `release_quality.authenticate_candidate`;
+`/api/update/channel` сохраняет `test_updates` через settings transaction.
+`test_update_channels.py`, `test_candidate_quality.py`, `scripts/update_channels_windows.py`
+проверяют SemVer, каналы и старые кнопки v3.3.0 с fixture GitHub; это не stable/hardware receipt.
 `runtime.json`/`runtime-files.json` создаются полным комплектом, не заменяются update-пакетом.
 `tests/test_onboarding.py` и `tests/setup-ui.cjs` проверяют мастера, смену адресов,
 ограничения localhost, сохранение неизвестных настроек и честное состояние при обрыве.

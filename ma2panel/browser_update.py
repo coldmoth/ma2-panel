@@ -59,11 +59,20 @@ def supported_platform():
 
 
 def version_key(value):
-    # Existing Python project versions plus SemVer build identity; no lexical comparison.
-    match = re.fullmatch(r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:(rc[0-9]+)|(-[0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?', value)
+    # Normalize historical Python spellings, then apply SemVer 2 precedence.
+    if not isinstance(value, str):
+        raise update.UpdateError('Неизвестный формат версии')
+    value = re.sub(r'^(v?\d+\.\d+\.\d+)(rc|beta|b)(\d+)(?=\+|$)',
+                   lambda m: m[1] + '-' + ('beta' if m[2] == 'b' else m[2]) + '.' + m[3], value)
+    ident = r'[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*'
+    match = re.fullmatch(r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(' + ident + r'))?(?:\+' + ident + r')?', value)
     if not match:
         raise update.UpdateError('Неизвестный формат версии; нужна проверка полного комплекта')
-    return (*map(int, match.group(1, 2, 3)), 0 if match.group(4) or match.group(5) else 1)
+    parts = (match[4] or '').split('.') if match[4] else []
+    if any(p.isdigit() and len(p) > 1 and p[0] == '0' for p in parts):
+        raise update.UpdateError('Недопустимый номер предварительной версии')
+    return (*map(int, match.group(1, 2, 3)), not parts,
+            tuple((0, int(p)) if p.isdigit() else (1, p) for p in parts))
 
 
 def newer(candidate, current):
@@ -106,13 +115,9 @@ def fetch_json(url):
         raise update.UpdateError(f'GitHub: HTTP {exc.code}') from exc
 
 
-def latest():
-    data = fetch_json(API)
-    if not isinstance(data, dict) or data.get('draft') is not False or data.get('prerelease') is not False:
-        raise update.UpdateError('Нет стабильного релиза')
+def release_info(data):
     tag = data.get('tag_name')
-    if not isinstance(tag, str) or not re.fullmatch(r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag):
-        raise update.UpdateError('Недопустимая стабильная версия релиза')
+    test = not version_key(tag)[3]
     records = data.get('assets')
     if not isinstance(records, list) or any(not isinstance(a, dict) or not isinstance(a.get('name'), str)
                                              or not isinstance(a.get('browser_download_url'), str) for a in records):
@@ -120,7 +125,8 @@ def latest():
     assets = {a['name']: a['browser_download_url'] for a in records}
     if len(assets) != len(records):
         raise update.UpdateError('Повторные файлы релиза')
-    names = ('ma2-panel-update.zip', 'ma2-panel-update.zip.sha256', release_quality.NAME)
+    proof_name = 'quality.json' if test else release_quality.NAME
+    names = ('ma2-panel-update.zip', 'ma2-panel-update.zip.sha256', proof_name)
     if not all(name in assets for name in names):
         raise update.UpdateError('В релизе нет комплекта обновления, SHA256 или свидетельства качества')
     for name in names:
@@ -128,16 +134,80 @@ def latest():
         if parsed.scheme != 'https' or parsed.netloc != 'github.com' or parsed.path != f'/{REPO}/releases/download/{tag}/{name}' or parsed.query or parsed.fragment:
             raise update.UpdateError('Недопустимый источник обновления')
     try:
-        quality = release_quality.authenticate(fetch_json(assets[release_quality.NAME]), tag, REPO, fetch_json)
+        authenticate = release_quality.authenticate_candidate if test else release_quality.authenticate
+        quality = authenticate(fetch_json(assets[proof_name]), tag, REPO, fetch_json)
         commit = fetch_json(f'https://api.github.com/repos/{REPO}/commits/{tag}')
         if not isinstance(commit, dict) or commit.get('sha') != quality['source_sha']:
-            raise ValueError('Stable tag указывает на другой SHA')
+            raise ValueError('Тег указывает на другой SHA')
     except (ValueError, TypeError, KeyError) as exc:
         raise update.UpdateError('Свидетельство качества не подтверждено: ' + str(exc)) from exc
     notes = data.get('body') or ''
     if not isinstance(notes, str):
         raise update.UpdateError('Неверное описание релиза')
     return {'version': tag, 'url': assets[names[0]], 'checksum_url': assets[names[1]], 'notes': notes[:8000], 'quality': quality}
+
+
+def latest(include_test=False, current=None, runtime=None):
+    if include_test:
+        records = []
+        for page in range(1, 11):
+            batch = fetch_json(API.removesuffix('/latest') + f'?per_page=100&page={page}')
+            if not isinstance(batch, list):
+                raise update.UpdateError('Неверный список релизов GitHub')
+            records.extend(batch)
+            if len(batch) < 100:
+                break
+        else:
+            raise update.UpdateError('Список релизов слишком большой; проверка не завершена')
+    else:
+        records = [fetch_json(API)]
+    eligible = []
+    for data in records:
+        if not isinstance(data, dict) or data.get('draft') is not False or type(data.get('prerelease')) is not bool:
+            continue
+        tag = data.get('tag_name')
+        try:
+            key = version_key(tag)
+        except update.UpdateError:
+            continue
+        test = not key[3]
+        # GitHub tags are canonical; legacy spellings are only accepted in VERSION.
+        if not re.fullmatch(r'v?\d+\.\d+\.\d+(?:-(?:rc|beta)\.(?:0|[1-9][0-9]*))?', tag):
+            continue
+        if data['prerelease'] != test or (test and not include_test):
+            continue
+        if current is None or newer(tag, current):
+            eligible.append(data)
+    errors = []
+    for data in sorted(eligible, key=lambda d: version_key(d['tag_name']), reverse=True):
+        try:
+            info = release_info(data)
+            if runtime is not None and info['quality'].get('runtime') != runtime:
+                continue
+            return info
+        except update.UpdateError as exc:
+            errors.append(exc)
+    if errors:
+        raise errors[0]
+    if current is None:
+        raise update.UpdateError('Нет подходящего опубликованного релиза')
+    return None
+
+
+def test_updates(settings_path):
+    from .safety import read_settings_pair
+    settings, _, _ = read_settings_pair(Path(settings_path))
+    return settings.get('test_updates') is True
+
+
+def verify_quality(info, archive=None):
+    tag = info.get('version')
+    test = not version_key(tag)[3]
+    authenticate = release_quality.authenticate_candidate if test else release_quality.authenticate
+    proof = authenticate(info.get('quality'), tag, REPO, fetch_json)
+    if archive is not None:
+        release_quality.verify_archive(archive, proof, tag, candidate=test)
+    return proof
 
 
 def status(root):
@@ -188,13 +258,12 @@ def prepare(root, ident, info):
         raise update.UpdateError('Контрольная сумма SHA256 не совпадает')
     manifest = release.check(archive, installed)
     try:
-        proof = release_quality.authenticate(info.get('quality'), info.get('version'), REPO, fetch_json)
-        release_quality.verify_archive(archive, proof, info.get('version'))
+        verify_quality(info, archive)
     except (ValueError, TypeError, KeyError, zipfile.BadZipFile) as exc:
         raise update.UpdateError('Свидетельство качества не подтверждено: ' + str(exc)) from exc
     if info.get('version') and (version_key(manifest['version']) != version_key(info['version'])
                                or not newer(info['version'], update.version(root))):
-        raise update.UpdateError('Версия пакета не соответствует новому стабильному релизу')
+        raise update.UpdateError('Версия пакета не соответствует новому релизу')
     # Room for stage, original program, new rollback copy and user backup.
     need = sum(p.stat().st_size for p in root.rglob('*') if p.is_file() and not p.is_symlink() and '.updates' not in p.relative_to(root).parts)
     if shutil.disk_usage(root).free < need * 3 + archive.stat().st_size * 4 + 16 * 1024 * 1024:
@@ -337,8 +406,7 @@ def apply(spec):
             relay.start()
         progress(root, ident, 'installing', owner=os.getpid())
         if 'quality' in spec:
-            proof = release_quality.authenticate(spec['quality'], spec['stable_tag'], REPO, fetch_json)
-            release_quality.verify_archive(Path(spec['archive']), proof, spec['stable_tag'])
+            verify_quality({'quality': spec['quality'], 'version': spec['stable_tag']}, Path(spec['archive']))
         update.backup_user_data(root)
         update.install(spec['archive'], root, operation=ident)
         installed = True
@@ -435,8 +503,9 @@ def worker(spec_path):
 
 
 class Updater:
-    def __init__(self, root):
+    def __init__(self, root, select=None):
         self.root = Path(root)
+        self.select = select or latest
         self.task = None
 
     def begin(self, gate, stop, launch_spec, expected_version=None):
@@ -452,7 +521,9 @@ class Updater:
         closed = False
         child = None
         try:
-            info = await asyncio.to_thread(latest)
+            info = await asyncio.to_thread(self.select)
+            if info is None:
+                raise update.UpdateError('Новых обновлений в выбранном канале нет')
             if expected_version is not None and info['version'] != expected_version:
                 raise update.UpdateError('Релиз изменился. Повторите проверку и подтвердите новую версию')
             archive, manifest = await asyncio.to_thread(prepare, self.root, ident, info)
@@ -571,10 +642,16 @@ def orphan_worker(spec_path, former_pid):
         release_lock(root)
 
 
-def register(app, root, is_loopback, gate, reopen, stop, health_info, launch_spec, busy):
+def register(app, root, is_loopback, gate, reopen, stop, health_info, launch_spec, busy, settings_path=None):
     from fastapi import Request
     from fastapi.responses import JSONResponse
-    manager = Updater(root)
+    from .safety import read_settings_pair, save_settings_pair
+    settings_path = Path(settings_path) if settings_path is not None else Path(root) / 'settings.json'
+    def select():
+        runtime_path = Path(root) / 'runtime.json'
+        runtime = json.loads(runtime_path.read_text(encoding='utf-8')) if runtime_path.is_file() else None
+        return latest(include_test=test_updates(settings_path), current=update.version(root), runtime=runtime)
+    manager = Updater(root, select)
     app.state.updater = manager
 
     def local(request, mutate=False):
@@ -591,6 +668,28 @@ def register(app, root, is_loopback, gate, reopen, stop, health_info, launch_spe
     def denied():
         return JSONResponse({'ok': False, 'err': 'Откройте настройки через localhost на самом ПК моста'}, status_code=403)
 
+    @app.get('/api/update/channel')
+    def update_channel(request: Request):
+        if not local(request):
+            return denied()
+        return {'ok': True, 'test_updates': test_updates(settings_path)}
+
+    @app.post('/api/update/channel')
+    async def set_update_channel(request: Request):
+        if not local(request, True):
+            return denied()
+        try:
+            body = await request.json()
+            if not isinstance(body, dict) or set(body) != {'test_updates'} or type(body['test_updates']) is not bool:
+                raise ValueError('Требуется test_updates: bool')
+            if status(root).get('phase') not in TERMINAL or (Path(root) / '.updates/browser.lock').exists():
+                return JSONResponse({'ok': False, 'err': 'Дождитесь завершения обновления'}, status_code=409)
+            stored, _, _ = read_settings_pair(settings_path)
+            save_settings_pair(settings_path, {**stored, 'test_updates': body['test_updates']}, None)
+            return {'ok': True, 'test_updates': body['test_updates']}
+        except (ValueError, OSError) as exc:
+            return JSONResponse({'ok': False, 'err': str(exc)}, status_code=400)
+
     @app.get('/api/update/health')
     def update_health():
         return health_info()
@@ -606,9 +705,9 @@ def register(app, root, is_loopback, gate, reopen, stop, health_info, launch_spe
         if not local(request, True):
             return denied()
         try:
-            info = await asyncio.to_thread(latest)
+            info = await asyncio.to_thread(select)
             current = update.version(root)
-            return {'ok': True, 'current': current, 'available': info if newer(info['version'], current) else None,
+            return {'ok': True, 'current': current, 'available': info,
                     'compatible_installation': supported_platform() and (Path(root) / 'runtime.json').is_file()}
         except Exception as exc:
             return JSONResponse({'ok': False, 'err': str(exc)}, status_code=502)
@@ -643,6 +742,10 @@ def register(app, root, is_loopback, gate, reopen, stop, health_info, launch_spe
         spec = launch_spec()
         if not spec:
             return JSONResponse({'ok': False, 'err': 'Обновление доступно в обычном запуске моста'}, status_code=409)
+        # Observe the previous terminal operation before begin replaces its ID.
+        # This releases the restarted bridge's admission hold, and refuses busy work.
+        if busy():
+            return JSONResponse({'ok': False, 'err': 'Панель занята. Дождитесь окончания действий и повторите'}, status_code=409)
         return {'ok': True, **manager.begin(gate, stop, {**spec, 'reopen': reopen}, chosen)}
 
 

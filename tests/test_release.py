@@ -14,7 +14,7 @@ import zipfile
 from ma2panel import release
 
 
-DOCS = ('quality-audit-fixes-2026-11-13.md', 'quality-verification-2026-11-12.md', 'QUALITY-GATES.md', 'testing-infrastructure-audit.md', 'OPERATIONS.md', 'SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md', 'RELEASE-3.2.md', 'RELEASE-3.3.md', 'ONPC-HALL-TEST-3.2.md', 'hardware-acceptance.md', 'ma2-command-evidence.md')
+DOCS = ('online-updates.md', 'quality-audit-fixes-2026-11-13.md', 'quality-verification-2026-11-12.md', 'QUALITY-GATES.md', 'testing-infrastructure-audit.md', 'OPERATIONS.md', 'SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md', 'RELEASE-3.2.md', 'RELEASE-3.3.md', 'ONPC-HALL-TEST-3.2.md', 'hardware-acceptance.md', 'ma2-command-evidence.md')
 
 
 class ReleaseTests(unittest.TestCase):

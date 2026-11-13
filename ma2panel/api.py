@@ -128,6 +128,12 @@ def register(app, c, is_loopback):
             if not isinstance(body, dict):
                 raise ValueError("Требуется объект с полем settings")
             proposed = body.get("settings")
+            # The channel has its own immediate-save control; stale forms must not reset it.
+            if isinstance(proposed, dict):
+                stored, _, _ = read_settings_pair(settings_path)
+                proposed = {k: v for k, v in proposed.items() if k != 'test_updates'}
+                if 'test_updates' in stored:
+                    proposed['test_updates'] = stored['test_updates'] is True
             validate_settings(proposed)
             if "password" in body and (not isinstance(body["password"], str) or any(c in body["password"] for c in "\r\n\0")):
                 raise ValueError("Пароль должен быть строкой без переноса строки")

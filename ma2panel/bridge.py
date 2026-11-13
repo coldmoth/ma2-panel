@@ -3495,7 +3495,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 'operation': os.environ.get('MA2_UPDATE_ID', '')}
 
     browser_update.register(app, HERE, is_loopback, update_gate, update_reopen, update_stop,
-                            update_health, lambda: getattr(app.state, 'update_launch', None), update_busy)
+                            update_health, lambda: getattr(app.state, 'update_launch', None), update_busy,
+                            settings_path=settings_path)
     app.state.simple_app = simple_app
     app.mount("/", StaticFiles(directory=HERE / "static", html=True))
     return app

@@ -76,7 +76,7 @@ jobs:
     steps:
       - name: Validate test tag
         run: |
-          [[ "$DRAFT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(rc|test)\.[a-zA-Z0-9.-]+$ ]] || exit 1
+          [[ "$DRAFT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(rc|beta)\.[0-9]+$ ]] || exit 1
           if gh api "repos/$GH_REPO/git/ref/tags/$DRAFT_TAG" >/dev/null 2>&1; then
             echo 'Refusing to reuse an existing tag'; exit 1
           fi
@@ -93,6 +93,10 @@ jobs:
           assert not report['blockers']
           actual={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in pathlib.Path('release-assets').rglob('*.zip')}
           assert actual==report['assets'], 'Candidate artifact identity mismatch'
+          inputs=list(pathlib.Path('release-assets').rglob('build-inputs.json'))
+          assert len(inputs)==1
+          build=json.loads(inputs[0].read_text())
+          assert 'v'+build['version'].split('+')[0]==__import__('os').environ['DRAFT_TAG'], 'Tag/VERSION mismatch'
           PY
       - name: Prepare draft only
         run: |
@@ -101,7 +105,7 @@ jobs:
           done < <(find release-assets -name '*.sha256' -type f -print0)
           mapfile -d '' assets < <(find release-assets -type f -print0)
           printf 'TEST BUILD. Hardware acceptance grandMA2 is incomplete.\nCommit: %s\nWindows x64, embedded Python 3.12.10. Update requires matching runtime lock.\nCI: https://github.com/%s/actions/runs/%s\nSHA256 files accompany each ZIP. HTTPS/GitHub ownership is the trust boundary; SHA256 is integrity, not an independent signature.\n' "$CANDIDATE_SHA" "$GH_REPO" "$GITHUB_RUN_ID" > release-notes.txt
-          gh release create "$DRAFT_TAG" "${assets[@]}" --target "$CANDIDATE_SHA" --draft --prerelease --title "Test $DRAFT_TAG" --notes-file release-notes.txt
+          gh release create "$DRAFT_TAG" "${assets[@]}" evidence/quality.json --target "$CANDIDATE_SHA" --draft --prerelease --title "Test $DRAFT_TAG" --notes-file release-notes.txt
 
   windows-tests:
     name: Windows diagnostic (${{ matrix.group }})
@@ -210,6 +214,8 @@ jobs:
         run: uv run --no-sync python scripts/first_run_zip.py
       - name: Real supported release upgrade, rollback and interrupted recovery
         run: uv run --no-sync python scripts/release_lifecycle.py --runtime dist/ma2-panel-win/ma2-panel/program
+      - name: Published v3.3.0 existing buttons and opt-in RC (fixture GitHub)
+        run: uv run --no-sync python scripts/update_channels_windows.py
       - name: Delivered embedded Python, BAT and update rollback
         run: uv run --no-sync python scripts/windows_delivered.py
       - name: HTTP and WebSocket from delivered runtime (mock only)
@@ -327,6 +333,10 @@ jobs:
 
   quality-gate:
     name: Candidate quality gate
+    permissions:
+      contents: read
+      actions: read
+      checks: write
     if: ${{ always() }}
     needs: [tests, windows-tests, windows-quality, windows-mock, browser-preflight, reproducibility]
     runs-on: ubuntu-latest
@@ -361,6 +371,24 @@ jobs:
           assert len(found)==1
           assert json.loads(found[0].read_text())['commit']==os.environ['CANDIDATE_SHA']
           PY
+      - name: Anchor candidate evidence for opt-in updates
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json,os
+          from ma2panel.release_quality import fingerprint
+          report=json.load(open('evidence/quality.json'))
+          run,attempt=report['candidate_run'],report['candidate_attempt']
+          name='Candidate quality evidence'
+          data={'name':name,'head_sha':report['source_sha'],'status':'completed','conclusion':'success',
+                'external_id':f'candidate:{run}:{attempt}',
+                'details_url':f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{run}/attempts/{attempt}",
+                'output':{'title':name,'summary':fingerprint(report)}}
+          json.dump(data,open('evidence/candidate-check.json','w'))
+          PY
+          gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" --input evidence/candidate-check.json > /dev/null
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-quality

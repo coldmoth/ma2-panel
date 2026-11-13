@@ -1,6 +1,7 @@
 (() => {
   const el = id => document.getElementById(id);
   const check = el('update-check'), start = el('update-start'), message = el('update-state');
+  const channel = el('test-updates');
   const stages = {
     manual: 'Обновление с USB или по локальной сети…',
     downloading: 'Скачивание и проверка обновления…', validated: 'Пакет проверен. Проверка занятости панели…',
@@ -10,8 +11,8 @@
     failed: 'Обновление не выполнено.', idle: 'Обновления устанавливаются только по вашему нажатию.'
   };
   const terminal = phase => ['idle', 'completed', 'rolled_back', 'failed'].includes(phase);
-  let busy = false, available = false, posting = false, selectedVersion = null;
-  const buttons = () => { check.disabled = busy || posting; start.disabled = busy || posting || !available; };
+  let busy = false, available = false, posting = false, selectedVersion = null, channelReady = false;
+  const buttons = () => { check.disabled = busy || posting || !channelReady; start.disabled = busy || posting || !available; if (channel) channel.disabled = busy || posting || !channelReady; };
   async function request(url, post = false, body = undefined) {
     const response = await fetch(url, post ? {method: 'POST', headers: {'X-Update': '1', 'Content-Type': 'application/json'}, body: body === undefined ? undefined : JSON.stringify(body)} : {});
     const data = await response.json();
@@ -45,7 +46,7 @@
       if (!data.available) {
         el('update-version').textContent = 'Установлено: ' + data.current;
         available = false;
-        message.textContent = 'Новых стабильных обновлений нет.';
+        message.textContent = 'Новых обновлений в выбранном канале нет.';
         return;
       }
       el('update-version').textContent = 'Установлено: ' + data.current + ' · Доступно: ' + data.available.version;
@@ -65,5 +66,20 @@
       setTimeout(poll, 1500);
     } finally { posting = false; buttons(); }
   });
+  if (channel) {
+    channel.addEventListener('change', async () => {
+      const chosen = channel.checked;
+      posting = true; available = false; selectedVersion = null; buttons();
+      el('update-notes').textContent = '';
+      try {
+        await request('/api/update/channel', true, {test_updates: chosen});
+        message.textContent = 'Настройка сохранена. Нажмите «Проверить обновления».';
+      } catch (error) { channel.checked = !chosen; message.textContent = error.message; }
+      finally { posting = false; buttons(); }
+    });
+    request('/api/update/channel').then(data => {
+      channel.checked = data.test_updates === true; channelReady = true; buttons();
+    }).catch(error => { message.textContent = error.message; });
+  } else { channelReady = true; }
   buttons(); poll();
 })();

@@ -126,7 +126,7 @@ def test_failed_health_restores_old_program_and_preserves_data(tmp_path, monkeyp
 def test_begin_is_idempotent_and_busy_does_not_stop(tmp_path, monkeypatch):
     async def go():
         manager = bu.Updater(tmp_path)
-        monkeypatch.setattr(bu, 'latest', lambda: {'version': 'v3.2.0', 'url': 'x', 'checksum_url': 'y'})
+        monkeypatch.setattr(bu, 'latest', lambda *a, **k: {'version': 'v3.2.0', 'url': 'x', 'checksum_url': 'y'})
         monkeypatch.setattr(bu, 'prepare', lambda *args: (_ for _ in ()).throw(update.UpdateError('network down')))
         async def gate():
             pytest.fail('gate must not close before successful verification')
@@ -147,7 +147,7 @@ def test_update_api_is_local_and_protected(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge, 'HERE', tmp_path)
     (tmp_path / 'static').mkdir()
     (tmp_path / 'VERSION').write_text('3.1.0')
-    monkeypatch.setattr(bu, 'latest', lambda: {'version': 'v3.2.0', 'url': 'x', 'checksum_url': 'y'})
+    monkeypatch.setattr(bu, 'latest', lambda *a, **k: {'version': 'v3.2.0', 'url': 'x', 'checksum_url': 'y'})
     app = bridge.create_app(cfg, True, str(tmp_path / 'config.json'), settings={'poll_seconds': 0})
     with TestClient(app, base_url='http://localhost', client=('127.0.0.1', 123)) as client:
         assert client.post('/api/update/check').status_code == 403
@@ -228,7 +228,7 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
     url = f'http://127.0.0.1:{httpd.server_port}/update.zip'
     info = {'version': 'v3.2.0', 'url': url, 'checksum_url': url + '.sha256'}
     args = ['--mock', '--config', str(root / 'config.json'), '--settings', str(root / 'settings.json')]
-    code = f'import sys;sys.path.insert(0,{str(root)!r});from ma2panel import bridge,browser_update;browser_update.release_quality.authenticate=lambda *a:{{}};browser_update.release_quality.verify_archive=lambda *a:None;browser_update.latest=lambda:{info!r};browser_update.supported_platform=lambda:True;browser_update._open=lambda req,timeout:__import__("urllib.request",fromlist=["urlopen"]).urlopen(req,timeout=timeout);sys.argv=[{str(root / "bridge.py")!r},*{args!r}];bridge.main()'
+    code = f'import sys;sys.path.insert(0,{str(root)!r});from ma2panel import bridge,browser_update;browser_update.release_quality.authenticate=lambda *a:{{}};browser_update.release_quality.verify_archive=lambda *a,**k:None;browser_update.latest=lambda *a,**k:{info!r};browser_update.supported_platform=lambda:True;browser_update._open=lambda req,timeout:__import__("urllib.request",fromlist=["urlopen"]).urlopen(req,timeout=timeout);sys.argv=[{str(root / "bridge.py")!r},*{args!r}];bridge.main()'
     log = (tmp_path / 'bridge-output.log').open('wb')
     parent = subprocess.Popen([sys.executable, '-c', code], cwd=root, stdout=log, stderr=log)
     new_pid = None

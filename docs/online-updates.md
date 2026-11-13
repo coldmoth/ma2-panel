@@ -1,62 +1,69 @@
-# Обновления из GitHub Releases
+# In-app updates and test releases
 
-Тестовый пакет, 2026-11-04. Аппаратная приёмка grandMA2 не завершена.
-Онлайн-путь расширяет существующий browser updater; USB/LAN и install/recover/
-rollback из `update.py` сохраняются. Нового сервера и зависимостей нет.
+Open Settings on the Windows x64 bridge computer using localhost. Keep using
+**«Проверить обновления»** (Check for updates), read the version and release notes,
+then press **«Обновить»** (Update). The application downloads, verifies, installs
+and restarts through the existing updater. No manual package transfer is required
+for compatible installations starting with v3.3.0.
 
-## Оператор
+**«Получать тестовые обновления»** (Receive test updates) is off by default.
+Changing it saves immediately to the installation's settings, without checking,
+downloading, installing or restarting. When enabled, checks include stable, RC
+and beta releases. Drafts and unsupported tags are ignored; versions are ordered
+by SemVer precedence, including numbered prereleases. Build metadata does not
+make an installed version newer. Downgrades are never offered. After installing a
+stable version, the next RC must have a higher base version: for example,
+`3.3.2` → `3.3.3-rc.1`, not `3.3.2-rc.2`.
 
-На основном Windows x64 ПК открыть настройки через `http://localhost:ПОРТ/settings.html`.
-Нажать «Проверить обновления». Проверка обращается только к официальному
-`coldmoth/ma2-panel`, выполняется вне event loop и ничего не устанавливает.
-Показываются новая стабильная версия и описание изменений как обычный текст.
-При отсутствии сети панель продолжает работать; ошибка показана в настройках.
-Draft/prerelease и тестовые теги исключены. Та же или более старая версия не предлагается.
+The stable channel uses GitHub `/releases/latest`; the optional test channel reads
+the paginated release list and selects the newest newer compatible candidate.
+The channel is re-read before downloading, so changing it invalidates a previous
+selection. A changed release requires a new check and confirmation.
 
-Кнопка «Обновить» подтверждает показанную версию. Если релиз успел смениться,
-нужно повторно проверить его и подтвердить. Загрузка выполняется при работающем
-мосте; проверяются runtime, SHA256, manifest и версия, запас места, структура ZIP.
-Установка разрешена только в Windows x64 с полным комплектом и сведениями runtime.
-Перед остановкой общий gate проверяет Fade, RDM, действия, блокировки и фоновые
-операции; занятость отменяет обновление. Нельзя использовать обновление как
-способ завершить неизвестную операцию на MA2. Не обходить pending/target RDM.
+## Verification and preservation
 
-Внешний worker применяет транзакцию, запускает мост с прежними аргументами и
-проверяет версию, PID, operation ID и оба включённых порта. Ошибка запуска вызывает
-точный rollback программы и попытку запуска прежней версии. При обрыве браузер
-только опрашивает сохранённый статус, без повторного POST установки.
+The existing trusted HTTPS host checks, SHA256 sidecar, complete file manifest,
+VERSION/manifest/tag agreement and Python/lib runtime checks remain mandatory.
+Stable packages require authenticated stable promotion evidence. Test packages
+require all mandatory software gates and a quality report fingerprint anchored
+in a GitHub Actions check for the exact source, CI run/attempt and ZIP hashes.
+Test evidence cannot authorize a stable release. Legacy RC1 has a stable internal
+VERSION and lacks this candidate evidence; it is not silently re-labelled.
 
-Настройки, секреты, шоу, планы и RDM-журнал сохраняются. Копии и журналы находятся
-в `backups/`, `previous/`, `.updates/`; не удалять их при сбое. Пользовательские
-данные не откатываются поверх текущих файлов. При неудачном восстановлении нужна
-проверка на ПК; сохранённая recovery.py используется start.bat до запуска моста.
-Для ручного отката имеется rollback.bat; USB-путь — update-usb.bat с внешней флешки.
-Все проверки разработки выполняются во временных установках, с --mock.
+The bridge stays running during download. Admission checks before the operation
+and before shutdown reject busy lighting work. A detached worker performs the
+existing transaction, verifies the restarted version on both enabled interfaces,
+and attempts exact program rollback if startup fails. Existing recovery journals
+and the previous program remain available; private files are not program payload.
+Settings, plans, groups, shows, secrets, diagnostics and existing logs survive;
+logs may receive normal new entries. Program rollback preserves current user data.
+Keep `previous/`, `.updates/` and backups intact. Locked files, failed disk writes,
+network errors and interrupted operations must report failure, not success.
 
-## Доверие и формат
+## First update from v3.3.0
 
-Источник фиксирован в коде. Проверка TLS выполняется стандартным хранилищем CA
-Python; redirect разрешён только на HTTPS-хосты GitHub API/Downloads и официальные
-release-assets/objects.githubusercontent.com. Пакет и checksum привязаны к одному
-тегу официального репозитория. Описание релиза не исполняется и не вставляется как HTML.
+The published v3.3.0 client cannot discover a prerelease. It needs a new, compatible
+stable release with the usual `ma2-panel-update.zip` and `.sha256` assets. A full
+stable containing the RC fixes and channel switch would require **one** Update
+press. An updater-only stable followed by a higher-version RC would require
+**two**, both through the same UI.
 
-Используются прежние `program-manifest.json`, runtime identity и SHA256 sidecar.
-SHA256 с того же GitHub не является независимой подписью: граница доверия — TLS,
-владелец репозитория, права публикации и CI. Компрометация GitHub/maintainer/CA этим
-не устраняется; криптографически независимая подпись не заявляется.
-Обновление Python/lib требует полного Windows-комплекта, несовместимый lock отклоняется.
+Neither route bypasses release gates. Stable requires independent review,
+hardware acceptance and complete field evidence bound to the exact candidate
+source and ZIPs. There is no updater-only exemption. Until those receipts exist,
+no new stable is published and the old client has no new in-app target.
 
-## Подготовка тестового выпуска
+## Automated test scope
 
-Ручной CI с пустым draft_tag выполняет Linux, Windows delivery и Chromium/WebKit.
-С `draft_tag=v3.1.0-test.REVISION` после успеха всех jobs создаётся draft prerelease
-из проверенных Windows-артефактов: полный ZIP, USB ZIP, update ZIP, их SHA256 и
-build-inputs.json (полный commit SHA, runtime/lock, Python/uv/zlib).
-Новая схема продуктовой версии не вводится: VERSION сохраняет project version + Git identity.
-Такой тег и draft не предлагаются stable-updater. Публикация prerelease требует
-отдельного согласования; стабильная публикация автоматически не выполняется.
+`scripts/update_channels_windows.py` downloads the unchanged published v3.3.0 full
+Windows ZIP and verifies its pinned SHA256. It runs its embedded Python and actual
+old updater, clicks the existing buttons in Chromium, installs a **synthetic
+stable fixture**, enables test updates and installs the current matching RC
+package. Only GitHub transport and CI receipts are fixtures; real network access
+to MA2 is blocked. It verifies settings, shows, plans/groups, secrets, journals,
+logs and the rollback snapshot after restarting. Separate release lifecycle and
+Windows delivery gates execute rollback and interrupted recovery.
 
-Проверить draft вручную, установить копию на тестовый Windows ПК, пройти update/
-rollback, сверить сохранность данных. Независимый review критического updater,
-чистая VM, UAC/ACL/locked files и физическое прерывание питания требуют отдельной
-приёмки. Успех mock/CI не подтверждает управление настоящим MA2 и работу в зале.
+This test does not assert that a stable fixture is public, that a public RC has
+already been installed after a public stable, or that physical lighting works.
+Hardware acceptance remains separate: see hall-test-plan sections 12–13.

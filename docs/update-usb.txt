@@ -1,42 +1,66 @@
-﻿ОБНОВЛЕНИЕ ПАНЕЛИ С ФЛЕШКИ (существующая установка)
+UPDATE MA2-PANEL FROM USB (EXISTING INSTALLATION)
 
-Сохраняется: config.json, settings.json (пользователь Remote, 127.0.0.1:30000), secret.env (пароль),
-shows\ (расстановки и группы по шоу), highlight.json, blackout.json, scene-write-*.json, rdm-search.json (включая pending/target или повреждённое состояние). Обновление их не перезаписывает,
-а перед заменой копирует в backups\before-update-<дата>\. Файлы MA2 не трогаются.
+For v3.3.1 RC1, download ma2-panel-update-usb.zip and its .sha256 from:
+https://github.com/coldmoth/ma2-panel/releases/tag/v3.3.1-rc.1
+Stable packages remain available at:
+https://github.com/coldmoth/ma2-panel/releases/latest
 
-Для первого перехода старой установки без runtime.json/runtime-files.json нужен полный
-комплект: распакуйте его отдельно и перенесите свои данные по docs/SETUP.md. Не заменяйте
-рабочие config/settings публичными шаблонами. Для v3.2.0–v3.2.4 с runtime.json/runtime-files.json используйте НОВЫЙ внешний USB-комплект:
-старый встроенный updater не принимает каталог ma2panel/. Не отключайте проверку и
-не подменяйте updater вручную. Полный Windows ZIP также работает как отдельная новая установка.
+The USB kit is an external updater plus the regular update ZIP. It does not
+include Python and is not a complete installation for a new computer.
+RC1 is a manual prerelease; the stable updater does not offer it automatically.
 
-Совместимое обновление внешним USB-комплектом:
+BEFORE UPDATING
+Stop the bridge and copy the entire installation folder to a separate backup.
+Back up the MA2 show through grandMA2 separately. Keep both until testing ends.
 
-1. Остановите мост: stop.bat (или закройте окно start.bat).
-2. Распакуйте USB-комплект в отдельную папку вне установленной программы.
-   Не копируйте update.py/release.py поверх действующей установки: старые файлы
-   должны попасть в безопасный снимок до первой замены программы.
-3. Запустите update-usb.bat из распакованной папки и укажите полный путь к папке
-   установленной программы (с start.bat и python\, в новом комплекте — program).
-   Можно передать путь аргументом: update-usb.bat "C:\ma2-panel\program".
-   На вопрос об обновлении ответьте y. Должно быть: «Данные панели сохранены
-   в ...backups\before-update-...» и «Обновлено: ... -> ...».
-4. Двойной щелчок по start.bat, откройте http://127.0.0.1:8080
+The updater preserves config.json, settings.json, secret.env, shows/,
+highlight.json, blackout.json, scene-write-*.json and rdm-search.json, including
+pending targets or damaged state. Before replacing the program it copies
+protected data to backups/before-update-<date>/. It does not modify MA2 show files.
 
-Откат: остановите панель и запустите rollback.bat из program.
-Либо из той же внешней USB-папки выполните (пути замените своими):
+An installation without runtime.json/runtime-files.json needs a separate full
+Windows package and a careful data transfer; see docs/SETUP.md online:
+https://github.com/coldmoth/ma2-panel/blob/main/docs/SETUP.md
+Keep Python, lib and both runtime identity files from one full package.
+Never replace your own settings with public templates or bypass runtime checks.
+For v3.2.0-v3.2.4 with runtime identity files, use this NEW external USB kit;
+their old in-app updater does not accept the ma2panel/ package layout.
+
+INSTALL THE UPDATE
+1. Verify the downloaded ZIP's SHA256 against the accompanying .sha256 file.
+2. Stop the panel with stop.bat or Ctrl+C in the launcher window.
+3. Extract the USB kit to a separate directory OUTSIDE the installation.
+   Do not copy update.py or release.py into the installed program first:
+   the old program must be included in the rollback snapshot.
+4. Run update-usb.bat from the extracted kit. Select the existing program folder,
+   which contains start.bat and python/. You can also pass its path:
+   update-usb.bat "C:\ma2-panel\program"
+5. Confirm with y. Check the reported backup location and successful version
+   change. For RC1 the installed program version is 3.3.1+6ff3df5.
+6. Launch the installed start.bat. Open http://127.0.0.1:8080 and check the version,
+   connection settings, venue plan and shows before supervised fixture tests.
+
+ROLL BACK
+Stop the panel and run rollback.bat from the installed program folder.
+If v3.3.0 was installed immediately before RC1, this restores its program files
+and removes files added by RC1. Alternatively, run the external updater:
 "C:\ma2-panel\program\python\python.exe" "E:\ma2-panel-update\update.py" --root "C:\ma2-panel\program" --rollback
 
-rollback.bat (точно возвращает прежние файлы программы, удаляя добавленные обновлением).
-Не удаляйте previous\ и .updates\: это снимки и журнал восстановления.
-Автоматический откат не заменяет текущие данные копией. Перед ручным восстановлением данных
-сохраните текущее состояние отдельно. Копии обновления автоматически не удаляются.
+Keep previous/ and .updates/: these are the snapshot and recovery journal.
+Automatic rollback preserves current user data rather than restoring old data.
+Before manual recovery from backups/before-update-*, save the current folder
+in full. Retain both versions of unknown RDM or pending-operation state for
+operator review; do not edit/delete journals or assume RDM is off.
+If RC1 was installed separately, stop it and launch the untouched old installation.
 
-Пароль Remote хранится только в secret.env строкой MA2_PASSWORD=...
-Переменная окружения MA2_PASSWORD, если задана, важнее файла.
+The MA2 password stays in secret.env as MA2_PASSWORD=...
+An existing MA2_PASSWORD environment variable takes precedence over the file.
+Do not share this file or include it in public diagnostics.
 
-После обновления (по порядку, около 10 минут):
-5. Настройки: изменений не нужно, адреса и пароль уже сохранены. В окне start.bat в строке «старт: версия ...» должна быть новая версия.
-6. Диагностика → «Всё сразу и скачать пакет». Вторая проверка создаёт файлы panel_diag_* в папке экспорта MA2; свет и патч не меняются.
-7. Площадка → «Получить снова». Результат (успех или причина ошибки) записывается в пакет.
-8. Диагностика → «Скачать диагностический пакет» ещё раз и принесите zip на Mac.
+AFTER UPDATING
+Check the preserved settings and startup version. Use Diagnostics to collect a
+diagnostic package; the additional readback check creates panel_diag_* files in
+the MA2 export folder. Refresh fixture data in the venue view if appropriate,
+record any refusal, then download diagnostics again for private review.
+These software checks do not prove the physical lighting result. Final grandMA2
+and real-fixture acceptance remains pending. The application UI is in Russian.

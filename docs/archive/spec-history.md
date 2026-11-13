@@ -792,3 +792,11 @@ MA2-группы сохраняют ticket до отправки; crossfade сн
 2026-11-11, CI 42918908521: Windows delivery/migration/rollback PASS; следующий
 source-worker этап выявил execv со spaced/Unicode path. Исправлен Windows-only
 handoff Popen+exit-after-spawn; тот же рецензент: no findings, P2 закрыт.
+
+
+## 2026-11-13 — optional test updates through existing buttons
+
+Owner request: persist an off-by-default test channel; compare stable/beta/RC
+with SemVer, exclude drafts/downgrades and retain existing update transactions.
+The v3.3.0 bootstrap needs a new stable; hardware/review/field gates remain intact.
+Candidate evidence is anchored to the successful CI run and exact ZIP hashes.

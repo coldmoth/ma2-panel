@@ -61,8 +61,48 @@ def authenticate(report, tag, repo, fetch):
     raise ValueError('Свидетельство подменено или не подтверждено GitHub Actions')
 
 
-def verify_archive(archive, report, tag):
-    validate(report, tag)
+def validate_candidate(report, tag):
+    if not isinstance(tag, str) or not re.fullmatch(r'v?\d+\.\d+\.\d+-(?:rc|beta)\.(?:0|[1-9][0-9]*)', tag):
+        raise ValueError('Недопустимый тестовый релиз')
+    if not isinstance(report, dict) or report.get('schema') != 1:
+        raise ValueError('Нет свидетельства качества кандидата')
+    sha, checks, assets = report.get('source_sha'), report.get('checks'), report.get('assets')
+    if not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{40}', sha):
+        raise ValueError('Некорректный SHA кандидата')
+    if not isinstance(checks, dict) or any(checks.get(k) != 'success' for k in REQUIRED) or report.get('blockers') != []:
+        raise ValueError('Кандидат не прошёл обязательные проверки')
+    if not isinstance(assets, dict) or 'ma2-panel-update.zip' not in assets or any(not isinstance(h, str) or not re.fullmatch('[0-9a-f]{64}', h) for h in assets.values()):
+        raise ValueError('Нет проверенного ZIP кандидата')
+    if any(type(report.get(k)) is not int or report[k] < 1 for k in ('candidate_run', 'candidate_attempt')):
+        raise ValueError('Нет идентификатора CI кандидата')
+    runtime = report.get('runtime')
+    if not isinstance(runtime, dict) or set(runtime) != {'python', 'lock_sha256'} or runtime['python'] != '3.12' or not isinstance(runtime['lock_sha256'], str) or not re.fullmatch('[0-9a-f]{64}', runtime['lock_sha256']):
+        raise ValueError('Нет совместимого runtime кандидата')
+    return report
+
+
+def authenticate_candidate(report, tag, repo, fetch):
+    validate_candidate(report, tag)
+    sha, ident, attempt = report['source_sha'], report['candidate_run'], report['candidate_attempt']
+    api = f'https://api.github.com/repos/{repo}'
+    run = fetch(f'{api}/actions/runs/{ident}/attempts/{attempt}')
+    if not isinstance(run, dict) or run.get('head_sha') != sha or run.get('conclusion') != 'success' or run.get('event') not in ('push', 'workflow_dispatch') or run.get('path') != '.github/workflows/ci.yml' or (run.get('repository') or {}).get('full_name') != repo:
+        raise ValueError('Не подтверждён успешный CI кандидата')
+    records = fetch(f'{api}/commits/{sha}/check-runs?check_name=Candidate%20quality%20evidence&filter=all&per_page=100')
+    if not isinstance(records, dict) or type(records.get('total_count')) is not int or records['total_count'] > 100 or not isinstance(records.get('check_runs'), list):
+        raise ValueError('Неполные свидетельства CI кандидата')
+    for check in records['check_runs']:
+        if (isinstance(check, dict) and check.get('name') == 'Candidate quality evidence' and check.get('head_sha') == sha
+                and check.get('conclusion') == 'success' and (check.get('app') or {}).get('slug') == 'github-actions'
+                and check.get('external_id') == f'candidate:{ident}:{attempt}'
+                and check.get('details_url') == f'https://github.com/{repo}/actions/runs/{ident}/attempts/{attempt}'
+                and (check.get('output') or {}).get('summary') == fingerprint(report)):
+            return report
+    raise ValueError('Свидетельство кандидата подменено или не подтверждено CI')
+
+
+def verify_archive(archive, report, tag, *, candidate=False):
+    (validate_candidate if candidate else validate)(report, tag)
     if hashlib.sha256(archive.read_bytes()).hexdigest() != report['assets']['ma2-panel-update.zip']:
         raise ValueError('ZIP не соответствует свидетельству качества')
     with zipfile.ZipFile(archive) as source:

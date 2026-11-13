@@ -6,9 +6,17 @@ A web-based lighting control interface for grandMA2 onPC. Control scenes, fixtur
 
 [Documentation](docs/README.md) · [Releases](https://github.com/coldmoth/ma2-panel/releases) · [Source code](https://github.com/coldmoth/ma2-panel)
 
+**[v3.3.1 RC1 for supervised testing](https://github.com/coldmoth/ma2-panel/releases/tag/v3.3.1-rc.1)** — manual prerelease; final grandMA2/real-fixture acceptance is pending. Stable remains v3.3.0. See the [English installation and rollback guide](docs/SETUP.md).
+
 The full ZIP includes Python and dependencies. Choose **ma2-panel-win.zip** for a new computer; you do not need an older installation.
 
 **Updating v3.2.0–v3.2.4?** Use the [external USB updater](https://github.com/coldmoth/ma2-panel/releases/latest/download/ma2-panel-update-usb.zip), not the old in-app updater. Stop the app, extract the USB kit outside the installation, run `update-usb.bat` and select the existing `program` folder. Settings, passwords, shows and backups are preserved. See [update instructions](docs/update-usb.txt).
+
+## In-app updates
+
+On the bridge computer, use Settings → **«Проверить обновления»** → **«Обновить»**. Starting with a compatible stable release that includes the channel setting, **«Получать тестовые обновления»** enables optional RC/beta updates through the same buttons. It is off by default and saves immediately; changing it never downloads or installs anything. [Update channels and current stable gates](docs/online-updates.md).
+
+The published v3.3.0 only sees stable releases. A new stable must pass the required hardware and independent review gates before that first in-app transition is available. Existing releases are unchanged.
 
 ## Getting started
 
@@ -22,7 +30,7 @@ Python and dependencies are included; no terminal or separate Python installatio
 
 For v3.2.5, the compatible in-app updater accepts the regular update ZIP. Versions v3.2.0–v3.2.4 require the external USB updater; see [update compatibility](docs/repository-structure.md).
 
-Version 3.3.0 adds manual scenes with a shared fade, reversible global blackout and a concert interface with a permanent venue plan. See the [Russian release notes](docs/RELEASE-3.3.md) for changes and the remaining real-light acceptance checks.
+Version 3.3.0 adds manual scenes with a shared fade, reversible global blackout and a concert interface with a permanent venue plan. See [installation and update instructions](docs/SETUP.md), [release notes](https://github.com/coldmoth/ma2-panel/releases) and the [hardware acceptance plan](docs/hall-test-plan.md).
 
 ## Features
 
