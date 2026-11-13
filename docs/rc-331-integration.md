@@ -1,0 +1,93 @@
+# Кандидат 3.3.1: публичная интеграция
+
+2026-11-13. Публичная база 4cd7cd7; входящие исправления d707ba2..a3366ae.
+Владелец выбрал интеграцию в ma2panel/ с сохранением публичных исправлений и тестов.
+Исходная локальная история не публикуется. [Карта путей](public-rc-source-map.json)
+учитывает всю входящую дельту, кроме локального TASK_STATE и пересобранного индекса.
+Это трёхсторонняя интеграция, а не побайтовый снимок a3366ae.
+
+Сохранены публичные пределы повторов чтения, missing-guards и точное распознавание
+Pan/Tilt. Отменённые профили не кэшируются; фоновое чтение ждёт редактор/scene offer.
+Персонализация сохраняет старую и вложенную схему, layout preferences и отменяет
+жесты при обновлении видимости; устранено двойное подключение скрипта настроек.
+
+Строгий mock дополнен точными Lua read-only шаблонами и native-командами сцен 3.3.0.
+Произвольная Lua и неизвестные команды остаются ошибкой. Native playback сохраняет
+Programmer; браузерный тест явно моделирует его очистку оператором на mock-пульте
+перед сценами. Приложение не добавляет автоматический ClearAll.
+
+CI проверяет SHA head PR, связывает ZIP/manifest/quality evidence с этим SHA.
+Windows запускает embedded Python, настоящие start.bat и start-mock.bat, HTTP/WS,
+чистый первый запуск, импорт/свет и реальную v3.3.0 upgrade/rollback/recovery.
+Старый delivery workflow больше не публикует stable, permissions=contents:read.
+Promote требует software/field/review/hardware receipts точного SHA/ZIP и даёт draft.
+
+GitHub на момент подготовки: main protected=false, rulesets=[], stable-review 404.
+Нужны обязательный Candidate quality gate, запрет обхода правил/force-push и reviewer
+среды stable-review. Настройки не изменялись; YAML сам их не устанавливает.
+Прежний независимый review a3366ae не покрывает объединённый diff: отдельный review
+обязателен перед stable. Аппаратная приёмка — hall-test-plan §12–13.
+Windows run и финальные артефакты пока ожидаются; точные результаты будут в PR/RC.
+
+Публичный старый TASK_STATE удалён; персональные workstation-пути в двух прежних
+отчётах обезличены. Проверка секретов очищенного индекса: gitleaks 0.
+
+Локальная проверка интеграции: 1627 Python PASS/3 SKIP/11 subtests; Node PASS.
+Последующая правка синтетической identity закреплена RED→GREEN (9 адресных PASS).
+Host lifecycle с реальным v3.3.0: upgrade/rollback/interrupted recovery PASS.
+Clean/V2 и field-start проверены в Chromium/WebKit; synthetic и финальные
+checks точного публичного SHA остаются обязательными в CI. В плотном публичном
+редакторе 52px hit-targets соседних приборов перекрываются; drag-тест использует
+видимую область исходного прибора, без force и программной подмены событий.
+
+Перед публичным коммитом: все 52 browser checks Chromium/WebKit PASS
+(clean 6, real V2 4, synthetic 28, field-start 14); 67 адресных Python PASS; Node PASS.
+Точная чистая SHA-проверка и Windows остаются обязательными в Actions.
+
+Первый CI 43437709650 (3ec229b): все 7 Windows diagnostic groups и Linux
+pytest/Node PASS; Windows-quality/browser/reproducibility FAIL, ZIP delivery SKIP.
+Подтверждены и адресно исправлены: writable-handle fsync резервного ZIP на Windows;
+showModal для inline picker; пересчёт доступности inline controls после selection ACK.
+Preflight использует встроенный выбор; отрицательная RGB-проверка ждёт успешного
+import completion и требует точный отказ по отсутствующему каналу. Два Windows
+first-run случая ещё требуют дочернего лога; он теперь сохраняется в артефактах
+и ограниченно включается в ошибку. Успех Windows по этому прогону не заявляется.
+
+CI 43440396929 подтвердил исправление Windows fsync: остаются только два
+first-run отказа bootstrap. Дочерний лог доказал, что audit hook блокировал
+Windows asyncio._make_self_pipe через socket._fallback_socketpair. Исключение
+ограничено точным кодом stdlib, его client/listener и собственным ephemeral port;
+приложенческий loopback и MA2 по-прежнему блокируются (регрессия RED→GREEN).
+Preflight обновлений теперь проверяет существующий update-check напрямую:
+публичная страница настроек сохранена без новой структуры вкладок.
+
+CI 43441569911: browser-preflight и Linux full PASS; Windows first-run уже
+стартует, но PID проверки не учитывал Windows venv redirector. Для runner-venv
+применён существующий updater-паттерн base executable + __PYVENV_LAUNCHER__;
+embedded executable не заменяется, PID сравнивается по-прежнему строго.
+Те же private self-pipe ограничения проверены и добавлены к lifecycle/demo guards
+(обычный loopback и MA2 остаются заблокированы). RED→GREEN в subprocess tests.
+Clean-SHA упаковщик теперь запускается напрямую в minimal env без неявного
+PYTHONPATH (адресный CLI regression RED→GREEN). Локальный standard preflight
+Chromium/WebKit прошёл полностью, включая full/simple/setup/update и reconnect.
+В CI #2 один свежий export case упал нестабильно; причина по старому assert
+не установлена. Пять новых процессов/10 fresh-stale случаев PASS; сообщение
+assert расширено полным result, без ослабления ожидания или повторов внутри теста.
+
+CI 43444304495: все preliminary jobs PASS. На Windows embedded 3.12.10 уже
+прошли двойная сборка/CRC/SHA/runtime, pristine ZIP, реальная v3.3.0 миграция,
+rollback/interrupted recovery, BAT/HTTP/WS и первые clean/V2 browser профили.
+Блокер: synthetic process restart после активного браузерного клиента: shutdown
+начался, новый instance не готов. Таймаут не повышался, процесс не маскируется
+принудительным выходом. Добавлен только read-only dump async wait chains/счётчиков
+через 5 с зависания и хвост child log при провале, чтобы найти точную причину.
+
+CI 43459464805 подтвердил причину зависшего restart: после Windows 10054 в
+CPython 3.12 `_call_connection_lost` пропускает close/_detach; Uvicorn ждёт
+`Server.wait_closed` при connections=0/server_tasks=0. Добавлен узкий loop
+exception handler только win32/3.12, только этот callback и reset 10054:
+завершает cleanup и освобождает server bookkeeping без повтора protocol callback.
+Прочие ошибки делегируются прежнему/default handler; loop policy не меняется.
+Регрессионные тесты используют реальный stdlib callback/Server: RED на утечке,
+GREEN до/после server.close; 10053/чужой callback/другие платформы не подавляются.
+Независимый review этого workaround и всей интеграции до stable ещё требуется.

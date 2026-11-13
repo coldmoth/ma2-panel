@@ -2,7 +2,7 @@
 
 **Статус: программные проверки пройдены, готово к повторному review; этап 4 не закрыт.**
 Рабочая ветка `codex/stage4-review-fixes` создана в отдельном worktree
-`/Users/nevereply/.codex/worktrees/stage4-review-fixes/release-repo`.
+`/path/to/ma2-panel`.
 База HEAD — публичные `main` и `v3.2.5`, `d95220f5b664e1424ef9a86d312022a4bae967d2`
 (совпадение проверено через Git remote 2026-11-10). Локальный main исходного
 непубличного репозитория — другая история, не база этой интеграции.

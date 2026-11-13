@@ -196,11 +196,18 @@ def test_no_browser_storage_applied_to_console():
             # UI preferences only. Diagnostic UUIDs are isolated from console actions.
             keys = {"ma2.sec", "ma2.pick", "ma2.snap", "ma2.interface"}
             if f.name == 'interface.js':
+                keys = {'ma2.interface'}
+                keys = {'ma2.interface'}
                 assert not re.search(r"\b(?:send|WebSocket|connect|fetch)\s*\(", text)
             if f.name == "diag-upload.js":
                 keys = {"ma2.diag-report-id"}
                 assert set(re.findall(r"fetch\('([^']*)'", text)) == {"/api/diag/upload", "/api/diag/queue"}
                 assert not re.search(r"\b(?:send|WebSocket|connect)\s*\(", text)
+            if f.name == 'quality-diagnostics.js':
+                keys = {'ma2.interface'}
+                assert set(re.findall(r"fetch\('([^']*)'", text)) == {'/api/quality/readiness', '/api/testing/preview'}
+                assert not re.search(r"\b(?:send|WebSocket|connect)\s*\(", text)
+                assert not re.search(r'localStorage\.(?:setItem|removeItem|clear)\s*\(', text)
             uses = re.findall(r"localStorage\.\w+\('([^']*)'", text)
             assert set(uses) <= keys, f
             assert text.count("localStorage") == len(uses), f

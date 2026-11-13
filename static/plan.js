@@ -56,9 +56,10 @@ function highlightOn(on) {
   render();
 }
 
-// A schematic heading from panel Pan history, never a measured beam or a Tilt projection.
+// Schematic Pan from panel history or mock simulation; never a measured beam or a Tilt projection.
 function planBeamAngle(f, hc) {
-  var pan = (state.shown[f.id] || {}).pan, home = (f.beam || {}).home;
+  var sim = state.mock && connected() && state.simulation && state.simulation[f.id];
+  var pan = (sim || state.shown[f.id] || {}).pan, home = (f.beam || {}).home;
   var range = ((state.config || {}).attrs || {}).pan || {};
   if (!connected() || f.missing || !canMove(f) || !Number.isFinite(pan) || !Number.isFinite(home) ||
       valueFreshness('sent:' + f.id + ':pan') === 'stale' ||
@@ -188,7 +189,8 @@ function hallPlan(root, mode) {
     size();
     var liveMeta = state.valuesMeta.live;
     var freshOutput = liveMeta && liveMeta.source === 'ma2' && liveMeta.freshness === 'fresh';
-    if (outputSource) outputSource.textContent = valueFreshness('live') === 'stale' ? 'Чтение MA2 устарело · свет на плане неизвестен' :
+    var simulated = state.mock && connected() && state.simulation && Object.keys(state.simulation).length > 0;
+    if (outputSource) outputSource.textContent = simulated ? 'Симуляция · выход mock MA2' : valueFreshness('live') === 'stale' ? 'Чтение MA2 устарело · свет на плане неизвестен' :
       freshOutput && Object.keys(state.live).length ? 'Выход прочитан с MA2' : 'Текущий выход MA2 неизвестен';
     var hl = state.highlight || {}, active = hl.state === 'active' && planState.ping !== null;
     var zone = hl.zone || hl.available || [];
@@ -208,10 +210,10 @@ function hallPlan(root, mode) {
       if (mode === 'edit' && !picking && cur && cur.id === f.id) cls.push('cur');
       if (f.missing) cls.push('missing');
       if (f.service) cls.push('service');
-      // Only a fresh MA2 output read can light the plan; sent values remain history in the controls.
-      var live = freshOutput ? state.live[id] : null;
+      // Simulation is explicitly separate; real output still requires fresh MA2 evidence.
+      var live = simulated ? state.simulation[id] : freshOutput ? state.live[id] : null;
       if (mode === 'control') {
-        var outputLabel = live ? 'выход ' + live.dim + '% · MA2' : 'выход неизвестен';
+        var outputLabel = live ? 'выход ' + live.dim + (simulated ? '% · Симуляция' : '% · MA2') : 'выход неизвестен';
         d.el.setAttribute('title', f.id + ' · ' + (f.label || f.name || f.id) + ' · ' + outputLabel);
         d.el.setAttribute('aria-label', f.id + ' ' + (f.label || f.name || f.id) + ', ' + outputLabel +
           (f.missing ? ', нет в шоу' : '') + (f.service ? ', служебный' : ''));

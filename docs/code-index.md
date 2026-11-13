@@ -30,205 +30,209 @@
   - 346 `diagnostic_package` — Only reads what is already on disk or in memory: nothing is sent to the console. One faili
     - 350 `part`
     - 356 `read`
+  - 396 `quality_snapshot`
 
 ## ma2panel/bridge.py
-- 60 `is_loopback`
-- 80 `create_app`
-  - 98 `get_config_attrs`
-  - 101 `refresh_attr_names`
-  - 109 `add_strobe_attrs`
-  - 162 `revision_token`
-  - 165 `ActionLock`
-    - 166 `__aenter__`
-    - 180 `__aexit__`
-  - 212 `status_msg`
-  - 220 `config_revision`
-  - 227 `config_msg`
-  - 241 `scenes_msg`
-  - 245 `values_meta`
-  - 255 `known_shown` — Only unexpired panel-sent attributes; this is never output readback.
-  - 265 `invalidate_evidence`
-  - 278 `shown_msg`
-  - 284 `session_msg`
-  - 289 `broadcast`
-  - 305 `spawn_broadcast`
-  - 310 `history_context`
-  - 313 `history_reason`
-  - 328 `history_msg`
-  - 333 `add_history` — kind: "config" (before = changed config keys) or "light" (before = {fid: values}); None: n
-  - 353 `light_diff` — {fid: the old values of what changed since the snapshot}; a value the panel did not know b
-  - 362 `light_what`
-  - 367 `undo_light` — Send the old values back, fixture by fixture; the first refusal stops it.
-  - 382 `forget_positions`
-  - 389 `highlight_zone`
-  - 394 `highlight_status`
-  - 399 `highlight_stuck`
-  - 403 `highlight_record`
-  - 409 `highlight_lines`
-  - 435 `release_highlight` — Caller holds action_lock; only the recorded zone and known panel values may leave here.
-  - 481 `highlight_action`
-  - 537 `highlight_disconnect`
-  - 546 `highlight_lease`
-  - 556 `show_from`
-  - 565 `invalidate_profiles`
-  - 591 `update_show`
-  - 605 `identify_show`
-  - 644 `capture_replies` — Read-only lines whose reply format the code still guesses; replies go to field-data/auto/
-  - 665 `spawn_capture`
-  - 670 `on_state`
-  - 708 `blocked` — Reason an action is refused in the current mode, else None. link.guard repeats this for ev
-  - 747 `check_ids`
-  - 754 `check_scene`
-  - 758 `heads`
-  - 764 `selected`
-  - 770 `remember`
-  - 800 `lines_for` — MA2 lines for the action and the head values they set: {id: {attr: 0-100}}.
-  - 914 `owned_scene_execs`
-  - 926 `action_ticket`
-  - 929 `ticket_valid`
-  - 934 `execute` — Send the action's lines; None on success, else the error text.
-  - 1096 `no_attribute` — Error #14 OBJECT DOES NOT EXIST on Zoom/Focus/Strobe: this fixture type has no such attrib
-  - 1108 `throttled`
-  - 1134 `fade_starts` — [(start, ids)] for a fade the bridge plays itself, or None when a start is unknown (then t
-  - 1146 `play_fade` — Values from each start to the target, one per throttle tick; the throttle sends them like
-  - 1176 `layout_save`
-  - 1185 `new_id`
-  - 1189 `mover`
-  - 1195 `config_edit` — New values for the changed config keys; raises ActionError before anything changes.
-  - 1260 `scene_pages`
-  - 1263 `list_cmd`
-  - 1266 `list_execs` — onPC 3.9.60 answers "List Executor 1.1 Thru 1.250" with Error #9: NUMBER TOO LARGE (hall 2
-  - 1286 `poll_running` — One shared reader. Exact configured addresses avoid guessed range boundaries.
-  - 1332 `expire_evidence`
-  - 1348 `poll_dmx` — What the desk outputs, read by Lua chunks with dmx_seconds idle time per sweep: the plan s
-  - 1370 `expire_dmx`
-  - 1386 `dmx_diagnostics` — Local, read-only snapshot. Never treats cached/sent values as actual output.
-  - 1438 `read_dmx` — One read; refusals back off and stop sending after READ_ATTEMPTS until a context reset.
-  - 1563 `require_scene_context`
-  - 1568 `confirm_scene_show`
-  - 1577 `read_scenes` — Existing scenes_import reader; caller holds action_lock and saves atomically.
-  - 1605 `catalogue_meta`
-  - 1612 `read_ma2` — All pools must be complete; errors never turn a previous catalogue into empty.
-  - 1650 `send_ma2_lines`
-  - 1664 `ma2_action`
-  - 1804 `invalidate_scene_offers`
-  - 1810 `offer_context`
-  - 1813 `find_scene_slot`
-    - 1818 `emit`
-  - 1867 `store_checked` — Check fresh console data while the caller holds action_lock, in every write mode.
-  - 1882 `record`
-  - 1895 `show_name`
-  - 1901 `plan_path`
-  - 1904 `check_show`
-  - 1913 `confirm_write_show` — A fresh read under action_lock before scene mutations, never auto-bind.
-  - 1921 `import_context`
-  - 1924 `import_xml`
-  - 1943 `confirm_import`
-  - 1961 `commit_import`
-  - 2003 `open_show_plan`
-  - 2049 `follow_desk_show` — Caller holds action_lock. A show made or loaded on the desk since: read its name now and m
-  - 2061 `plan_copy` — Placement and marks from another show's plan for fixtures with the same number here. Nothi
-  - 2091 `fetch_fixtures`
-    - 2096 `apply`
-  - 2108 `read_types` — Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureT
-    - 2130 `send`
-    - 2139 `can_retry`
-    - 2143 `failed`
-    - 2150 `read_type_table`
-    - 2205 `commit`
-  - 2220 `require_patch_context`
-  - 2224 `send_planned` — One write line of a confirmed patch/RDM plan: the guard lets out exactly this line, once.
-  - 2246 `rdm_read`
-  - 2261 `patch_offer`
-  - 2268 `patch_action` — Раздел «Патч» (spec 21). Every write needs its flag, a fresh plan token and the action loc
-  - 2407 `list_shows`
-  - 2426 `load_show`
-  - 2525 `handle`
-  - 3079 `on_result`
-  - 3096 `rdm_busy`
-  - 3111 `ProtocolThrottle`
-    - 3112 `clear`
-  - 3127 `lifespan`
-  - 3154 `mask`
-  - 3157 `safe_data`
-  - 3169 `DiagnosticHandler`
-    - 3170 `emit`
-  - 3185 `updating`
-  - 3195 `update_busy`
-  - 3202 `update_gate`
-  - 3209 `update_reopen`
-  - 3213 `update_stop`
-  - 3218 `perform_action_inner`
-  - 3255 `operation_reply`
-  - 3267 `finish_operation`
-  - 3283 `perform_action`
-  - 3327 `handle_load`
-  - 3336 `ws_endpoint`
-  - 3339 `simple_ws_endpoint`
-  - 3342 `serve_ws`
-    - 3352 `worker`
-    - 3356 `spawn`
-  - 3407 `no_cache`
-  - 3428 `simple_index`
-  - 3432 `simple_style`
-  - 3436 `simple_script`
-  - 3440 `simple_feedback_script`
-  - 3444 `simple_health`
-  - 3448 `update_health`
-- 3460 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
-- 3482 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
-- 3494 `local_addresses`
-- 3501 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
-- 3521 `stop_running`
-- 3533 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
-- 3546 `main`
+- 61 `is_loopback`
+- 81 `create_app`
+  - 99 `get_config_attrs`
+  - 102 `refresh_attr_names`
+  - 110 `add_strobe_attrs`
+  - 163 `revision_token`
+  - 166 `ActionLock`
+    - 167 `__aenter__`
+    - 181 `__aexit__`
+  - 213 `status_msg`
+  - 221 `config_revision`
+  - 228 `config_msg`
+  - 242 `scenes_msg`
+  - 246 `values_meta`
+  - 256 `known_shown` — Only unexpired panel-sent attributes; this is never output readback.
+  - 266 `invalidate_evidence`
+  - 279 `shown_msg`
+  - 286 `session_msg`
+  - 291 `broadcast`
+  - 307 `spawn_broadcast`
+  - 312 `history_context`
+  - 315 `history_reason`
+  - 330 `history_msg`
+  - 335 `add_history` — kind: "config" (before = changed config keys) or "light" (before = {fid: values}); None: n
+  - 355 `light_diff` — {fid: the old values of what changed since the snapshot}; a value the panel did not know b
+  - 364 `light_what`
+  - 369 `undo_light` — Send the old values back, fixture by fixture; the first refusal stops it.
+  - 384 `forget_positions`
+  - 391 `highlight_zone`
+  - 396 `highlight_status`
+  - 401 `highlight_stuck`
+  - 405 `highlight_record`
+  - 411 `highlight_lines`
+  - 437 `release_highlight` — Caller holds action_lock; only the recorded zone and known panel values may leave here.
+  - 483 `highlight_action`
+  - 539 `highlight_disconnect`
+  - 548 `highlight_lease`
+  - 558 `show_from`
+  - 567 `invalidate_profiles`
+  - 593 `update_show`
+  - 607 `identify_show`
+  - 646 `capture_replies` — Read-only lines whose reply format the code still guesses; replies go to field-data/auto/
+  - 667 `spawn_capture`
+  - 672 `on_state`
+  - 710 `blocked` — Reason an action is refused in the current mode, else None. link.guard repeats this for ev
+  - 749 `check_ids`
+  - 756 `check_scene`
+  - 760 `heads`
+  - 766 `selected`
+  - 772 `remember`
+  - 802 `lines_for` — MA2 lines for the action and the head values they set: {id: {attr: 0-100}}.
+  - 916 `owned_scene_execs`
+  - 928 `action_ticket`
+  - 931 `ticket_valid`
+  - 936 `execute` — Send the action's lines; None on success, else the error text.
+  - 1098 `no_attribute` — Error #14 OBJECT DOES NOT EXIST on Zoom/Focus/Strobe: this fixture type has no such attrib
+  - 1110 `throttled`
+  - 1136 `fade_starts` — [(start, ids)] for a fade the bridge plays itself, or None when a start is unknown (then t
+  - 1148 `play_fade` — Values from each start to the target, one per throttle tick; the throttle sends them like
+  - 1178 `layout_save`
+  - 1187 `new_id`
+  - 1191 `mover`
+  - 1197 `config_edit` — New values for the changed config keys; raises ActionError before anything changes.
+  - 1262 `scene_pages`
+  - 1265 `list_cmd`
+  - 1268 `list_execs` — onPC 3.9.60 answers "List Executor 1.1 Thru 1.250" with Error #9: NUMBER TOO LARGE (hall 2
+  - 1288 `poll_running` — One shared reader. Exact configured addresses avoid guessed range boundaries.
+  - 1334 `expire_evidence`
+  - 1350 `poll_simulation`
+  - 1359 `poll_dmx` — What the desk outputs, read by Lua chunks with dmx_seconds idle time per sweep: the plan s
+  - 1378 `poll_types` — Profile discovery remains available when live DMX readback is disabled.
+  - 1396 `expire_dmx`
+  - 1412 `dmx_diagnostics` — Local, read-only snapshot. Never treats cached/sent values as actual output.
+  - 1464 `read_dmx` — One read; refusals back off and stop sending after READ_ATTEMPTS until a context reset.
+  - 1589 `require_scene_context`
+  - 1594 `confirm_scene_show`
+  - 1603 `read_scenes` — Existing scenes_import reader; caller holds action_lock and saves atomically.
+  - 1631 `catalogue_meta`
+  - 1638 `read_ma2` — All pools must be complete; errors never turn a previous catalogue into empty.
+  - 1676 `send_ma2_lines`
+  - 1690 `ma2_action`
+  - 1830 `invalidate_scene_offers`
+  - 1836 `offer_context`
+  - 1839 `find_scene_slot`
+    - 1844 `emit`
+  - 1893 `store_checked` — Check fresh console data while the caller holds action_lock, in every write mode.
+  - 1908 `record`
+  - 1921 `show_name`
+  - 1927 `plan_path`
+  - 1930 `check_show`
+  - 1939 `confirm_write_show` — A fresh read under action_lock before scene mutations, never auto-bind.
+  - 1947 `import_context`
+  - 1950 `import_xml`
+  - 1969 `confirm_import`
+  - 1987 `commit_import`
+  - 2029 `open_show_plan`
+  - 2075 `follow_desk_show` — Caller holds action_lock. A show made or loaded on the desk since: read its name now and m
+  - 2087 `plan_copy` — Placement and marks from another show's plan for fixtures with the same number here. Nothi
+  - 2117 `fetch_fixtures`
+    - 2122 `apply`
+  - 2134 `read_types` — Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureT
+    - 2138 `validate_editor`
+    - 2164 `send`
+    - 2175 `can_retry`
+    - 2179 `failed`
+    - 2186 `read_type_table`
+    - 2241 `commit`
+  - 2259 `require_patch_context`
+  - 2263 `send_planned` — One write line of a confirmed patch/RDM plan: the guard lets out exactly this line, once.
+  - 2285 `rdm_read`
+  - 2300 `patch_offer`
+  - 2307 `patch_action` — Раздел «Патч» (spec 21). Every write needs its flag, a fresh plan token and the action loc
+  - 2446 `list_shows`
+  - 2465 `load_show`
+  - 2564 `handle`
+  - 3118 `on_result`
+  - 3135 `rdm_busy`
+  - 3150 `ProtocolThrottle`
+    - 3151 `clear`
+  - 3166 `lifespan`
+  - 3198 `mask`
+  - 3201 `safe_data`
+  - 3213 `DiagnosticHandler`
+    - 3214 `emit`
+  - 3229 `updating`
+  - 3239 `update_busy`
+  - 3246 `update_gate`
+  - 3253 `update_reopen`
+  - 3257 `update_stop`
+  - 3262 `perform_action_inner`
+  - 3299 `operation_reply`
+  - 3311 `finish_operation`
+  - 3327 `perform_action`
+  - 3371 `handle_load`
+  - 3380 `ws_endpoint`
+  - 3383 `simple_ws_endpoint`
+  - 3386 `serve_ws`
+    - 3396 `worker`
+    - 3400 `spawn`
+  - 3451 `no_cache`
+  - 3472 `simple_index`
+  - 3476 `simple_style`
+  - 3480 `simple_script`
+  - 3484 `simple_feedback_script`
+  - 3488 `simple_health`
+  - 3492 `update_health`
+- 3504 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
+- 3526 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
+- 3538 `local_addresses`
+- 3545 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
+- 3565 `stop_running`
+- 3577 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
+- 3590 `main`
 
 ## ma2panel/browser_update.py
-- 38 `trusted_url`
-- 45 `GitHubRedirect`
-  - 46 `redirect_request`
-- 51 `_open`
-- 56 `supported_platform`
-- 60 `version_key`
-- 68 `newer`
-- 72 `download`
-- 86 `fetch_json`
-- 108 `latest`
-- 135 `status`
-- 148 `progress`
-- 156 `release_lock`
-- 160 `prepare`
-- 194 `launch`
-- 211 `stop_child`
-- 222 `health`
-  - 226 `record`
-- 259 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
-  - 261 `__init__`
-  - 266 `start`
-    - 270 `Handler`
-      - 271 `log_message`
-      - 274 `do_GET`
-  - 308 `stop`
-- 316 `apply`
-- 369 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
-  - 390 `wait`
-- 402 `worker`
-- 421 `Updater`
-  - 422 `__init__`
-  - 426 `begin`
-  - 435 `_run`
-- 476 `recover_pending`
-- 496 `watch_orphan`
-- 527 `orphan_worker`
-- 557 `register`
-  - 563 `local`
-  - 574 `denied`
-  - 578 `update_health`
-  - 582 `update_status`
-  - 588 `check_update`
-  - 600 `updater_idle`
-  - 606 `quiesce`
-  - 615 `start_update`
+- 39 `trusted_url`
+- 46 `GitHubRedirect`
+  - 47 `redirect_request`
+- 52 `_open`
+- 57 `supported_platform`
+- 61 `version_key`
+- 69 `newer`
+- 73 `download`
+- 87 `fetch_json`
+- 109 `latest`
+- 143 `status`
+- 156 `progress`
+- 164 `release_lock`
+- 168 `prepare`
+- 207 `launch`
+- 224 `stop_child`
+- 235 `health`
+  - 239 `record`
+- 272 `StatusRelay` — Read-only loopback status on the original port while the bridge is absent.
+  - 274 `__init__`
+  - 279 `start`
+    - 283 `Handler`
+      - 284 `log_message`
+      - 287 `do_GET`
+  - 321 `stop`
+- 329 `apply`
+- 385 `wait_parent` — Acquire a Windows process handle before acknowledging readiness (no PID reuse race).
+  - 406 `wait`
+- 418 `worker`
+- 437 `Updater`
+  - 438 `__init__`
+  - 442 `begin`
+  - 451 `_run`
+- 493 `recover_pending`
+- 513 `watch_orphan`
+- 544 `orphan_worker`
+- 574 `register`
+  - 580 `local`
+  - 591 `denied`
+  - 595 `update_health`
+  - 599 `update_status`
+  - 605 `check_update`
+  - 617 `updater_idle`
+  - 623 `quiesce`
+  - 632 `start_update`
 
 ## ma2panel/commands.py
 - 22 `ActionError`
@@ -243,45 +247,57 @@
 - 85 `exec_verdict`
 - 97 `unrecognised_lines`
 - 110 `parse_executors` — (exec, label) from a `List Executor` reply. ponytail: reply format guessed, check in the h
-- 121 `can_move` — Heads: the old moves flag, or Pan/Tilt among the parameters read from the MA2 export.
-- 126 `parse_ma2_objects` — Catalogue rows from the site's assumed List format; never infer fixture membership.
-- 142 `group_slot_empty` — Only an explicit empty response is safe; echoes/prompts alone prove nothing.
-- 156 `parse_running` — exec -> running, only for lines that carry a status word. ponytail: status word guessed, c
-- 178 `movers`
-- 183 `scale`
-- 189 `attr_lines`
-- 194 `head_lines` — Pan/Tilt/... lines, each group of attribute lines behind its own explicit `Fixture` line.
-- 209 `select_line`
-- 213 `apply_move`
-- 219 `check_move`
-- 227 `check_jog` — Joystick step in degrees since the last one: relative, so the desk and the panel can turn
-- 237 `mirrored` — Mirror mode: the left half of the heads on the plan (by x; unplaced ones by number) turns
-- 244 `pan_flip`
-- 248 `rel_lines` — Relative Pan/Tilt lines in degrees; a head marked flip_pan / flip_tilt (hung upside down)
-- 265 `parse_label`
-- 272 `build`
-- 344 `targets`
-- 355 `validate_hall`
-- 369 `parse_positions` — x and y both null take the fixture off the plan, back to the tray.
-- 401 `is_error_reply`
-- 405 `load_config`
-- 436 `absolute` — "1.289" -> 289, "2.001" -> 513.
-- 442 `dmx_intervals` — Sorted (start, count) ranges, without reading holes in a sparse patch.
-- 456 `dmx_span` — (first address, count) covering every patched fixture of the plan.
-- 462 `dmx_lua` — One Lua line per chunk of DMX_CHUNK addresses.
-- 469 `parse_dmx` — {absolute address: 0-255} from the Lua feedback or ListVar; -1 (unreadable) is left out.
-- 487 `live_from_dmx` — What each fixture shows, from its type's channel numbers (1-based: dim, r, g, b). Without
-- 521 `check_dmx_map` — {dim, r, g, b}: channel numbers 1-64 or absent.
-- 535 `dmx_text` — 289 -> "1.289".
-- 540 `parse_address` — "1.290", "290" or 290 -> absolute 1-based address; anything else is refused.
-- 548 `check_uid`
-- 555 `patch_rows` — One row per patched fixture: MA2 range (profile footprint) and, when read by RDM or entere
-- 579 `patch_plan` — What a readdress changes, checked against every other fixture of the plan. token: the plan
-  - 601 `fits`
-- 632 `parse_type_footprints` — {type number: DMX footprint} from List FixtureType. Hall 2026-10-21 (3.9.60.68): fixed-wid
-- 650 `parse_type_names` — Unique exact LongName -> number from the recorded MA2 FixtureType table.
-- 668 `type_no`
-- 673 `parse_rdm_list` — RdmList feedback -> [{uid, line}]. ponytail: the 3.9 manual gives no column layout, so onl
+- 121 `can_move` — Heads: explicit fixture attributes/flag, or Pan+Tilt from a current confirmed type.
+- 128 `parse_ma2_objects` — Catalogue rows from the site's assumed List format; never infer fixture membership.
+- 144 `group_slot_empty` — Only an explicit empty response is safe; echoes/prompts alone prove nothing.
+- 158 `parse_running` — exec -> running, only for lines that carry a status word. ponytail: status word guessed, c
+- 180 `movers`
+- 185 `scale`
+- 191 `attr_lines`
+- 196 `head_lines` — Pan/Tilt/... lines, each group of attribute lines behind its own explicit `Fixture` line.
+- 211 `select_line`
+- 215 `apply_move`
+- 221 `check_move`
+- 229 `check_jog` — Joystick step in degrees since the last one: relative, so the desk and the panel can turn
+- 239 `mirrored` — Mirror mode: the left half of the heads on the plan (by x; unplaced ones by number) turns
+- 246 `pan_flip`
+- 250 `rel_lines` — Relative Pan/Tilt lines in degrees; a head marked flip_pan / flip_tilt (hung upside down)
+- 267 `parse_label`
+- 274 `build`
+- 346 `targets`
+- 357 `validate_hall`
+- 371 `parse_positions` — x and y both null take the fixture off the plan, back to the tray.
+- 403 `is_error_reply`
+- 407 `load_config`
+- 438 `absolute` — "1.289" -> 289, "2.001" -> 513.
+- 444 `dmx_intervals` — Sorted (start, count) ranges, without reading holes in a sparse patch.
+- 458 `dmx_span` — (first address, count) covering every patched fixture of the plan.
+- 464 `dmx_lua` — One Lua line per chunk of DMX_CHUNK addresses.
+- 471 `parse_dmx` — {absolute address: 0-255} from the Lua feedback or ListVar; -1 (unreadable) is left out.
+- 489 `live_from_dmx` — What each fixture shows, from its type's channel numbers (1-based: dim, r, g, b). Without
+- 523 `check_dmx_map` — {dim, r, g, b}: channel numbers 1-64 or absent.
+- 537 `dmx_text` — 289 -> "1.289".
+- 542 `parse_address` — "1.290", "290" or 290 -> absolute 1-based address; anything else is refused.
+- 550 `check_uid`
+- 557 `patch_rows` — One row per patched fixture: MA2 range (profile footprint) and, when read by RDM or entere
+- 581 `patch_plan` — What a readdress changes, checked against every other fixture of the plan. token: the plan
+  - 603 `fits`
+- 634 `parse_type_footprints` — {type number: DMX footprint} from List FixtureType. Hall 2026-10-21 (3.9.60.68): fixed-wid
+- 652 `parse_type_names` — Unique exact LongName -> number from the recorded MA2 FixtureType table.
+- 670 `type_no`
+- 675 `parse_rdm_list` — RdmList feedback -> [{uid, line}]. ponytail: the 3.9 manual gives no column layout, so onl
+
+## ma2panel/data_transfer.py
+- 21 `_linked`
+- 25 `_files`
+- 32 `_private`
+- 45 `_root`
+- 52 `_name`
+- 63 `_settled`
+- 88 `backup`
+- 132 `inspect`
+- 161 `restore`
+- 199 `main`
 
 ## ma2panel/diagnostic_readback.py
 - 6 `_number`
@@ -357,9 +373,9 @@
 - 41 `parse_group_export` — {group number: [fixture ids]} from an `Export Group` XML. listed: {n: name} from List Grou
 - 62 `parse_export` — Fixtures with a Fixture ID. skipped, if given, gets the names of <Fixture> entries without
 - 112 `parse_fixture_type` — {dim, r, g, b}: 1-based DMX channel of each attribute, from an Export FixtureType file (<C
-- 178 `merge_fixtures` — Preserve placement; only a one-to-one name/type match can be automatic.
-  - 189 `unchanged`
-- 274 `save_config`
+- 183 `merge_fixtures` — Preserve placement; only a one-to-one name/type match can be automatic.
+  - 194 `unchanged`
+- 279 `save_config`
 
 ## ma2panel/link.py
 - 28 `Throttle`
@@ -404,14 +420,21 @@
 ## ma2panel/mock.py
 - 16 `MockMA2`
   - 17 `__init__`
-  - 79 `output` — Small LTP/soft-transfer test model; not a console emulator or evidence.
-  - 108 `_handle`
-  - 147 `_wire`
-  - 152 `_reply`
-  - 158 `_answer`
-  - 334 `_real_list` — Rows as the hall console printed them; executor rows were never captured, so those keep th
-  - 350 `drop`
-- 355 `start_mock`
+  - 81 `output` — Small LTP/soft-transfer test model; not a console emulator or evidence.
+  - 110 `configure_simulation` — Synthetic fixture-space output; never DMX or evidence from a console.
+  - 133 `simulation_output`
+  - 158 `_simulate`
+  - 219 `_handle`
+  - 258 `_wire`
+  - 263 `_reply`
+  - 276 `_answer`
+  - 457 `_real_list` — Rows as the hall console printed them; executor rows were never captured, so those keep th
+  - 473 `drop`
+- 478 `start_mock`
+
+## ma2panel/mock_console.py
+- 25 `is_read_only`
+- 29 `validate`
 
 ## ma2panel/onboarding.py
 - 11 `tablet_urls`
@@ -420,6 +443,25 @@
   - 35 `urls`
   - 39 `status`
   - 51 `qr`
+
+## ma2panel/quality_diagnostics.py
+- 19 `digest`
+- 23 `recovery_pending`
+- 32 `capability`
+- 67 `readiness`
+  - 69 `add`
+- 107 `_num`
+- 111 `technical_attribute`
+- 116 `_xml`
+  - 119 `node`
+- 144 `collect` — Allowlist numeric structure; no credentials, arbitrary strings, paths or logs.
+- 223 `pack`
+- 231 `register`
+  - 235 `lifespan`
+  - 249 `local`
+  - 252 `status`
+  - 257 `preview`
+  - 268 `download`
 
 ## ma2panel/rdm_search.py
 - 30 `read_command`
@@ -454,17 +496,23 @@
   - 72 `walk`
 - 145 `identity`
 - 160 `runtime`
-- 167 `_json`
-- 171 `build`
-- 182 `write_zip`
-- 193 `write_tree`
-- 205 `write_windows_launcher` — Stable outer entry point; updates keep operating inside program/.
-- 220 `_object`
-- 229 `check`
-- 236 `_check`
-- 275 `_runtime_files`
-- 291 `record_runtime`
-- 295 `verify_runtime`
+- 178 `_json`
+- 182 `build`
+- 198 `write_zip`
+- 209 `write_tree`
+- 221 `write_windows_launcher` — Stable outer entry point; updates keep operating inside program/.
+- 236 `_object`
+- 245 `check`
+- 252 `_check`
+- 291 `_runtime_files`
+- 307 `record_runtime`
+- 311 `verify_runtime`
+
+## ma2panel/release_quality.py
+- 17 `fingerprint`
+- 21 `validate`
+- 43 `authenticate`
+- 64 `verify_archive`
 
 ## ma2panel/safety.py
 - 76 `_atomic_bytes`
@@ -500,13 +548,10 @@
 - 47 `slot_candidates`
 
 ## ma2panel/selfcheck.py
-- 20 `check`
-- 25 `get`
-- 30 `log_lines`
-- 35 `ask`
-- 45 `fixtures_report`
-- 60 `main`
-- 100 `cli`
+- 16 `check`
+- 21 `get`
+- 26 `main` — Read cached readiness; never run WS actions or infer safety from missing logs.
+- 46 `cli`
 
 ## ma2panel/show_files.py
 - 15 `fingerprint`
@@ -584,6 +629,12 @@
 - 530 `run`
 - 569 `main`
 
+## ma2panel/windows_asyncio.py
+- 16 `install_windows_transport_recovery`
+  - 23 `delegate`
+  - 29 `recover`
+- 59 `_traceback_frames`
+
 ## static/static/app.js
 - 11 `selectionIdentity`
 - 20 `rememberSelection`
@@ -606,56 +657,56 @@
 - 165 `fixtures`
 - 166 `fixture`
 - 168 `canMove`
-- 169 `hasFixtures`
-- 170 `safe`
-- 177 `linkLine`
-- 189 `send`
-- 224 `sendRaw`
-- 238 `busy`
-- 240 `feedback`
-- 244 `renderOperationFeedback`
-- 255 `notice`
-- 273 `actionFeature`
-- 277 `featureReason`
-- 283 `go`
-- 295 `render`
-- 345 `renderBanners`
-- 374 `renderSection`
-- 423 `readFromMa2`
-- 424 `fixtureImportComplete`
-- 435 `fixtureImportChoices`
-- 465 `SECTIONS.start`
-- 518 `setupSteps`
-- 534 `safetyText`
-- 541 `ma2Card`
-- 565 `pagesList`
-- 570 `SECTIONS.prepare`
-- 583 `SECTIONS.help`
-- 594 `transitionControl`
-- 607 `SECTIONS.scenes`
-- 687 `masterControl`
-- 706 `setFill`
-- 711 `openSceneEdit`
-- 740 `cancelStore`
-- 744 `openStore`
-- 784 `SECTIONS.history`
-- 796 `SECTIONS.shows`
-- 857 `discardPending`
-- 871 `clearEvidence`
-- 876 `sceneAllowed`
-- 879 `sceneEvidence`
-- 886 `valueFreshness`
-- 889 `sentSource`
-- 892 `sentStale`
-- 895 `observeEvidence`
-- 903 `expireEvidence`
-- 924 `receive`
-- 1069 `connect`
-- 1097 `cancelSlider`
-- 1104 `flushSliders`
-- 1113 `throttleSlider`
-- 1128 `selectConsoleGroup`
-- 1137 `selectFixtures`
+- 173 `hasFixtures`
+- 174 `safe`
+- 181 `linkLine`
+- 193 `send`
+- 228 `sendRaw`
+- 242 `busy`
+- 244 `feedback`
+- 248 `renderOperationFeedback`
+- 259 `notice`
+- 277 `actionFeature`
+- 281 `featureReason`
+- 287 `go`
+- 299 `render`
+- 349 `renderBanners`
+- 378 `renderSection`
+- 427 `readFromMa2`
+- 428 `fixtureImportComplete`
+- 439 `fixtureImportChoices`
+- 469 `SECTIONS.start`
+- 522 `setupSteps`
+- 538 `safetyText`
+- 545 `ma2Card`
+- 569 `pagesList`
+- 574 `SECTIONS.prepare`
+- 587 `SECTIONS.help`
+- 598 `transitionControl`
+- 611 `SECTIONS.scenes`
+- 691 `masterControl`
+- 710 `setFill`
+- 715 `openSceneEdit`
+- 744 `cancelStore`
+- 748 `openStore`
+- 788 `SECTIONS.history`
+- 800 `SECTIONS.shows`
+- 861 `discardPending`
+- 875 `clearEvidence`
+- 880 `sceneAllowed`
+- 883 `sceneEvidence`
+- 890 `valueFreshness`
+- 893 `sentSource`
+- 896 `sentStale`
+- 899 `observeEvidence`
+- 907 `expireEvidence`
+- 928 `receive`
+- 1074 `connect`
+- 1102 `cancelSlider`
+- 1109 `flushSliders`
+- 1118 `throttleSlider`
+- 1133 `selectConsoleGroup`
+- 1142 `selectFixtures`
 
 ## static/static/command-feedback.js
 - 2 `commandOperationName`
@@ -677,14 +728,17 @@
 - 88 `guarded`
 
 ## static/static/interface.js
-- 4 `panelReadTools`
-- 8 `panelToolVisible`
-- 10 `panelRefreshTools`
+- 3 `readDisplayPrefs`
+- 15 `toolVisible`
+- 16 `panelToolVisible`
+- 17 `saveDisplayPrefs`
+- 20 `interfaceControls`
+- 35 `refreshDisplayPrefs`
 
 ## static/static/light.js
-- 4 `toolVisible`
-- 16 `colorMode`
-- 17 `supports`
+- 15 `colorMode`
+- 16 `supports`
+- 27 `showTool`
 - 28 `selected`
 - 29 `attributeVisible`
 - 38 `split`
@@ -699,13 +753,13 @@
 - 78 `pickRow`
 - 83 `SECTIONS.light`
 - 87 `lightWorkspace`
-- 289 `plural`
-- 294 `sliderCard`
-- 324 `hsv2rgb`
-- 328 `rgb2hsv`
-- 333 `cssRgb`
-- 335 `colorCard`
-- 466 `moveCard`
+- 300 `plural`
+- 305 `sliderCard`
+- 335 `hsv2rgb`
+- 339 `rgb2hsv`
+- 344 `cssRgb`
+- 346 `colorCard`
+- 477 `moveCard`
 
 ## static/static/move.js
 - 9 `moveHeads`
@@ -750,18 +804,21 @@
 - 35 `planEndEdit`
 - 43 `highlightOn`
 - 60 `planBeamAngle`
-- 76 `hallPlan`
-- 336 `tapFixture`
-- 357 `planOrder`
-- 358 `planCurrent`
-- 364 `planLight`
-- 369 `planNext`
-- 383 `planStep`
-- 392 `SECTIONS.hall`
-- 472 `hallForm`
-- 498 `groupSide`
-- 524 `openGroupStore`
-- 542 `beamCard`
+- 77 `hallPlan`
+- 338 `tapFixture`
+- 359 `planOrder`
+- 360 `planCurrent`
+- 366 `planLight`
+- 371 `planNext`
+- 385 `planStep`
+- 394 `SECTIONS.hall`
+- 474 `hallForm`
+- 500 `groupSide`
+- 526 `openGroupStore`
+- 544 `beamCard`
+
+## static/static/quality-diagnostics.js
+
 
 ## static/static/settings.js
 - 7 `status`

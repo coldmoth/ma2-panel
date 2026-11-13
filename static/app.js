@@ -1,7 +1,7 @@
 /* Panel core: link to the bridge, shell (rail, top bar, banners) and the Площадка, Сцены, Шоу sections.
    light.js draws Свет, plan.js draws the hall plan and Зал, move.js the Pan/Tilt pad. */
 var state = {valuesRevision: -1, master: null, readFreshness: {}, ws: null, ma2: 'down', mock: false, last: null, manual: false, page: null, scenes: {}, config: null, configN: 0,
-  shown: {}, live: {}, dmx: {}, sceneMeta: {}, valuesMeta: {}, tracked: true, selection: [], group: null, halted: false, safety: null, features: {}, highlight: null,
+  shown: {}, live: {}, simulation: {}, dmx: {}, sceneMeta: {}, valuesMeta: {}, tracked: true, selection: [], group: null, halted: false, safety: null, features: {}, highlight: null,
   showLoad: {state: 'idle'}, show: {name: null}, sec: 'scenes', blackoutArm: false, blackoutEpoch: 0,
   fetch: null, ma2read: null, showNames: null, showRaw: [], showLocal: [], showPick: null, saveReply: '', history: []};
 // Reconnect restores intent only after fresh fixture identity and bridge-only selection ACK.
@@ -165,7 +165,11 @@ function connected() { return contextReadable() && !selectionSync && !state.reco
 function fixtures() { return (state.config && state.config.fixtures) || []; }
 function fixture(id) { return fixtures().filter(function (f) { return f.id === id; })[0] || null; }
 // A head: marked by the operator (moves), or Pan/Tilt among the attribute names from MA2. Same rule as commands.can_move.
-function canMove(f) { return !f.missing && (f.moves === true || (f.params || []).some(function (p) { return /^(pan|tilt)$/i.test(p); })); }
+function canMove(f) {
+  var profile = ((state.config || {}).dmx_map || {})[f.type] || {};
+  return !f.missing && (f.moves === true || (f.params || []).some(function (p) { return /^(pan|tilt)$/i.test(p); }) ||
+    !profile.stale && !profile.unsupported && (profile.has || []).indexOf('pos') >= 0);
+}
 function hasFixtures() { return fixtures().length > 0; }
 function safe(flag) { return !!(state.safety && state.safety[flag]); }
 
@@ -375,7 +379,7 @@ function renderSection() {
   var el = document.getElementById('page');
   activeControls = activeControls.filter(function(control){return el.contains(control);});
   var hl = state.highlight || {};
-  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, state.configN, state.selection, state.ma2, state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
+  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, state.configN, state.selection, state.ma2, connected(), state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
     // Poll timestamps are evidence, not structural UI state. Replacing the page on
     // every read loses open details and pointer targets between down and up.
     [state.show.name,state.show.source], sceneUI.editing, sceneUI.masterOpen, state.safety, state.features, SETUP.indexOf(state.sec) >= 0 ? state.readFreshness : null, state.fetch, state.ma2read, state.showNames, state.showPick, state.saveReply, state.page, sceneFade,
@@ -404,7 +408,7 @@ function renderSection() {
   updaters = [];
   el.className = 'page' + (state.sec === 'light' || state.sec === 'hall' ? ' fill' : '');
   SECTIONS[state.sec](el);
-  if (['light','scenes'].indexOf(state.sec) >= 0 && typeof lightUI !== 'undefined' && lightUI.picking) document.getElementById('fixture-picker').showModal();
+  if (state.sec === 'scenes' && typeof lightUI !== 'undefined' && lightUI.picking) document.getElementById('fixture-picker').showModal();
   if (state.sec === 'scenes' && sceneUI.masterOpen) document.getElementById('scene-master').showModal();
   if (sameSec) {
     el.scrollTop = scroll.page;
@@ -869,7 +873,7 @@ function discardPending() {
 }
 
 function clearEvidence() {
-  state.scenes = {}; state.sceneMeta = {}; state.shown = {}; state.live = {}; state.dmx = {};
+  state.scenes = {}; state.sceneMeta = {}; state.shown = {}; state.live = {}; state.simulation = {}; state.dmx = {};
   state.valuesMeta = {}; state.master = null;
   evidenceReceipts = {scenes: {}, values: {}};
 }
@@ -909,7 +913,7 @@ function expireEvidence() {
       if (group[0][id] && group[0][id].freshness === 'fresh') {
         group[0][id] = Object.assign({}, group[0][id], {freshness: 'stale'});
         if (group[2]) state.scenes[id] = null;
-        else if (id === 'live') { state.live = {}; state.dmx = {}; }
+        else if (id === 'live') { state.live = {}; state.simulation = {}; state.dmx = {}; }
         else if (id.indexOf('sent:') === 0) {
           var parts = id.split(':');
           if (state.shown[parts[1]]) delete state.shown[parts[1]][parts[2]];
@@ -985,6 +989,7 @@ function receive(message) {
   if ('master' in message) state.master = message.master;
   if (message.shown) state.shown = message.shown;
   if (message.history) state.history = message.history;
+  if (message.simulation) state.simulation = message.simulation;
   if (message.live) state.live = message.live;  // what the desk outputs (DMX read-back), every fixture
   if (message.dmx) state.dmx = message.dmx;
   if ('tracked' in message) state.tracked = message.tracked;

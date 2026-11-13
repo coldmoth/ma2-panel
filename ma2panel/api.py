@@ -391,3 +391,15 @@ def register(app, c, is_loopback):
                 archive.writestr(name, mask(content))
         return Response(buffer.getvalue(), media_type="application/zip",
                         headers={"Content-Disposition": f'attachment; filename="ma2-diag-{time.strftime("%Y%m%d-%H%M%S")}.zip"'})
+
+    from . import quality_diagnostics
+    def quality_snapshot():
+        from copy import deepcopy
+        from types import SimpleNamespace
+        root = Path(config_path).parent
+        pending = quality_diagnostics.recovery_pending(root)
+        snapshot = {key: deepcopy(state.get(key, {})) for key in ('show', 'read_freshness', 'type_reads')}
+        snapshot.update(values_meta=c.values_meta(), recovery_pending=pending, mock=c.mock)
+        connection = SimpleNamespace(ready=link.ready, state=link.state, halted=link.halted, vars=dict(link.vars))
+        return deepcopy(cfg), deepcopy({**settings, 'safety': safety, 'dmx_seconds': c.dmx_seconds}), snapshot, connection
+    quality_diagnostics.register(app, quality_snapshot, is_loopback, root=Path(config_path).parent)

@@ -57,3 +57,13 @@ Press **Ctrl+C** in the launcher window, or open **`program/stop.bat`**. Stoppin
 - [Install from source or use mock mode](ADVANCED.md)
 
 [All documentation](README.md)
+
+При работающем мосте запустите `program/selfcheck.bat`; по умолчанию проверяется
+основной порт 8080. При другом основном порте передайте его URL явно:
+`selfcheck.bat http://127.0.0.1:8180` (из исходников —
+`uv run python selfcheck.py http://127.0.0.1:8180`). Простой порт не имеет API диагностики.
+Отчёт `selfcheck-report.txt` сохраняется рядом со скриптом. Код процесса 0 означает,
+что все проверки успешны; 1 — отрицательную проверку, сбой проверки или записи отчёта.
+BAT возвращает этот код после pause. Selfcheck пассивен в любом режиме: читает
+готовность и страницы, не выбирает приборы, не запускает List/Export и не меняет
+разрешения. Unknown/blocked тоже дают код 1. Он не заменяет приёмку реального MA2.

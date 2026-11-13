@@ -16,13 +16,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 
 if __package__:
-    from . import release, update
+    from . import release, update, release_quality
 else:
     # Detached workers run with embedded Python, which may omit this directory.
     import importlib.util
-    for _name in ('release', 'update'):
+    for _name in ('release', 'update', 'release_quality'):
         _spec = importlib.util.spec_from_file_location(_name, Path(__file__).with_name(_name + '.py'))
         _module = importlib.util.module_from_spec(_spec)
         sys.modules[_name] = _module
@@ -119,17 +120,24 @@ def latest():
     assets = {a['name']: a['browser_download_url'] for a in records}
     if len(assets) != len(records):
         raise update.UpdateError('Повторные файлы релиза')
-    names = ('ma2-panel-update.zip', 'ma2-panel-update.zip.sha256')
+    names = ('ma2-panel-update.zip', 'ma2-panel-update.zip.sha256', release_quality.NAME)
     if not all(name in assets for name in names):
-        raise update.UpdateError('В релизе нет комплекта обновления и SHA256')
+        raise update.UpdateError('В релизе нет комплекта обновления, SHA256 или свидетельства качества')
     for name in names:
         parsed = urllib.parse.urlsplit(assets[name])
         if parsed.scheme != 'https' or parsed.netloc != 'github.com' or parsed.path != f'/{REPO}/releases/download/{tag}/{name}' or parsed.query or parsed.fragment:
             raise update.UpdateError('Недопустимый источник обновления')
+    try:
+        quality = release_quality.authenticate(fetch_json(assets[release_quality.NAME]), tag, REPO, fetch_json)
+        commit = fetch_json(f'https://api.github.com/repos/{REPO}/commits/{tag}')
+        if not isinstance(commit, dict) or commit.get('sha') != quality['source_sha']:
+            raise ValueError('Stable tag указывает на другой SHA')
+    except (ValueError, TypeError, KeyError) as exc:
+        raise update.UpdateError('Свидетельство качества не подтверждено: ' + str(exc)) from exc
     notes = data.get('body') or ''
     if not isinstance(notes, str):
         raise update.UpdateError('Неверное описание релиза')
-    return {'version': tag, 'url': assets[names[0]], 'checksum_url': assets[names[1]], 'notes': notes[:8000]}
+    return {'version': tag, 'url': assets[names[0]], 'checksum_url': assets[names[1]], 'notes': notes[:8000], 'quality': quality}
 
 
 def status(root):
@@ -179,6 +187,11 @@ def prepare(root, ident, info):
     if not tokens or not re.fullmatch('[0-9a-fA-F]{64}', tokens[0]) or hashlib.sha256(archive.read_bytes()).hexdigest() != tokens[0].lower():
         raise update.UpdateError('Контрольная сумма SHA256 не совпадает')
     manifest = release.check(archive, installed)
+    try:
+        proof = release_quality.authenticate(info.get('quality'), info.get('version'), REPO, fetch_json)
+        release_quality.verify_archive(archive, proof, info.get('version'))
+    except (ValueError, TypeError, KeyError, zipfile.BadZipFile) as exc:
+        raise update.UpdateError('Свидетельство качества не подтверждено: ' + str(exc)) from exc
     if info.get('version') and (version_key(manifest['version']) != version_key(info['version'])
                                or not newer(info['version'], update.version(root))):
         raise update.UpdateError('Версия пакета не соответствует новому стабильному релизу')
@@ -323,6 +336,9 @@ def apply(spec):
         if relay:
             relay.start()
         progress(root, ident, 'installing', owner=os.getpid())
+        if 'quality' in spec:
+            proof = release_quality.authenticate(spec['quality'], spec['stable_tag'], REPO, fetch_json)
+            release_quality.verify_archive(Path(spec['archive']), proof, spec['stable_tag'])
         update.backup_user_data(root)
         update.install(spec['archive'], root, operation=ident)
         installed = True
@@ -446,10 +462,11 @@ class Updater:
             closed = True
             folder = archive.parent / 'worker'
             folder.mkdir()
-            for name in ('browser_update.py', 'update.py', 'release.py'):
+            for name in ('browser_update.py', 'update.py', 'release.py', 'release_quality.py'):
                 shutil.copy2(Path(__file__).parent / name, folder / name)
             spec = {**{k: v for k, v in launch_spec.items() if k != 'reopen'}, 'id': ident, 'root': str(self.root), 'parent_pid': os.getpid(),
-                    'archive': str(archive), 'version': manifest['version']}
+                    'archive': str(archive), 'version': manifest['version'],
+                    **({'quality': info['quality'], 'stable_tag': info['version']} if info.get('quality') else {})}
             update.atomic_json(folder / 'job.json', spec)
             flags = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS} if sys.platform == 'win32' else {'start_new_session': True}
             child = subprocess.Popen([sys.executable, str(folder / 'browser_update.py'), str(folder / 'job.json')],

@@ -1,0 +1,5 @@
+# Captured protocol fixtures must retain exactly the bytes pinned in manifests.
+tests/*.xml -text
+tests/list_fixturetype_3.9.60.txt -text
+ma2panel/resources/mock/*.xml -text
+ma2panel/resources/mock/list_fixturetype_3.9.60.txt -text

@@ -1,0 +1,87 @@
+name: Prepare stable from tested candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run:
+        description: 'Successful CI run with candidate-quality and tested ZIPs'
+        required: true
+        type: string
+      stable_tag:
+        description: 'New stable tag, e.g. v3.3.1 (draft only)'
+        required: true
+        type: string
+      acceptance_json:
+        description: 'Exact candidate acceptance JSON: source_sha, assets, hardware, review, field_v3'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-candidate-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: stable-review
+    permissions:
+      contents: write
+      actions: read
+      checks: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CANDIDATE_RUN: ${{ inputs.candidate_run }}
+      STABLE_TAG: ${{ inputs.stable_tag }}
+      ACCEPTANCE: ${{ inputs.acceptance_json }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Verify source run and new stable tag
+        run: |
+          [[ "$CANDIDATE_RUN" =~ ^[0-9]+$ ]] || exit 1
+          [[ "$STABLE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          gh api "repos/$GH_REPO/actions/runs/$CANDIDATE_RUN" > run.json
+          python - <<'PY'
+          import json,os
+          run=json.load(open('run.json'))
+          assert run['conclusion']=='success' and run['head_sha']==os.environ['GITHUB_SHA']
+          assert run['event'] in ('push','workflow_dispatch')
+          json.dump(json.loads(os.environ['ACCEPTANCE']),open('acceptance.json','w'))
+          PY
+          if gh api "repos/$GH_REPO/git/ref/tags/$STABLE_TAG" >/dev/null 2>&1; then exit 1; fi
+      - name: Download exact tested artifacts
+        run: |
+          gh run download "$CANDIDATE_RUN" --repo "$GH_REPO" --name windows-release-candidate --dir candidate
+          gh run download "$CANDIDATE_RUN" --repo "$GH_REPO" --name candidate-quality --dir evidence
+          python - <<'PY'
+          import pathlib,json,os
+          files=list(pathlib.Path('candidate').rglob('build-inputs.json'))
+          assert len(files)==1
+          data=json.loads(files[0].read_text())
+          assert data['commit']==os.environ['GITHUB_SHA']
+          assert 'v'+data['version'].split('+')[0]==os.environ['STABLE_TAG']
+          PY
+      - name: Require software, V3, independent review and hardware acceptance
+        run: |
+          mapfile -d '' assets < <(find candidate -name '*.zip' -type f -print0)
+          args=()
+          for asset in "${assets[@]}"; do args+=(--asset "$asset"); done
+          python scripts/quality_gate.py verify --stable --sha "$GITHUB_SHA" --report evidence/quality.json --acceptance acceptance.json "${args[@]}"
+      - name: Bind stable proof to the exact promotion run
+        run: |
+          mapfile -d '' assets < <(find candidate -name '*.zip' -type f -print0)
+          args=()
+          for asset in "${assets[@]}"; do args+=(--asset "$asset"); done
+          python scripts/stable_evidence.py --sha "$GITHUB_SHA" --tag "$STABLE_TAG" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --repo "$GH_REPO" --report evidence/quality.json --acceptance acceptance.json "${args[@]}"
+          gh api --method POST "repos/$GH_REPO/check-runs" --input stable-check.json
+      - name: Prepare stable draft without rebuilding or publishing
+        run: |
+          mapfile -d '' assets < <(find candidate -type f -print0)
+          printf 'Verified candidate from CI run %s. Source: %s. Exact tested ZIPs; no rebuild. Hardware and independent review acceptance attached. Draft requires operator publication.\n' "$CANDIDATE_RUN" "$GITHUB_SHA" > notes.txt
+          gh release create "$STABLE_TAG" "${assets[@]}" evidence/quality.json acceptance.json stable-quality.json --repo "$GH_REPO" --target "$GITHUB_SHA" --draft --title "$STABLE_TAG" --notes-file notes.txt

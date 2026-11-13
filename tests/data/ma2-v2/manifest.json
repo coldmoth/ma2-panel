@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "show": "big room v2",
+  "ma2_version": "3.9.60",
+  "captured": "2026-10-18",
+  "complete": false,
+  "files": {
+    "ma2panel/resources/mock/real_export_3.9.60.xml": "1d7a73b004fd91d1997966de24be81f3d378494996bfddd291264927771d03a6"
+  },
+  "missing": ["Fresh Patch verification (V2 is functionally equivalent to V3 per owner)", "Full real FixtureType XML", "Confirmed MA2 group membership", "Current live DMX capture"],
+  "origin": "Real Export Fixture from hall; V2 accepted as functionally equivalent to V3; not a complete profile or a measured light model"
+}

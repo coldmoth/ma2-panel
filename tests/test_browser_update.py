@@ -228,7 +228,7 @@ def test_real_worker_update_restart_and_both_ports(tmp_path):
     url = f'http://127.0.0.1:{httpd.server_port}/update.zip'
     info = {'version': 'v3.2.0', 'url': url, 'checksum_url': url + '.sha256'}
     args = ['--mock', '--config', str(root / 'config.json'), '--settings', str(root / 'settings.json')]
-    code = f'import sys;from ma2panel import bridge,browser_update;browser_update.latest=lambda:{info!r};browser_update.supported_platform=lambda:True;browser_update._open=lambda req,timeout:__import__("urllib.request",fromlist=["urlopen"]).urlopen(req,timeout=timeout);sys.argv=[{str(root / "bridge.py")!r},*{args!r}];bridge.main()'
+    code = f'import sys;sys.path.insert(0,{str(root)!r});from ma2panel import bridge,browser_update;browser_update.release_quality.authenticate=lambda *a:{{}};browser_update.release_quality.verify_archive=lambda *a:None;browser_update.latest=lambda:{info!r};browser_update.supported_platform=lambda:True;browser_update._open=lambda req,timeout:__import__("urllib.request",fromlist=["urlopen"]).urlopen(req,timeout=timeout);sys.argv=[{str(root / "bridge.py")!r},*{args!r}];bridge.main()'
     log = (tmp_path / 'bridge-output.log').open('wb')
     parent = subprocess.Popen([sys.executable, '-c', code], cwd=root, stdout=log, stderr=log)
     new_pid = None

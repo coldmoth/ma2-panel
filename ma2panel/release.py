@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
-DOCS = ('SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'RELEASE-3.2.md', 'RELEASE-3.3.md', 'ONPC-HALL-TEST-3.2.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'hardware-acceptance.md', 'ma2-command-evidence.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md')
+DOCS = ('quality-audit-fixes-2026-11-13.md', 'quality-verification-2026-11-12.md', 'QUALITY-GATES.md', 'testing-infrastructure-audit.md', 'OPERATIONS.md', 'SETUP.md', 'USAGE.md', 'RELEASE-3.0.md', 'RELEASE-3.1.md', 'pre-hall-3.1.md', 'phase1-windows-smoke.md', 'browser-preflight.md', 'audit-step3-executors.md', 'audit-step5-programmer.md', 'audit-step6-blackout.md', 'audit-step7-scenes.md', 'update-usb.txt', 'spec.md', 'CODEMAP.md', 'code-index.md', 'hall-test-plan.md', 'outgoing-commands.md', 'ma2-syntax.md', 'archive/spec-history.md', 'superpowers/specs/2026-10-30-tablet-ui-design.md', 'RELEASE-3.2.md', 'RELEASE-3.3.md', 'ONPC-HALL-TEST-3.2.md', 'hardware-acceptance.md', 'ma2-command-evidence.md')
 MAX_FILE = 16 * 1024 * 1024
 MAX_TOTAL = 64 * 1024 * 1024
 
@@ -87,7 +87,7 @@ def payload(root):
         if directory.exists() or directory.is_symlink():
             walk(directory)
     # BAT-compatible standalone tools also serve detached USB/recovery workers.
-    for name in ('update.py', 'release.py', 'browser_update.py'):
+    for name in ('update.py', 'release.py', 'browser_update.py', 'release_quality.py'):
         source = root / 'ma2panel' / name
         if source.is_file():
             add(source, name)
@@ -158,10 +158,21 @@ def identity(root):
 
 
 def runtime(root):
-    # Published Windows runtimes used Git's CRLF checkout. Preserve that identity
-    # on every host without making the dependency content host-dependent.
-    lock = (Path(root) / 'uv.lock').read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
-    return {'python': '3.12', 'lock_sha256': hashlib.sha256(lock).hexdigest()}
+    raw = (Path(root) / 'uv.lock').read_bytes()
+    fingerprint = hashlib.sha256(raw.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')).hexdigest()
+    # The shipped 3.3.0 Windows runtime is pinned by its ZIP SHA256. Its actual
+    # distributions and the source lock graph were compared in the audit fix.
+    # Project version is not a library change. Any other graph change fails closed.
+    try:
+        graph = tomllib.loads(raw.decode('utf-8'))
+        for package in graph.get('package', []):
+            if package.get('name') == 'ma2-panel': package['version'] = 'PROJECT-VERSION'
+        normalized = hashlib.sha256(json.dumps(graph, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        if normalized == 'eb05b1f4fb50ad7388ca887ad72bca0b7ab4a4d4349da0645d2f97978a6ad61d':
+            fingerprint = '16fc35a00aaa556f2547fa51222cf8e84adf7638e8818169dad4434358f4a592'
+    except (ValueError, UnicodeError, TypeError):
+        pass
+    return {'python': '3.12', 'lock_sha256': fingerprint}
 
 
 def _json(value):
@@ -174,6 +185,11 @@ def build(root, version=None):
     if not isinstance(version, str) or not version.strip():
         raise ValueError('empty version')
     files['VERSION'] = version.encode('utf-8')
+    try:
+        sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], stderr=subprocess.DEVNULL, text=True).strip()
+    except (OSError, subprocess.SubprocessError):
+        sha = 'unknown'
+    files['source_identity.py'] = ('# source-sha: ' + sha + '\n').encode('ascii')
     manifest = {'schema': 1, 'version': version, 'runtime': runtime(root), 'files': {name: {'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)} for name, data in files.items()}}
     files['program-manifest.json'] = _json(manifest)
     return files

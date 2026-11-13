@@ -4,11 +4,6 @@ on:
   push:
     tags: ['v[0-9]*.[0-9]*.[0-9]*']
   workflow_dispatch:
-    inputs:
-      publish:
-        description: 'Publish a NEW stable release after all Windows checks pass'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -70,12 +65,6 @@ jobs:
           path: dist/release-assets/
           retention-days: 14
           if-no-files-found: error
-      - name: Publish only after complete uploaded draft is downloaded and verified
-        if: github.ref_type == 'tag' || inputs.publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: uv run --no-sync python -m scripts.release_delivery --folder dist/release-assets --commit $env:GITHUB_SHA --tag $env:RELEASE_TAG --publish
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -84,4 +73,4 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
     permissions:
-      contents: write
+      contents: read
