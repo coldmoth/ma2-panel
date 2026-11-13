@@ -136,6 +136,9 @@ def run(output: Path, node: str, script: Path = ROOT / "scripts/browser_smoke.cj
                 subprocess.run([node, str(script),
                                 *(f"http://127.0.0.1:{port}" for port in ports), str(output)],
                                env=env, check=True, timeout=300)
+            except subprocess.CalledProcessError:
+                print((output / 'mock.log').read_text(encoding='utf-8', errors='replace')[-16000:], file=sys.stderr)
+                raise
             finally:
                 # Own this PID only; never use the stop endpoint of an existing bridge.
                 stopping.set()

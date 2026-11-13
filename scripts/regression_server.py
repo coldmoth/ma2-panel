@@ -4,6 +4,27 @@ from pathlib import Path
 import sys
 
 
+
+def dump_restart_tasks(app):
+    """Read-only diagnostics if the isolated test process has not restarted."""
+    import asyncio
+    import os
+    tasks = []
+    for task in asyncio.all_tasks():
+        chain, current = [], task.get_coro()
+        for _ in range(24):
+            if current is None: break
+            frame = getattr(current, 'cr_frame', None) or getattr(current, 'gi_frame', None)
+            if frame is not None:
+                chain.append(f'{frame.f_code.co_filename}:{frame.f_lineno}:{frame.f_code.co_name}')
+            current = getattr(current, 'cr_await', None) or getattr(current, 'gi_yieldfrom', None)
+        tasks.append({'name': task.get_name(), 'chain': chain})
+    server = app.state.server
+    print('QUALITY_RESTART_PENDING ' + json.dumps({'pid': os.getpid(),
+        'should_exit': server.should_exit, 'connections': len(server.server_state.connections),
+        'server_tasks': len(server.server_state.tasks), 'tasks': tasks}), file=sys.stderr, flush=True)
+
+
 def main():
     from ma2panel import bridge
     from concert_demo import seed_mock, network_guard
@@ -66,6 +87,9 @@ def main():
                     mock._reply('ClearAll')
                 elif mode in ('restart', 'reset'):
                     (root / '.quality-restart').write_text('reset' if mode == 'reset' else 'requested')
+                    import asyncio, os
+                    print('QUALITY_RESTART_REQUESTED pid=' + str(os.getpid()), file=sys.stderr, flush=True)
+                    asyncio.get_running_loop().call_later(5, dump_restart_tasks, app)
                     app.state.exit_code = 3; app.state.server.should_exit = True
                 else: return JSONResponse({'ok': False}, status_code=400)
             return JSONResponse({'ok': True, 'instance': app.state.instance, 'received': mock.received, 'read_only': [c for c in mock.received if is_read_only(c)],

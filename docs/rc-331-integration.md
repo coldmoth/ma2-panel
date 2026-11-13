@@ -73,3 +73,11 @@ Chromium/WebKit прошёл полностью, включая full/simple/setu
 В CI #2 один свежий export case упал нестабильно; причина по старому assert
 не установлена. Пять новых процессов/10 fresh-stale случаев PASS; сообщение
 assert расширено полным result, без ослабления ожидания или повторов внутри теста.
+
+CI 43444304495: все preliminary jobs PASS. На Windows embedded 3.12.10 уже
+прошли двойная сборка/CRC/SHA/runtime, pristine ZIP, реальная v3.3.0 миграция,
+rollback/interrupted recovery, BAT/HTTP/WS и первые clean/V2 browser профили.
+Блокер: synthetic process restart после активного браузерного клиента: shutdown
+начался, новый instance не готов. Таймаут не повышался, процесс не маскируется
+принудительным выходом. Добавлен только read-only dump async wait chains/счётчиков
+через 5 с зависания и хвост child log при провале, чтобы найти точную причину.
