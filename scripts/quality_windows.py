@@ -7,7 +7,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.ci_windows_tests import run
 
 if __name__ == '__main__':
-    names = ('quality_diagnostics', 'quality_delivery', 'quality_gates', 'quality_lifecycle', 'data_transfer',
+    names = ('windows_asyncio', 'quality_diagnostics', 'quality_delivery', 'quality_gates', 'quality_lifecycle', 'data_transfer',
              'field_fixture_dataset', 'stable_quality', 'audit_regressions', 'committed_mock', 'reconnect_stream', 'first_run_zip', 'migration_v5', 'data_startup', 'onboarding')
     command = [sys.executable, '-u', '-m', 'pytest', '-q', '-p', 'no:cacheprovider',
                '--junitxml=test-results/windows-quality/pytest.xml',

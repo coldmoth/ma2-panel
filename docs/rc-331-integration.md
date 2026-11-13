@@ -81,3 +81,13 @@ rollback/interrupted recovery, BAT/HTTP/WS и первые clean/V2 browser пр
 начался, новый instance не готов. Таймаут не повышался, процесс не маскируется
 принудительным выходом. Добавлен только read-only dump async wait chains/счётчиков
 через 5 с зависания и хвост child log при провале, чтобы найти точную причину.
+
+CI 43459464805 подтвердил причину зависшего restart: после Windows 10054 в
+CPython 3.12 `_call_connection_lost` пропускает close/_detach; Uvicorn ждёт
+`Server.wait_closed` при connections=0/server_tasks=0. Добавлен узкий loop
+exception handler только win32/3.12, только этот callback и reset 10054:
+завершает cleanup и освобождает server bookkeeping без повтора protocol callback.
+Прочие ошибки делегируются прежнему/default handler; loop policy не меняется.
+Регрессионные тесты используют реальный stdlib callback/Server: RED на утечке,
+GREEN до/после server.close; 10053/чужой callback/другие платформы не подавляются.
+Независимый review этого workaround и всей интеграции до stable ещё требуется.

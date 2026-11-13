@@ -43,6 +43,7 @@ from .scene_runtime import GrandMasterBlackout, transition_lines, store_scene, c
 from .commands import fade_suffix
 from .commands import nudge_step
 from .mock import start_mock
+from .windows_asyncio import install_windows_transport_recovery
 from . import exports
 from . import rdm_search
 from . import diagnostic_upload
@@ -3657,6 +3658,7 @@ def main() -> None:
     pid.write_text(str(os.getpid()))
     try:
         async def serve():
+            install_windows_transport_recovery(asyncio.get_running_loop())
             servers = [server]
             if simple_port is not None:
                 servers.append(uvicorn.Server(uvicorn.Config(app.state.simple_app, host=bind, port=simple_port,

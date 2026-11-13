@@ -19,6 +19,8 @@
 
 Backend расположен в `ma2panel/`; имена модулей ниже относятся к этому пакету.
 Корневой `bridge.py` — стабильный launcher с recovery до импорта backend.
+`windows_asyncio.py` завершает прерванный cleanup серверного Proactor-транспорта
+только после Windows 10054 в Python 3.12; остальные ошибки делегируются штатно.
 Шаблоны и mock-данные — `ma2panel/resources/`, BAT — `scripts/win/`, relay — `scripts/relay/`.
 
 
