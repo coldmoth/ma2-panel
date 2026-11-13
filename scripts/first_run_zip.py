@@ -11,14 +11,25 @@ import urllib.request
 import zipfile
 
 # Run the actual entry point with shipped defaults. Reject outbound connects before
-# the OS can reach onPC, including loopback:30000. No app/settings patches.
+# the OS can reach onPC, including loopback:30000. Only the stdlib private self-pipe
+# may connect to its own listener. No app/settings patches.
 GUARDED = r'''
-import json,runpy,sys
+import json,runpy,socket,sys
 from pathlib import Path
 record=Path(sys.argv[1]); entry=sys.argv[2]; sys.argv=[entry]
 sys.path.insert(0,str(Path(entry).parent))
 def guard(event,args):
     if event=='socket.connect':
+        # Windows asyncio builds its private self-pipe with the stdlib TCP fallback.
+        frame = sys._getframe(1)
+        fallback = getattr(socket, '_fallback_socketpair', None)
+        if fallback is not None and frame.f_code is fallback.__code__:
+            listener, client = frame.f_locals.get('lsock'), frame.f_locals.get('csock')
+            if (listener is not None and client is args[0]
+                    and args[1][0] in ('127.0.0.1', '::1') and args[1][1] != 30000
+                    and tuple(args[1][:2]) == tuple(listener.getsockname()[:2])
+                    and frame.f_locals.get('port') == args[1][1]):
+                return
         with record.open('a',encoding='utf-8') as stream: stream.write(json.dumps(list(args[1]))+'\n')
         raise OSError('First-run ZIP acceptance blocks every outbound connection')
 sys.addaudithook(guard)
@@ -87,7 +98,7 @@ def check_program(program, executable, evidence, scenario='pristine'):
                 assert saved['ok']
                 stored = json.loads(settings.read_text(encoding='utf-8'))
                 assert stored['ma2']['user'] == 'FirstRunQA' and stored['safety']['mode'] == 'test'
-            # No connection has reached the OS; failed attempts are retained as evidence.
+            # No application connection reached the OS; blocked attempts remain evidence.
             attempts = [json.loads(line) for line in record.read_text().splitlines()] if record.exists() else []
             assert all(a[0] == '127.0.0.1' and a[1] == 30000 for a in attempts), attempts
         finally:

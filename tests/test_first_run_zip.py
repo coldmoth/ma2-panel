@@ -26,3 +26,29 @@ def test_delivered_defaults_without_replacing_configuration(tmp_path, scenario):
     check_program(program,sys.executable,tmp_path/'evidence',scenario)
     if scenario=='broken-config': assert (program/'config.json').read_bytes()==b'{broken'
     if scenario=='broken-settings': assert (program/'settings.json').read_bytes()==b'{broken'
+
+
+def test_guard_allows_only_stdlib_private_socketpair_and_blocks_application_connections(tmp_path):
+    import json
+    import subprocess
+    from scripts.first_run_zip import GUARDED
+    entry = tmp_path / 'entry.py'
+    entry.write_text('''import socket,sys
+left,right=socket._fallback_socketpair(socket.AF_INET)
+left.sendall(b"self-pipe");assert right.recv(9)==b"self-pipe"
+left.close();right.close()
+with socket.socket() as server, socket.socket() as client:
+    server.bind(("127.0.0.1",0));server.listen()
+    try: client.connect(server.getsockname())
+    except OSError as error: assert "First-run ZIP acceptance blocks" in str(error)
+    else: raise AssertionError("Application loopback connection escaped the guard")
+with socket.socket() as client:
+    try: sys.audit("socket.connect",client,("127.0.0.1",30000))
+    except OSError as error: assert "First-run ZIP acceptance blocks" in str(error)
+    else: raise AssertionError("MA2 address escaped the guard")
+''')
+    record = tmp_path / 'connects.jsonl'
+    result = subprocess.run([sys.executable,'-c',GUARDED,str(record),str(entry)], capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr
+    attempts = [json.loads(line) for line in record.read_text().splitlines()]
+    assert len(attempts) == 2 and attempts[-1] == ['127.0.0.1',30000]

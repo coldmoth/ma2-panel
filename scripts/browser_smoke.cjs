@@ -336,7 +336,7 @@ async function checkEngine(name) {
       available:{version:'v3.2.0',notes:'<script>throw Error("must stay text")</script>\nMock release notes'}
     }}));
     await updates.goto(fullURL + '/settings.html?embedded=1');
-    await updates.getByRole('tab', {name:'Обновления', exact:true}).click();
+    await updates.locator('#update-check').scrollIntoViewIfNeeded();
     await updates.locator('#update-check').click();
     await updates.waitForFunction(() => !document.getElementById('update-start').disabled);
     assert.match(await updates.locator('#update-notes').textContent(), /<script>/);
