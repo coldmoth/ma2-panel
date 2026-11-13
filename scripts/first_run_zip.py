@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -65,9 +66,15 @@ def check_program(program, executable, evidence, scenario='pristine'):
         for port in (8080,8090):
             with socket.socket() as sock: sock.bind(('127.0.0.1',port))
     record = evidence/'outbound.jsonl'
+    launch_executable, launch_env = str(executable), clean_environment()
+    if (sys.platform == 'win32' and sys.prefix != sys.base_prefix
+            and Path(executable).resolve() == Path(sys.executable).resolve()):
+        # Match the existing updater launcher: the venv redirector has a separate PID.
+        launch_executable = sys._base_executable
+        launch_env['__PYVENV_LAUNCHER__'] = sys.executable
     with (evidence/'bridge.log').open('wb') as log:
-        process = subprocess.Popen([str(executable), '-c', GUARDED, str(record), str(program/'bridge.py')],
-                                   cwd=program, env=clean_environment(), stdout=log, stderr=subprocess.STDOUT)
+        process = subprocess.Popen([launch_executable, '-c', GUARDED, str(record), str(program/'bridge.py')],
+                                   cwd=program, env=launch_env, stdout=log, stderr=subprocess.STDOUT)
         try:
             if fail:
                 assert process.wait(timeout=15) != 0

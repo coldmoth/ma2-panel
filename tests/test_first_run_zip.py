@@ -52,3 +52,24 @@ with socket.socket() as client:
     assert result.returncode == 0, result.stdout + result.stderr
     attempts = [json.loads(line) for line in record.read_text().splitlines()]
     assert len(attempts) == 2 and attempts[-1] == ['127.0.0.1',30000]
+
+
+def test_host_venv_launcher_preserves_pid_check_without_replacing_embedded_python(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from scripts import first_run_zip as first
+    host, base, embedded = (tmp_path/name for name in ('venv-python.exe','base-python.exe','embedded-python.exe'))
+    monkeypatch.setattr(first, 'sys', SimpleNamespace(platform='win32',prefix='venv',base_prefix='base',executable=str(host),_base_executable=str(base)),raising=False)
+    calls = []
+    class Captured(Exception): pass
+    def capture(args, **kwargs):
+        calls.append((args,kwargs['env']))
+        raise Captured
+    monkeypatch.setattr(first.subprocess, 'Popen', capture)
+    program = tmp_path/'program'; program.mkdir()
+    for executable in (host, embedded):
+        with pytest.raises(Captured):
+            first.check_program(program, executable, tmp_path/'evidence', 'broken-settings')
+    assert calls[0][0][0] == str(base)
+    assert calls[0][1]['__PYVENV_LAUNCHER__'] == str(host)
+    assert calls[1][0][0] == str(embedded)
+    assert '__PYVENV_LAUNCHER__' not in calls[1][1]

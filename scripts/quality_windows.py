@@ -13,4 +13,8 @@ if __name__ == '__main__':
                '--junitxml=test-results/windows-quality/pytest.xml',
                '--basetemp=test-results/windows-quality/tmp',
                *(str(ROOT / 'tests' / f'test_{n}.py') for n in names)]
-    sys.exit(run(command, ROOT / 'test-results/windows-quality', timeout=300))
+    output = ROOT / 'test-results/windows-quality'
+    result = run(command, output, timeout=300)
+    if result:
+        print((output / 'pytest.log').read_text(encoding='utf-8', errors='replace'))
+    sys.exit(result)

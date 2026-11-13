@@ -76,3 +76,37 @@ def test_demo_fixture_identity_survives_console_reimport(tmp_path):
     assert len(merged) == 60
     assert not any(f.get('ambiguous_candidates') for f in merged)
     assert [f.get('name') for f in cfg['fixtures']] == [f['name'] for f in found]
+
+
+@pytest.mark.parametrize('kind', ['demo', 'lifecycle'])
+def test_mock_harness_private_self_pipe_does_not_allow_application_network(tmp_path, kind):
+    import subprocess
+    import sys
+    from pathlib import Path
+    from scripts.first_run_zip import clean_environment
+    from scripts.release_lifecycle import BOOT
+    body = '''import socket,sys
+left,right=socket._fallback_socketpair(socket.AF_INET)
+left.sendall(b"self-pipe");assert right.recv(9)==b"self-pipe"
+left.close();right.close()
+with socket.socket() as server, socket.socket() as client:
+    server.bind(("127.0.0.1",0));server.listen()
+    try: client.connect(server.getsockname())
+    except OSError: pass
+    else: raise AssertionError("Unregistered application loopback escaped the guard")
+with socket.socket() as client:
+    try: sys.audit("socket.connect",client,("127.0.0.1",30000))
+    except OSError: pass
+    else: raise AssertionError("MA2 address escaped the guard")
+'''
+    source = Path(__file__).resolve().parents[1]
+    if kind == 'demo':
+        code = 'import sys\nfrom scripts.concert_demo import network_guard\nsys.addaudithook(network_guard(set()))\n' + body
+        args, cwd = [], source
+    else:
+        package = tmp_path/'ma2panel'; package.mkdir()
+        (package/'__init__.py').write_text('')
+        (package/'bridge.py').write_text('async def start_mock(*a,**k): pass\ndef main():\n' + ''.join('    '+line+'\n' for line in body.splitlines()))
+        code, args, cwd = BOOT, [str(tmp_path)], tmp_path
+    result = subprocess.run([sys.executable,'-c',code,*args],cwd=cwd,env=clean_environment(),capture_output=True,text=True,timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr

@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 import sys
 
-from scripts.generate_version import generate
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.generate_version import generate
 from ma2panel import release
 
 

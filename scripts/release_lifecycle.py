@@ -23,7 +23,7 @@ from ma2panel import release
 PREVIOUS_SHA256='b4d2ce6414e65f7654875af988e846b4883f4d798b5f4831aa9a757065196280'
 PREVIOUS_URL='https://github.com/coldmoth/ma2-panel/releases/download/v3.3.0/ma2-panel-update.zip'
 BOOT=r'''
-import sys
+import socket,sys
 from pathlib import Path
 root=Path(sys.argv[1]);sys.path.insert(0,str(root))
 if (root/'ma2panel/bridge.py').exists():
@@ -35,8 +35,19 @@ async def start(*a,**k):
     mock=await original(*a,**k);allowed.add(mock.port);return mock
 bridge.start_mock=start
 def guard(event,args):
-    if event=='socket.connect' and (args[1][0]!='127.0.0.1' or args[1][1] not in allowed):
-        raise OSError('Lifecycle permits only this installation own mock')
+    if event=='socket.connect':
+        # Windows asyncio builds its private self-pipe with the stdlib TCP fallback.
+        frame = sys._getframe(1)
+        fallback = getattr(socket, '_fallback_socketpair', None)
+        if fallback is not None and frame.f_code is fallback.__code__:
+            listener, client = frame.f_locals.get('lsock'), frame.f_locals.get('csock')
+            if (listener is not None and client is args[0]
+                    and args[1][0] in ('127.0.0.1', '::1') and args[1][1] != 30000
+                    and tuple(args[1][:2]) == tuple(listener.getsockname()[:2])
+                    and frame.f_locals.get('port') == args[1][1]):
+                return
+        if args[1][0]!='127.0.0.1' or args[1][1] not in allowed:
+            raise OSError('Lifecycle permits only this installation own mock')
 sys.addaudithook(guard)
 sys.argv=[str(root/'bridge.py'),'--mock','--config',str(root/'config.json'),'--settings',str(root/'settings.json')]
 bridge.main()

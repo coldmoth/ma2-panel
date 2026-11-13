@@ -60,3 +60,16 @@ Windows asyncio._make_self_pipe через socket._fallback_socketpair. Искл
 приложенческий loopback и MA2 по-прежнему блокируются (регрессия RED→GREEN).
 Preflight обновлений теперь проверяет существующий update-check напрямую:
 публичная страница настроек сохранена без новой структуры вкладок.
+
+CI 43441569911: browser-preflight и Linux full PASS; Windows first-run уже
+стартует, но PID проверки не учитывал Windows venv redirector. Для runner-venv
+применён существующий updater-паттерн base executable + __PYVENV_LAUNCHER__;
+embedded executable не заменяется, PID сравнивается по-прежнему строго.
+Те же private self-pipe ограничения проверены и добавлены к lifecycle/demo guards
+(обычный loopback и MA2 остаются заблокированы). RED→GREEN в subprocess tests.
+Clean-SHA упаковщик теперь запускается напрямую в minimal env без неявного
+PYTHONPATH (адресный CLI regression RED→GREEN). Локальный standard preflight
+Chromium/WebKit прошёл полностью, включая full/simple/setup/update и reconnect.
+В CI #2 один свежий export case упал нестабильно; причина по старому assert
+не установлена. Пять новых процессов/10 fresh-stale случаев PASS; сообщение
+assert расширено полным result, без ослабления ожидания или повторов внутри теста.

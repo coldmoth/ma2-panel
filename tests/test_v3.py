@@ -186,7 +186,7 @@ def test_export_search_freshness(bridge_cfg, tmp_path, fresh):
         mock.export_dir = str(other) if fresh else None
         before = path.read_bytes()
         result = confirm_fixture_import(ws, ask(ws, {'a': 'fixtures_fetch'}))
-        assert result['ok'] is fresh
+        assert result['ok'] is fresh, result
         if fresh:
             assert Path(result['file']).parent == other and Path(result['file']) != target
         else:

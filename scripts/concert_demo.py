@@ -1,6 +1,7 @@
 """Demo-only adapter around bridge.main and MockMA2; never loaded by the real launcher."""
 import gzip
 import json
+import socket
 from pathlib import Path
 import sys
 import time
@@ -95,6 +96,17 @@ def seed_mock(mock, config, app):
 def network_guard(allowed_ports):
     """Audit hook: even edited demo settings may only dial this process's mock server."""
     def check(event, args):
+        if event == 'socket.connect':
+            # Windows asyncio builds its private self-pipe with the stdlib TCP fallback.
+            frame = sys._getframe(1)
+            fallback = getattr(socket, '_fallback_socketpair', None)
+            if fallback is not None and frame.f_code is fallback.__code__:
+                listener, client = frame.f_locals.get('lsock'), frame.f_locals.get('csock')
+                if (listener is not None and client is args[0]
+                        and args[1][0] in ('127.0.0.1', '::1') and args[1][1] != 30000
+                        and tuple(args[1][:2]) == tuple(listener.getsockname()[:2])
+                        and frame.f_locals.get('port') == args[1][1]):
+                    return
         if event in ('socket.connect', 'socket.getaddrinfo'):
             host, port = (args[1][:2] if event == 'socket.connect' else args[:2])
             if host != '127.0.0.1' or port not in allowed_ports:
