@@ -27,9 +27,9 @@ const [url,,out]=process.argv.slice(2),headers={'x-ma2-test':process.env.MA2_TES
     await page.waitForFunction(()=>state.config.show===state.show.name);
     await nav('prepare');await page.getByRole('button',{name:'Подключение и синхронизация',exact:true}).click();
     await page.getByRole('button',{name:'Получить оборудование из MA2',exact:true}).click();
-    await page.waitForFunction(()=>state.config.fixtures.length===60&&Object.keys(state.config.dmx_map||{}).length===3);
+    await page.waitForFunction(()=>state.config.fixtures.length===60&&state.fetch?.state==='done');
     const s=await control();assert(s.config.fixtures.every(f=>!(f.params||[]).length));
-    assert.equal(s.config.dmx_map['1 Profile A'].r,2);assert(s.config.dmx_map['1 Profile A'].has.includes('pos'));assert.notEqual(s.config.fixtures.find(f=>f.id===1).moves,true,'movement must not come from a name guess');
+    assert.equal(s.config.dmx_map['1 Profile A']?.r,2,'Confirmed RGB channel is missing');assert.equal(Object.keys(s.config.dmx_map).length,3);assert(s.config.dmx_map['1 Profile A'].has.includes('pos'));assert.notEqual(s.config.fixtures.find(f=>f.id===1).moves,true,'movement must not come from a name guess');
     for(const n of [1,2,3])assert(s.received.some(c=>c.startsWith('Export FixtureType '+n+' ')));
    });
    await check('visible-selection-and-independent-rgb-dimmer',async()=>{
@@ -82,7 +82,7 @@ const [url,,out]=process.argv.slice(2),headers={'x-ma2-test':process.env.MA2_TES
     await page.goto(url);await page.waitForFunction(()=>connected());await pick([1]);
     assert.equal(await page.getByRole('button',{name:'Движение',exact:true}).count(),0);
     for(const selector of ['.c-strobe','.c-dim','.c-color','.c-pos'])assert.equal(await page.locator(selector).count(),0);
-    const s=await control();assert.equal(s.config.dmx_map['1 Profile A'].r,2);assert(s.config.dmx_map['1 Profile A'].has.includes('strobe'));
+    const s=await control();assert.equal(s.config.dmx_map['1 Profile A']?.r,2,'Confirmed RGB channel is missing');assert.equal(Object.keys(s.config.dmx_map).length,3);assert(s.config.dmx_map['1 Profile A'].has.includes('strobe'));
     await page.goto(url+'/settings.html');await page.getByRole('button',{name:'Показать все инструменты',exact:true}).click();await page.goto(url);await page.waitForFunction(()=>connected());await pick([1]);
     assert(await page.locator('.c-strobe').isVisible());assert(await page.locator('.c-color').isVisible());
    });

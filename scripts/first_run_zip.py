@@ -66,7 +66,10 @@ def check_program(program, executable, evidence, scenario='pristine'):
                 return
             deadline = time.monotonic()+30
             while True:
-                if process.poll() is not None: raise RuntimeError('First-run exited; see '+str(evidence/'bridge.log'))
+                if process.poll() is not None:
+                    log_path = evidence/'bridge.log'
+                    details = log_path.read_text(encoding='utf-8', errors='replace')[-6000:]
+                    raise RuntimeError(f'First-run exited ({process.returncode}); see {log_path}:\n{details}')
                 try:
                     health = request('http://127.0.0.1:8080','/api/update/health')
                     if health.get('pid') != process.pid: raise RuntimeError('Default port belongs to another process')

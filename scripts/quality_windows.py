@@ -11,5 +11,6 @@ if __name__ == '__main__':
              'field_fixture_dataset', 'stable_quality', 'audit_regressions', 'committed_mock', 'reconnect_stream', 'first_run_zip', 'migration_v5', 'data_startup', 'onboarding')
     command = [sys.executable, '-u', '-m', 'pytest', '-q', '-p', 'no:cacheprovider',
                '--junitxml=test-results/windows-quality/pytest.xml',
+               '--basetemp=test-results/windows-quality/tmp',
                *(str(ROOT / 'tests' / f'test_{n}.py') for n in names)]
     sys.exit(run(command, ROOT / 'test-results/windows-quality', timeout=300))

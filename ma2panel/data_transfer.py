@@ -121,7 +121,7 @@ def backup(source, archive, *, confirmed_stopped=False):
             for name, data in files.items(): z.writestr(name, data)
             z.writestr('transfer-manifest.json', json.dumps(manifest, ensure_ascii=False))
         inspect(staged)
-        with staged.open('rb') as stream: os.fsync(stream.fileno())
+        with staged.open('r+b') as stream: os.fsync(stream.fileno())
         os.chmod(staged, 0o600)
         # Atomic no-overwrite publication; failure leaves no partial destination.
         os.link(staged, archive)

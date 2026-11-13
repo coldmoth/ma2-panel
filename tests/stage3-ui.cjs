@@ -94,3 +94,19 @@ assert.equal(c.supports(c.fixture(1),'focus'),true);
 assert.equal(c.pagesList()[0].label,'Концерт');
 c.state.config.pages={'2':'Вторая'};assert.equal(c.pagesList()[0].n,2);
 console.log('stage3 UI: selection ordering, gesture/config, text/blur/safety, plan/scenes, shared Fade, capabilities passed');
+
+// Light now has inline selection; a remembered picker flag must not open a missing dialog.
+const originalById=document.getElementById.bind(document);
+document.getElementById=id=>id==='fixture-picker'?(page.all().find(n=>n.id===id)||null):originalById(id);
+c.lightUI.picking=true;c.sectionKey=null;
+assert.doesNotThrow(()=>c.go('light'));
+assert(page.all().some(n=>n.id==='light-selection'));
+c.lightUI.picking=false;document.getElementById=originalById;
+
+// Selection synchronization gates actions until ACK; inline controls must unlock after it.
+c.receive({config:{...cfg,groups:[{id:'sync-group',label:'Sync group',fixtures:[1]}]}});
+c.lightUI.tab='groups';c.go('light');c.selectionSync='pending-sync';c.sectionKey=null;c.render();
+const syncGroup=()=>nodes().find(n=>n.tagName==='BUTTON'&&n.textContent.includes('Sync group'));
+assert(syncGroup().disabled);
+c.selectionSync=null;c.render();
+assert.equal(syncGroup().disabled,false,'validated selection ACK enables inline controls');

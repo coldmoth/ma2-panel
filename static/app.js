@@ -379,7 +379,7 @@ function renderSection() {
   var el = document.getElementById('page');
   activeControls = activeControls.filter(function(control){return el.contains(control);});
   var hl = state.highlight || {};
-  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, state.configN, state.selection, state.ma2, state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
+  var key = JSON.stringify([typeof showFileUI !== 'undefined' ? showFileUI.version : 0, state.sec, state.configN, state.selection, state.ma2, connected(), state.halted, state.manual, state.showLoad, state.showFileActive, state.showFileOperation, hl.state, hl.target,
     // Poll timestamps are evidence, not structural UI state. Replacing the page on
     // every read loses open details and pointer targets between down and up.
     [state.show.name,state.show.source], sceneUI.editing, sceneUI.masterOpen, state.safety, state.features, SETUP.indexOf(state.sec) >= 0 ? state.readFreshness : null, state.fetch, state.ma2read, state.showNames, state.showPick, state.saveReply, state.page, sceneFade,
@@ -408,7 +408,7 @@ function renderSection() {
   updaters = [];
   el.className = 'page' + (state.sec === 'light' || state.sec === 'hall' ? ' fill' : '');
   SECTIONS[state.sec](el);
-  if (['light','scenes'].indexOf(state.sec) >= 0 && typeof lightUI !== 'undefined' && lightUI.picking) document.getElementById('fixture-picker').showModal();
+  if (state.sec === 'scenes' && typeof lightUI !== 'undefined' && lightUI.picking) document.getElementById('fixture-picker').showModal();
   if (state.sec === 'scenes' && sceneUI.masterOpen) document.getElementById('scene-master').showModal();
   if (sameSec) {
     el.scrollTop = scroll.page;

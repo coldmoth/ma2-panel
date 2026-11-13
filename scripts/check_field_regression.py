@@ -19,7 +19,7 @@ def main():
         checks = json.loads((args.output / 'scenarios.json').read_text())
         failed = [c for c in checks if c['status'] != 'success']
         assert len(failed) == 1 and failed[0]['name'] == 'empty-install-import-patch-and-types', checks
-        assert 'undefined !== 2' in failed[0]['error'], failed
+        assert 'Confirmed RGB channel is missing' in failed[0]['error'], failed
         print('PASS: loss of parsed RGB evidence fails the empty-install control scenario')
         return
     raise RuntimeError('Loss of color evidence incorrectly passed')

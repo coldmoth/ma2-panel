@@ -43,3 +43,12 @@ checks точного публичного SHA остаются обязател
 Перед публичным коммитом: все 52 browser checks Chromium/WebKit PASS
 (clean 6, real V2 4, synthetic 28, field-start 14); 67 адресных Python PASS; Node PASS.
 Точная чистая SHA-проверка и Windows остаются обязательными в Actions.
+
+Первый CI 43437709650 (3ec229b): все 7 Windows diagnostic groups и Linux
+pytest/Node PASS; Windows-quality/browser/reproducibility FAIL, ZIP delivery SKIP.
+Подтверждены и адресно исправлены: writable-handle fsync резервного ZIP на Windows;
+showModal для inline picker; пересчёт доступности inline controls после selection ACK.
+Preflight использует встроенный выбор; отрицательная RGB-проверка ждёт успешного
+import completion и требует точный отказ по отсутствующему каналу. Два Windows
+first-run случая ещё требуют дочернего лога; он теперь сохраняется в артефактах
+и ограниченно включается в ошибку. Успех Windows по этому прогону не заявляется.

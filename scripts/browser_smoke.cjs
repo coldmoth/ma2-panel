@@ -213,10 +213,8 @@ async function checkEngine(name) {
         await page.locator('button.tile[data-scene="smoke-scene"]').tap();
         await until(() => frames.slice(beforeScene).some(a => a.a === 'scene_go'), 'full scene action');
         await page.locator('#rail [data-sec="light"]').tap();
-        await page.getByRole('button', {name: 'Выбрать', exact: true}).tap();
         await page.getByRole('button', {name: 'Группы', exact: true}).tap();
         await page.locator('.pick').getByText('Тестовая группа', {exact: true}).tap();
-        await page.getByRole('button', {name: 'К регуляторам', exact: true}).tap();
         await page.getByRole('button', {name: 'Движение', exact: true}).tap();
         const pad = page.getByLabel('Пад Pan и Tilt');
         await pad.waitFor();
@@ -255,10 +253,8 @@ async function checkEngine(name) {
         await page.mouse.up();
         if (await page.locator('#notice').isVisible()) await page.locator('#notice button').click();
         // Begin a fresh explicit interaction after validated selection synchronization.
-        await page.getByRole('button', {name: 'Выбрать', exact: true}).tap();
         await page.getByRole('button', {name: 'Группы', exact: true}).tap();
         await page.locator('.pick').getByText('Тестовая группа', {exact: true}).tap();
-        await page.getByRole('button', {name: 'К регуляторам', exact: true}).tap();
         await page.getByRole('button', {name: 'Движение', exact: true}).tap();
         await page.getByRole('button', {name: 'Положение', exact: true}).tap();
         for (const attr of ['pan', 'tilt']) {

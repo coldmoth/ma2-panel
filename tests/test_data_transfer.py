@@ -100,3 +100,26 @@ def test_malformed_or_empty_manifest_is_not_a_success(tmp_path, manifest):
     archive = tmp_path / 'empty.zip'
     with zipfile.ZipFile(archive, 'w') as z: z.writestr('transfer-manifest.json', json.dumps(manifest))
     with pytest.raises(ValueError): transfer.inspect(archive)
+
+
+def test_backup_flush_uses_a_writable_handle_on_windows(tmp_path, monkeypatch):
+    import errno
+    root = tmp_path / 'source'; root.mkdir()
+    (root / 'config.json').write_text('{"private-data":true}')
+    archive = tmp_path / 'backup.zip'
+    original_open, original_fsync = Path.open, transfer.os.fsync
+    handles, flushed = {}, []
+    def tracked_open(path, *args, **kwargs):
+        stream = original_open(path, *args, **kwargs)
+        if path.name == 'data.zip': handles[stream.fileno()] = stream
+        return stream
+    def windows_flush(fd):
+        stream = handles.get(fd)
+        if stream is not None and not stream.closed:
+            if not stream.writable(): raise OSError(errno.EBADF, 'Windows FlushFileBuffers requires write access')
+            flushed.append(fd)
+        return original_fsync(fd)
+    monkeypatch.setattr(Path, 'open', tracked_open)
+    monkeypatch.setattr(transfer.os, 'fsync', windows_flush)
+    transfer.backup(root, archive, confirmed_stopped=True)
+    assert flushed and transfer.inspect(archive)['files']['config.json']
