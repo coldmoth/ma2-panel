@@ -14,7 +14,7 @@ The full ZIP includes Python and dependencies. Choose **ma2-panel-win.zip** for 
 
 ## In-app updates
 
-On the bridge computer, use Settings → **«Проверить обновления»** → **«Обновить»**. Starting with a compatible stable release that includes the channel setting, **«Получать тестовые обновления»** enables optional RC/beta updates through the same buttons. It is off by default and saves immediately; changing it never downloads or installs anything. [Update channels and current stable gates](docs/online-updates.md).
+On the bridge computer, use Settings → **Check for updates** → **Update** (Russian UI). Starting with a compatible stable release that includes the channel setting, **Receive test updates** enables optional RC/beta updates through the same buttons. It is off by default and saves immediately; changing it never downloads or installs anything. [Update channels and current stable gates](docs/online-updates.md).
 
 The published v3.3.0 only sees stable releases. A new stable must pass the required hardware and independent review gates before that first in-app transition is available. Existing releases are unchanged.
 

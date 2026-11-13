@@ -18,6 +18,18 @@ def fingerprint(report):
     return hashlib.sha256(json.dumps(report, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()).hexdigest()
 
 
+def check_link(check, run, repo, ident, attempt):
+    if check.get('details_url') == f'https://github.com/{repo}/actions/runs/{ident}/attempts/{attempt}':
+        return True
+    # GitHub Actions replaces supplied details_url with its canonical check URL.
+    # Bind that check ID to the authenticated workflow's suite, not just a URL.
+    check_id, suite_id = check.get('id'), run.get('check_suite_id')
+    suite = check.get('check_suite')
+    return (type(check_id) is int and check_id > 0 and type(suite_id) is int and suite_id > 0
+            and isinstance(suite, dict) and type(suite.get('id')) is int and suite['id'] == suite_id
+            and check.get('details_url') == f'https://github.com/{repo}/runs/{check_id}')
+
+
 def validate(report, tag):
     if not isinstance(report, dict) or report.get('schema') != 1 or report.get('channel') != 'stable' or report.get('tag') != tag or not isinstance(tag, str) or not re.fullmatch(r'v?\d+\.\d+\.\d+', tag):
         raise ValueError('Нет свидетельства качества stable-релиза')
@@ -55,7 +67,7 @@ def authenticate(report, tag, repo, fetch):
         if (isinstance(c, dict) and c.get('name') == CHECK and c.get('head_sha') == sha and c.get('conclusion') == 'success'
                 and isinstance(c.get('app'), dict) and c['app'].get('slug') == 'github-actions'
                 and c.get('external_id') == f'quality:{ident}:{attempt}'
-                and c.get('details_url') == f'https://github.com/{repo}/actions/runs/{ident}/attempts/{attempt}'
+                and check_link(c, run, repo, ident, attempt)
                 and isinstance(c.get('output'), dict) and c['output'].get('summary') == expected):
             return report
     raise ValueError('Свидетельство подменено или не подтверждено GitHub Actions')
@@ -95,7 +107,7 @@ def authenticate_candidate(report, tag, repo, fetch):
         if (isinstance(check, dict) and check.get('name') == 'Candidate quality evidence' and check.get('head_sha') == sha
                 and check.get('conclusion') == 'success' and (check.get('app') or {}).get('slug') == 'github-actions'
                 and check.get('external_id') == f'candidate:{ident}:{attempt}'
-                and check.get('details_url') == f'https://github.com/{repo}/actions/runs/{ident}/attempts/{attempt}'
+                and check_link(check, run, repo, ident, attempt)
                 and (check.get('output') or {}).get('summary') == fingerprint(report)):
             return report
     raise ValueError('Свидетельство кандидата подменено или не подтверждено CI')

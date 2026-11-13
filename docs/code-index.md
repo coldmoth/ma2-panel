@@ -516,11 +516,12 @@
 
 ## ma2panel/release_quality.py
 - 17 `fingerprint`
-- 21 `validate`
-- 43 `authenticate`
-- 64 `validate_candidate`
-- 84 `authenticate_candidate`
-- 104 `verify_archive`
+- 21 `check_link`
+- 33 `validate`
+- 55 `authenticate`
+- 76 `validate_candidate`
+- 96 `authenticate_candidate`
+- 116 `verify_archive`
 
 ## ma2panel/safety.py
 - 76 `_atomic_bytes`

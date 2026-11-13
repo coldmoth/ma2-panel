@@ -122,3 +122,12 @@ def test_verified_package_is_rechecked_before_install_after_tamper(tmp_path,monk
 def test_malformed_or_substituted_github_app_is_not_trusted(tmp_path,bad):
     data,_,fetch,_,check=evidence(tmp_path);check['app']=bad
     with pytest.raises(ValueError):quality.authenticate(data,data['tag'],'coldmoth/ma2-panel',fetch)
+
+
+def test_github_canonical_stable_check_link_requires_matching_suite(tmp_path):
+    data, archive, fetch, run, check = evidence(tmp_path)
+    run['check_suite_id'] = 17
+    check.update(id=29, check_suite={'id': 17}, details_url='https://github.com/coldmoth/ma2-panel/runs/29')
+    assert quality.authenticate(data, data['tag'], 'coldmoth/ma2-panel', fetch) == data
+    check['check_suite']['id'] = 18
+    with pytest.raises(ValueError): quality.authenticate(data, data['tag'], 'coldmoth/ma2-panel', fetch)
