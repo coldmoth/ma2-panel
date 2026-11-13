@@ -20,4 +20,4 @@ def test_package_script_runs_with_minimal_environment(tmp_path):
     result = subprocess.run([sys.executable,str(source/'scripts/package_release.py'),'--archive',str(archive)],
                             cwd=source,env=clean_environment(),capture_output=True,text=True,timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert release.check(archive)['version'].startswith('3.3.2-rc.1+')
+    assert release.check(archive)['version'] == release.identity(source)

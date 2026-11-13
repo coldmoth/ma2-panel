@@ -1,3 +1,7 @@
+# 3.3.2 — stable bootstrap candidate (not yet published)
+
+The candidate includes the RC1 fixes and optional test updates. Publication requires the exact-candidate hardware, field and independent review receipts. Windows CI tests the published v3.3.0 buttons against the actual stable candidate, followed by a synthetic higher-version RC.
+
 # 3.3.2-rc.1 — optional test updates
 
 - Add an off-by-default Russian setting for stable/RC/beta updates through the existing buttons.

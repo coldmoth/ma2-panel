@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
     await page.getByText('Установлено: '+old, {exact:true}).waitFor();
     await page.locator('#update-check').click();
     await page.locator('#update-start:not([disabled])').waitFor();
-    assert.match(await page.locator('#update-version').textContent(), /v3\.3\.1/);
+    assert.ok((await page.locator('#update-version').textContent()).includes('v'+stable.split('+')[0]));
     await waitIdle();
     await page.locator('#update-start').click();
     async function waitVersion(version) {

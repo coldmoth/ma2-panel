@@ -1,7 +1,7 @@
 """Real published v3.3.0 + embedded Python, existing HTTP/UI updater, mock only.
 
 Only GitHub transport is fixture-backed (including deliberately synthetic CI
-receipts). The stable fixture is NEVER published. This is not hardware acceptance
+receipts). Synthetic fixtures are NEVER published. This is not hardware acceptance
 or evidence that a stable release currently exists on GitHub.
 """
 import argparse
@@ -20,7 +20,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from ma2panel import release, release_quality
+from ma2panel import release, release_quality, browser_update
 from scripts.first_run_zip import clean_environment
 
 OLD_SHA = '0dc535cb5143f5acb368ebc8a5a13cd8fceef9eef737d5616a6acb0f07163cbb'
@@ -94,8 +94,7 @@ def main():
             cache.write_bytes(response.read(32 * 1024 * 1024))
     assert hashlib.sha256(cache.read_bytes()).hexdigest() == OLD_SHA
     candidate = args.candidate.resolve(); manifest = release.check(candidate)
-    rc_tag = 'v' + manifest['version'].split('+')[0]
-    assert '-rc.' in rc_tag or '-beta.' in rc_tag
+    stable_candidate = browser_update.version_key(manifest['version'])[3]
     sha = zipfile.ZipFile(candidate).read('source_identity.py').decode().removeprefix('# source-sha: ').strip()
     with tempfile.TemporaryDirectory(prefix='ma2 online зал ') as folder:
         temp = Path(folder)
@@ -104,15 +103,24 @@ def main():
         executable = Path(sys.executable) if args.host_runtime else root / 'python/python.exe'
         old_version = (root / 'VERSION').read_text().strip()
         assert old_version.startswith('3.3.0+')
-        # Synthetic stable fixture contains the candidate code with a matching
-        # stable VERSION/manifest. It is test input, not an authorized release.
-        files = {name: data for name, data in release.build(ROOT, version='3.3.1+fixture').items()}
-        stable = temp / 'stable.zip'; release.write_zip(files, stable)
-        stable_tag = 'v3.3.1'
+        # Exercise the exact stable candidate if provided; otherwise construct a
+        # synthetic bootstrap. The other channel uses a matching-version fixture.
+        if stable_candidate:
+            stable, stable_version = candidate, manifest['version']
+            major, minor, patch = browser_update.version_key(stable_version)[:3]
+            rc_version = f'{major}.{minor}.{patch+1}-rc.1+fixture'
+            test_archive = temp / 'next-rc.zip'
+            release.write_zip(release.build(ROOT, version=rc_version), test_archive)
+        else:
+            stable = temp / 'stable.zip'; stable_version = '3.3.1+fixture'
+            release.write_zip(release.build(ROOT, version=stable_version), stable)
+            test_archive, rc_version = candidate, manifest['version']
+        stable_tag = 'v' + stable_version.split('+')[0]
+        rc_tag = 'v' + rc_version.split('+')[0]
         routes = {'_host_smoke': args.host_runtime}
         proof = {'schema': 1, 'source_sha': sha, 'candidate_run': 42, 'candidate_attempt': 1,
                  'checks': dict.fromkeys(release_quality.REQUIRED, 'success'), 'blockers': [],
-                 'runtime': manifest['runtime'], 'assets': {'ma2-panel-update.zip': hashlib.sha256(candidate.read_bytes()).hexdigest()}}
+                 'runtime': manifest['runtime'], 'assets': {'ma2-panel-update.zip': hashlib.sha256(test_archive.read_bytes()).hexdigest()}}
         check = {'name': 'Candidate quality evidence', 'head_sha': sha, 'conclusion': 'success',
                  'app': {'slug': 'github-actions'}, 'external_id': 'candidate:42:1',
                  'details_url': f'https://github.com/{REPO}/actions/runs/42/attempts/1',
@@ -121,7 +129,7 @@ def main():
                  'event': 'workflow_dispatch', 'path': '.github/workflows/ci.yml', 'repository': {'full_name': REPO}}}
         routes[f'{API}/commits/{sha}/check-runs?check_name=Candidate%20quality%20evidence&filter=all&per_page=100'] = {'json': {'total_count': 1, 'check_runs': [check]}}
         records = []
-        for tag, archive, test in ((stable_tag, stable, False), (rc_tag, candidate, True)):
+        for tag, archive, test in ((stable_tag, stable, False), (rc_tag, test_archive, True)):
             prefix = f'https://github.com/{REPO}/releases/download/{tag}/'
             checksum = temp / (tag + '.sha256'); checksum.write_text(hashlib.sha256(archive.read_bytes()).hexdigest())
             names = {'ma2-panel-update.zip': {'file': str(archive)}, 'ma2-panel-update.zip.sha256': {'file': str(checksum)}}
@@ -166,7 +174,7 @@ def main():
                 # Snapshot startup migrations before testing the update itself.
                 before = {name: (root / name).read_bytes() for name in protected}
                 browser = subprocess.Popen(['node', str(ROOT / 'scripts/update_channels_browser.cjs'), base, str(output),
-                                            old_version, '3.3.1+fixture', manifest['version']], cwd=ROOT)
+                                            old_version, stable_version, rc_version], cwd=ROOT)
                 until = time.monotonic() + 130
                 try:
                     while browser.poll() is None:
@@ -184,7 +192,8 @@ def main():
                     else: assert actual == data, name
                 assert (root / 'previous').is_dir() and (root / '.updates').is_dir()
                 result = {'published_old': old_version, 'published_old_sha256': OLD_SHA,
-                          'stable_fixture': '3.3.1+fixture', 'candidate': manifest['version'],
+                          'stable_target': stable_version, 'rc_target': rc_version, 'candidate': manifest['version'],
+                          'stable_is_fixture': not stable_candidate, 'rc_is_fixture': stable_candidate,
                           'runtime': 'host-smoke' if args.host_runtime else 'published-v3.3.0-embedded-windows-x64',
                           'transport': 'fixture GitHub; synthetic CI evidence; no public stable asserted',
                           'old_button_upgrade': 'success', 'rc_button_upgrade': 'success',
