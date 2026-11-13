@@ -35,7 +35,7 @@ def test_manual_clients_do_not_wait_for_background_file_deadline(context, change
     asyncio.run(go())
 
 
-@pytest.mark.parametrize('change', [False, True])
+@pytest.mark.parametrize('change', [False, True, 'editing', 'scene'])
 def test_delayed_export_file_applies_only_in_same_context(context, change):
     import re
     from pathlib import Path
@@ -55,7 +55,9 @@ def test_delayed_export_file_applies_only_in_same_context(context, change):
         c.link.send = send
         reader = asyncio.create_task(c.read_dmx())
         await entered.wait()
-        if change: c.state['plan_epoch'] += 1
+        if change is True: c.state['plan_epoch'] += 1
+        elif change == 'editing': c.sessions[object()] = {'editing': True}
+        elif change == 'scene': c.sessions[object()] = {'scene_offer': {'expires': float('inf')}}
         Path(c.export_dir).mkdir(exist_ok=True)
         Path(c.export_dir, names[0] + '.xml').write_text('<FixtureType><Modules><Module><ChannelType attribute="DIM" coarse="1"/></Module></Modules></FixtureType>')
         await reader

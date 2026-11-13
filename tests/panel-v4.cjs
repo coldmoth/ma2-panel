@@ -1,4 +1,5 @@
 // Runs the real panel scripts on a small fake DOM: empty workspace, shows, highlight lifecycle, blackout, show switch.
+require('./field-interface.cjs');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');

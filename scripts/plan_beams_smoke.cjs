@@ -13,6 +13,8 @@ module.exports = async function(context, url, output, engine) {
         fixtures:[{id:1,label:'Оценка A',moves:true,x:.3,y:.6,beam:{home:50}},
           {id:2,label:'Оценка B',moves:true,x:.7,y:.6,beam:{home:50,invert:true}}]});
       state.shown={1:{pan:60},2:{pan:60}};state.selection=[1];state.valuesMeta={};
+      // This case exercises sent-history geometry, not the independent mock output.
+      state.simulation={};
       // Freeze only this throwaway page's transport so polling cannot replace synthetic evidence.
       state.ws.onmessage=()=>{};
       state.ws.send=()=>{};

@@ -1,7 +1,6 @@
 /* Свет: pick groups or fixtures on the left, every control of the selection on the right at once. */
 var lightUI = {tab: 'groups', controlTab: 'light', moveBox: null, query: '', picking: false};
 try { lightUI.tab = localStorage.getItem('ma2.pick') || 'groups'; } catch (error) {}
-function toolVisible(key) { return typeof panelToolVisible !== 'function' || panelToolVisible(key); }
 var COLORS = [
   ['Белый', [100, 100, 100]], ['Тёплый', [100, 82, 60]], ['Красный', [100, 0, 0]], ['Оранжевый', [100, 50, 0]],
   ['Жёлтый', [100, 100, 0]], ['Зелёный', [0, 100, 0]], ['Голубой', [0, 100, 100]], ['Синий', [0, 0, 100]],
@@ -25,6 +24,7 @@ function supports(f, p) {
   if (p === 'color') return ['r','g','b'].every(function(key){return Number.isInteger(spec[key]) && spec[key] > 0;});
   return Array.isArray(spec.has) && spec.has.indexOf(p) >= 0;
 }
+function showTool(key) { return typeof toolVisible !== 'function' || toolVisible(key); }
 function selected() { return state.selection.map(fixture).filter(function (f) { return f && !f.missing; }); }
 function attributeVisible(attr) {
   var scope = selected();
@@ -86,36 +86,43 @@ SECTIONS.light = function (el) {
 };
 function lightWorkspace(el, concert) {
   var cfg = state.config;
-  if (lightUI.controlTab === 'movement' && (!split('pos').yes.length || !toolVisible('pos'))) lightUI.controlTab = 'light';
+  if (!showTool('pos')) lightUI.controlTab = 'light';
+  if (concert && lightUI.tab === 'plan') lightUI.tab = 'fixtures';
   var wrap = h('div', {class: 'light concert-light'});
   add(el, wrap);
   var target = selected();
   var names = target.map(fxName).join(', ');
   var choose = h('button', {id:'choose-target', class:'btn', type:'button', onclick:function () {
-    lightUI.picking = true; render();
+    if (concert) lightUI.picking = true;
+    else lightUI.tab = 'groups';
+    render();
   }}, 'Выбрать');
   var targetBar = h('div', {class:'target-bar'}, h('div', {class:'grow'},
     h('span', {class:'note'}, 'Цель управления'), target.length > 1 ?
       h('details', {class:'target-names'}, h('summary', {}, target.length + ' ' + plural(target.length, 'прибор', 'прибора', 'приборов')), h('span', {class:'note'}, names)) :
-      h('b', {}, names || 'Ничего не выбрано')), choose);
+      h('b', {}, names || 'Ничего не выбрано')), concert ? choose : null,
+    h('button', {class:'btn', type:'button', disabled:!connected() || !state.selection.length,
+      onclick:function(){selectFixtures([]);}}, 'Снять выбор'));
   var overall = h('details', {class:'card light-master'}, h('summary', {}, 'Общая яркость'), masterControl());
-  add(wrap, h('div', {class:'light-heading'}, h(concert ? 'h2' : 'h1', {}, 'План и свет'), overall), targetBar);
-  var plan = h('section', {class:'live-plan', 'aria-label':'Рабочий план зала'});
-  add(wrap, plan);
-  if (fixtures().some(placed)) hallPlan(plan, 'control');
-  else add(plan, h('p', {class:'note'}, 'Приборы ещё не расставлены на плане.'), h('button',{class:'btn',type:'button',onclick:function(){go('hall');}},'Расставить приборы'));
+  add(wrap, h('div', {class:'light-heading'}, h(concert ? 'h2' : 'h1', {}, concert ? 'Параметры света' : 'План и свет'), overall), targetBar);
+  if (!concert) {
+    var plan = h('section', {class:'live-plan', 'aria-label':'Рабочий план зала'});
+    if (fixtures().some(placed)) hallPlan(plan, 'control');
+    else add(plan, h('p', {class:'note'}, 'Приборы ещё не расставлены на плане.'), h('button',{class:'btn',type:'button',onclick:function(){go('hall');}},'Расставить приборы'));
+  }
   function closePicker() {
     lightUI.picking = false; render();
     document.getElementById('page').scrollTop = 0;
     var button = document.getElementById('choose-target'); if (button) button.focus({preventScroll:true});
   }
-  var tabs = h('div', {class: 'seg'}, [['groups', 'Группы'], ['fixtures', 'Приборы'], ['plan', 'План']].map(function (t) {
+  var tabs = h('div', {class: 'seg'}, [['groups', 'Группы'], ['fixtures', 'Приборы'], ['plan', 'План']].filter(function(t){return !concert || t[0] !== 'plan';}).map(function (t) {
     return h('button', {type: 'button', 'aria-pressed': String(lightUI.tab === t[0]), onclick: function () {
       lightUI.tab = t[0];
       try { localStorage.setItem('ma2.pick', t[0]); } catch (error) {}
       render();
     }}, t[1]);
   }));
+  var pickerTools = null;
   var bd = h('div', {class: 'bd' + (lightUI.tab === 'plan' ? ' plan-mini' : lightUI.tab === 'fixtures' ? ' fixture-browser' : ''), 'data-scroll': 'pick-' + lightUI.tab});
   var ready = connected();
   if (lightUI.tab === 'groups') {
@@ -141,7 +148,7 @@ function lightWorkspace(el, concert) {
       add(bd, h('div', {class: 'pick-del'}, pickRow(on, !ready || !allowed, function () {
         cancelTargetControls();
         if (send({a: 'select_group', id: g.id})) { state.selection = g.fixtures.slice(); state.group = g.id; render(); }
-      }, h('span', {class: 'grow'}, h('b', {}, g.label), h('span', {class: 'meta'}, g.fixtures.length + ' приб. · группа панели')), allowed ? '' : 'В группе есть приборы вне allowed_fixtures'),
+      }, h('span', {class: 'grow'}, h('b', {}, g.label), h('span', {class: 'meta'}, g.fixtures.length + ' приб. · группа панели · ' + g.fixtures.join(', '))), allowed ? '' : 'В группе есть приборы вне allowed_fixtures'),
         del('группу «' + g.label + '»', {a: 'group_delete', id: g.id})));
     });
     ma2.forEach(function (g) {
@@ -149,7 +156,7 @@ function lightWorkspace(el, concert) {
       add(bd, h('div', {class: 'pick-del'}, pickRow(on, !ready || !ids.length, function () {
         cancelTargetControls();
         if (send({a: 'ma2_group_go', n: g.n}, null)) { state.selection = ids.slice(); state.group = 'ma2:' + g.n; render(); }
-      }, [h('span', {class: 'grow'}, h('b', {}, g.name), h('span', {class: 'meta'}, 'Group ' + g.n + (g.ids ? ' · ' + ids.length + ' приб.' : ' · состав не прочитан, импортируйте снова'))),
+      }, [h('span', {class: 'grow'}, h('b', {}, g.name), h('span', {class: 'meta'}, 'Group ' + g.n + (g.ids ? ' · ' + ids.length + ' приб. · ' + ids.join(', ') : ' · состав не прочитан, импортируйте снова'))),
         h('span', {class: 'tag ma2'}, 'MA2')], ids.length ? '' : 'Состав не прочитан: на «Площадке» нажмите «Прочитать из MA2» и импортируйте группу снова'),
         h('button', {class:'btn small ghost',type:'button',disabled:!ready || !ids.length,'aria-label':'Выбрать Group ' + g.n + ' на MA2',onclick:function(e) { selectConsoleGroup(g,e.currentTarget); }}, 'На MA2'),
         del('группу MA2 ' + g.n + ' «' + g.name + '»', {a: 'group_delete', n: g.n})));
@@ -195,6 +202,7 @@ function lightWorkspace(el, concert) {
           selectFixtures(sel);
         }, [h('span', {class: 'id'}, f.id), h('span', {class: 'grow'}, h('b', {}, fxName(f))),
           canMove(f) ? h('span', {class: 'tag', title:'Поддерживает Pan/Tilt'}, icon('light',16)) : null, f.service ? h('span', {class: 'tag'}, 'служ.') : null]);
+        row.classList.add('fixture-row');
         add(family.el,row);family.rows.push({el:row,text:(f.id+' '+fxName(f)+' '+t).toLocaleLowerCase()});
       });
     });
@@ -203,16 +211,16 @@ function lightWorkspace(el, concert) {
     if (!fixtures().some(function (f) { return typeof f.x === 'number'; })) add(bd, h('div', {class: 'empty-pick'}, h('b', {}, 'План ещё не нарисован'),
       h('span', {class: 'note'}, 'Нарисуйте зал и расставьте приборы — потом их можно выбирать прямо на схеме.'),
       h('button', {class: 'btn small edit', type: 'button', onclick: function () { go('hall'); }}, icon('edit', 18), 'Открыть «Зал»')));
-    else if (lightUI.picking) add(bd, plan);
+    else add(bd, plan);
   }
-  var picker = h('dialog', {id:'fixture-picker', 'aria-label':'Выбрать цель управления', oncancel:function (event) { event.preventDefault(); closePicker(); }},
-    h('div', {class:'picker-heading'}, h('h2', {}, 'Выбрать цель управления'),
-      h('button', {class:'btn', type:'button', onclick:closePicker}, 'К регуляторам')),
-    h('section', {class: 'pick', 'aria-label': 'Что управляем'}, h('div', {class: 'hd'}, tabs), bd,
+  var picker = h(concert ? 'dialog' : 'section', {id:concert ? 'fixture-picker' : 'light-selection', 'aria-label':'Выбрать цель управления', oncancel:function (event) { event.preventDefault(); closePicker(); }},
+    concert ? h('div', {class:'picker-heading'}, h('h2', {}, 'Выбрать цель управления'),
+      h('button', {class:'btn', type:'button', onclick:closePicker}, 'К регуляторам')) : null,
+    h('section', {class: 'pick', 'aria-label': 'Что управляем'}, h('div', {class: 'hd'}, tabs, pickerTools), bd,
     lightUI.tab === 'plan' ? h('p', {class: 'note pick-tip'}, 'Нажмите прибор или обведите несколько пальцем.') : null,
     h('div', {class: 'ft'}, h('button', {class: 'btn small', type: 'button', disabled: !ready, onclick: function () {
       selectFixtures(fixtures().filter(function (f) { return !f.missing && !f.service && allowedFixture(f.id); }).map(function (f) { return f.id; }));
-    }}, 'Все сценические'), h('button', {class: 'btn small ghost', type: 'button', disabled: !ready || !state.selection.length, onclick: function () { selectFixtures([]); }}, 'Снять выбор'))));
+    }}, 'Все сценические'), concert ? h('button', {class: 'btn small ghost', type: 'button', disabled: !ready || !state.selection.length, onclick: function () { selectFixtures([]); }}, 'Снять выбор') : null)));
 
   add(wrap, picker);
 
@@ -272,7 +280,7 @@ function lightWorkspace(el, concert) {
   var lost = h('p', {class: 'note warn span'}, 'После запуска сцены значения неизвестны до нового чтения MA2.');
   updaters.push(function () { lost.hidden = state.tracked !== false || liveValues('dim'); });
   add(options, lost);
-  add(contextBar, h('div', {class: 'control-tabs seg'}, (split('pos').yes.length ? ['light','movement'] : ['light']).map(function(tab) {
+  add(contextBar, h('div', {class: 'control-tabs seg'}, (split('pos').yes.length && showTool('pos') ? ['light','movement'] : ['light']).map(function(tab) {
     return h('button', {type:'button', 'aria-pressed':String(lightUI.controlTab === tab), onclick:function() {
       moveStop(); lightUI.controlTab = tab; render();
     }}, tab === 'light' ? 'Свет' : 'Движение');
@@ -280,11 +288,14 @@ function lightWorkspace(el, concert) {
   if (sel.some(function(f){return !(f.params || []).length && !((cfg.dmx_map || {})[f.type] || {}).has;})) add(ctl,
     h('p',{class:'note warn'},'Параметры части приборов не прочитаны. Доступны только подтверждённые параметры.'),
     h('button',{class:'btn',type:'button',onclick:function(){go('start');}},'Прочитать приборы из MA2'));
-  if (lightUI.controlTab === 'movement' && split('pos').yes.length) { add(ctl, moveCard()); return; }
-  if (split('dim').yes.length) add(ctl, sliderCard('dim', 'Яркость', '%', true));
-  if (split('color').yes.length || sel.some(function(f){return colorMode(f) === 'none';}) || ((cfg.ma2presets || {}).colors || []).length) add(ctl, colorCard());
-  if (split('strobe').yes.length && attributeVisible('strobe')) add(ctl, sliderCard('strobe', 'Стробоскоп', '%'));
-  if (!split('pos').yes.length) ['zoom','focus'].forEach(function(p){if (split(p).yes.length) add(ctl,sliderCard(p,p === 'zoom' ? 'Zoom' : 'Focus','%'));});
+  if (lightUI.controlTab === 'movement' && split('pos').yes.length && showTool('pos')) { add(ctl, moveCard()); return; }
+  if (split('dim').yes.length && showTool('dim')) add(ctl, sliderCard('dim', 'Яркость', '%', true));
+  if (showTool('color')) {
+    if (split('color').yes.length || sel.some(function(f){return colorMode(f) === 'none';}) || ((cfg.ma2presets || {}).colors || []).length) add(ctl, colorCard());
+    else add(ctl, unsupportedNote('color'));
+  }
+  if (split('strobe').yes.length && attributeVisible('strobe') && showTool('strobe')) add(ctl, sliderCard('strobe', 'Стробоскоп', '%'));
+  ['zoom','focus'].forEach(function(p){if (showTool(p) && split(p).yes.length) add(ctl,sliderCard(p,p === 'zoom' ? 'Zoom' : 'Focus','%'));});
 }
 function plural(n, one, few, many) {
   var m10 = n % 10, m100 = n % 100;

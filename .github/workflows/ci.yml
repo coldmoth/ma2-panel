@@ -16,6 +16,7 @@ permissions:
 
 env:
   PYTHONUTF8: '1'
+  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 concurrency:
   # A routine push must not cancel a manually requested delivery validation.
@@ -30,6 +31,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
@@ -58,7 +60,7 @@ jobs:
 
   draft-release:
     if: github.event_name == 'workflow_dispatch' && inputs.draft_tag != ''
-    needs: [tests, windows-tests, windows-mock, browser-preflight]
+    needs: [quality-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
@@ -80,18 +82,29 @@ jobs:
           fi
       - name: Download tested Windows assets
         run: gh run download "$GITHUB_RUN_ID" --name windows-release-candidate --dir release-assets
+      - name: Download and verify candidate quality evidence
+        run: |
+          gh run download "$GITHUB_RUN_ID" --name candidate-quality --dir evidence
+          python - <<'PY'
+          import hashlib,json,pathlib
+          report=json.loads(pathlib.Path('evidence/quality.json').read_text())
+          assert report['source_sha']==__import__('os').environ['CANDIDATE_SHA']
+          assert all(v=='success' for v in report['checks'].values())
+          assert not report['blockers']
+          actual={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in pathlib.Path('release-assets').rglob('*.zip')}
+          assert actual==report['assets'], 'Candidate artifact identity mismatch'
+          PY
       - name: Prepare draft only
         run: |
           while IFS= read -r -d '' checksum; do
             (cd "$(dirname "$checksum")" && sha256sum --check "$(basename "$checksum")")
           done < <(find release-assets -name '*.sha256' -type f -print0)
           mapfile -d '' assets < <(find release-assets -type f -print0)
-          printf 'TEST BUILD. Hardware acceptance grandMA2 is incomplete.\nCommit: %s\nWindows x64, embedded Python 3.12.10. Update requires matching runtime lock.\nCI: https://github.com/%s/actions/runs/%s\nSHA256 files accompany each ZIP. HTTPS/GitHub ownership is the trust boundary; SHA256 is integrity, not an independent signature.\n' "$GITHUB_SHA" "$GH_REPO" "$GITHUB_RUN_ID" > release-notes.txt
-          gh release create "$DRAFT_TAG" "${assets[@]}" --target "$GITHUB_SHA" --draft --prerelease --title "Test $DRAFT_TAG" --notes-file release-notes.txt
+          printf 'TEST BUILD. Hardware acceptance grandMA2 is incomplete.\nCommit: %s\nWindows x64, embedded Python 3.12.10. Update requires matching runtime lock.\nCI: https://github.com/%s/actions/runs/%s\nSHA256 files accompany each ZIP. HTTPS/GitHub ownership is the trust boundary; SHA256 is integrity, not an independent signature.\n' "$CANDIDATE_SHA" "$GH_REPO" "$GITHUB_RUN_ID" > release-notes.txt
+          gh release create "$DRAFT_TAG" "${assets[@]}" --target "$CANDIDATE_SHA" --draft --prerelease --title "Test $DRAFT_TAG" --notes-file release-notes.txt
 
   windows-tests:
     name: Windows diagnostic (${{ matrix.group }})
-    if: github.event_name != 'push' && github.head_ref != 'refactor/repository-structure' && github.ref_name != 'refactor/repository-structure'
     runs-on: windows-latest
     timeout-minutes: 10
     strategy:
@@ -103,6 +116,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
       - name: Bootstrap checkpoint
         timeout-minutes: 1
         shell: pwsh
@@ -169,15 +183,14 @@ jobs:
 
   windows-mock:
     name: Windows delivered ZIP, runtime, BAT, rollback and mock
-    # Validate the delivered embedded runtime even if a separate venv diagnostic fails.
-    needs: [tests]
-    if: github.event_name != 'push' && github.head_ref != 'refactor/repository-structure' && github.ref_name != 'refactor/repository-structure'
+    needs: [windows-tests, windows-quality]
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
@@ -185,13 +198,29 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci --prefix scripts/browser_smoke --ignore-scripts
+      - run: node scripts/browser_smoke/node_modules/playwright/cli.js install chromium webkit
       - name: Build delivered Windows x64 and USB bundles
         run: uv run --no-sync python -m scripts.build_windows --verify-reproducible
+      - name: Untouched ZIP first run (no seeded config)
+        run: uv run --no-sync python scripts/first_run_zip.py
+      - name: Real supported release upgrade, rollback and interrupted recovery
+        run: uv run --no-sync python scripts/release_lifecycle.py --runtime dist/ma2-panel-win/ma2-panel/program
       - name: Delivered embedded Python, BAT and update rollback
         run: uv run --no-sync python scripts/windows_delivered.py
       - name: HTTP and WebSocket from delivered runtime (mock only)
         timeout-minutes: 2
-        run: uv run --no-sync python scripts/ci_smoke.py --bundle dist/ma2-panel-win/ma2-panel/program --log test-results/windows-mock.log
+        run: uv run --no-sync python scripts/ci_smoke.py --bundle dist/ma2-panel-win/ma2-panel/program --launcher --wizard-browser --log test-results/windows-mock.log
+      - name: Actual start-mock.bat with embedded Python, HTTP and WebSocket
+        timeout-minutes: 2
+        run: uv run --no-sync python scripts/ci_smoke.py --bundle dist/ma2-panel-win/ma2-panel/program --mock-launcher --log test-results/windows-start-mock.log
+      - name: Real user scenarios from the delivered Windows runtime
+        timeout-minutes: 6
+        run: uv run --no-sync python scripts/run_quality_browser.py --bundle dist/ma2-panel-win/ma2-panel/program --output test-results/delivered-browser
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-release-candidate
@@ -214,13 +243,13 @@ jobs:
           if-no-files-found: ignore
 
   browser-preflight:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
@@ -237,6 +266,9 @@ jobs:
       - name: Chromium and WebKit, isolated mock
         timeout-minutes: 4
         run: uv run --no-sync python scripts/browser_smoke.py --output test-results/browser
+      - name: Fixture-driven real user scenarios in Chromium and WebKit
+        timeout-minutes: 6
+        run: uv run --no-sync python scripts/run_quality_browser.py --output test-results/browser/scenarios
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ !cancelled() }}
         with:
@@ -244,3 +276,93 @@ jobs:
           path: test-results/browser/
           retention-days: 7
           if-no-files-found: ignore
+
+  windows-quality:
+    name: Windows data transfer, readiness and migration
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+      - run: uv sync --locked
+      - run: uv run --no-sync python scripts/quality_windows.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: windows-quality
+          path: test-results/windows-quality/
+          if-no-files-found: error
+
+  reproducibility:
+    name: Clean commit reproducibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci --prefix scripts/browser_smoke --ignore-scripts
+      - run: node scripts/browser_smoke/node_modules/playwright/cli.js install --with-deps chromium webkit
+      - run: python scripts/check_reproducible.py --sha "$CANDIDATE_SHA" --output test-results/reproducibility
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: reproducibility
+          path: test-results/reproducibility/
+
+  quality-gate:
+    name: Candidate quality gate
+    if: ${{ always() }}
+    needs: [tests, windows-tests, windows-quality, windows-mock, browser-preflight, reproducibility]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every mandatory job
+        env:
+          JOBS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json,os
+          jobs=json.loads(os.environ['JOBS'])
+          assert jobs and all(j['result']=='success' for j in jobs.values()), jobs
+          PY
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-candidate
+          path: candidate
+      - name: Bind successful jobs to exact source and ZIP files
+        run: |
+          mapfile -d '' assets < <(find candidate -name '*.zip' -type f -print0)
+          args=()
+          for asset in "${assets[@]}"; do args+=(--asset "$asset"); done
+          python scripts/quality_gate.py record --report evidence/quality.json --sha "$CANDIDATE_SHA" "${args[@]}" --checks-json '{"python":"success","node":"success","chromium":"success","webkit":"success","e2e":"success","windows":"success","delivered":"success","first-run":"success","update-rollback":"success","migration":"success","archives":"success","docs":"success","reproducible":"success"}'
+          python - <<'PY'
+          import json,pathlib,os
+          found=list(pathlib.Path('candidate').rglob('build-inputs.json'))
+          assert len(found)==1
+          assert json.loads(found[0].read_text())['commit']==os.environ['CANDIDATE_SHA']
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-quality
+          path: evidence/quality.json
+          if-no-files-found: error

@@ -42,7 +42,8 @@ async def check_websocket(port):
         assert reply["ok"] is False and reply.get("err"), reply
 
 
-def smoke(log_path, bundle=None, launcher=False, wizard_browser=False):
+def smoke(log_path, bundle=None, launcher=False, wizard_browser=False, mock_launcher=False):
+    launcher = launcher or mock_launcher
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="ma2-ci-") as temp:
         app = Path(temp) / 'panel space зал'
@@ -78,8 +79,11 @@ def smoke(log_path, bundle=None, launcher=False, wizard_browser=False):
             if launcher:
                 if not bundle or os.name != 'nt':
                     raise ValueError('BAT smoke requires a Windows bundle')
-                shutil.copy2(Path(bundle).resolve().parent / 'start.bat', app.parent / 'start.bat')
-                command = 'cmd.exe /d /s /c ""' + str(app.parent / 'start.bat') + '" ' + subprocess.list2cmdline(arguments) + ' <NUL"'
+                if mock_launcher:
+                    command = 'cmd.exe /d /s /c ""' + str(app / 'start-mock.bat') + '" <NUL"'
+                else:
+                    shutil.copy2(Path(bundle).resolve().parent / 'start.bat', app.parent / 'start.bat')
+                    command = 'cmd.exe /d /s /c ""' + str(app.parent / 'start.bat') + '" ' + subprocess.list2cmdline(arguments) + ' <NUL"'
             else:
                 command = [executable, str(app / 'bridge.py'), *arguments]
             process = subprocess.Popen(
@@ -140,5 +144,6 @@ if __name__ == "__main__":
     parser.add_argument("--bundle", type=Path, help="Extracted delivered program/; run its embedded Python")
     parser.add_argument('--launcher', action='store_true')
     parser.add_argument('--wizard-browser', action='store_true')
+    parser.add_argument('--mock-launcher', action='store_true')
     args = parser.parse_args()
-    smoke(args.log.resolve(), args.bundle, args.launcher, args.wizard_browser)
+    smoke(args.log.resolve(), args.bundle, args.launcher, args.wizard_browser, args.mock_launcher)

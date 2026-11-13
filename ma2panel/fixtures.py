@@ -114,6 +114,7 @@ def parse_fixture_type(xml_text: str) -> dict:
     Only a single unshifted module instance is supported."""
     spec, root = {}, ET.fromstring(xml_text)
     has = set()
+    axes = set()
     instances = [e for e in root.iter() if local(e.tag) == "Instance"]
     if (sum(local(e.tag) == "Module" for e in root.iter()) > 1
             or len(instances) > 1
@@ -137,6 +138,8 @@ def parse_fixture_type(xml_text: str) -> dict:
                         spec.setdefault(key, []).append([int(lo), int(hi)])
             else:
                 spec["unsupported"] = True
+        if attr.upper() in ("PAN", "TILT"):
+            axes.add(attr.upper())
         key = TYPE_ATTRS.get(attr.upper())
         # A wheel, CMY, white/amber emitter, etc. needs its own colour model.
         # A dimmer byte alone cannot prove white output for such a profile.
@@ -171,6 +174,8 @@ def parse_fixture_type(xml_text: str) -> dict:
             if all(k in strobe for k in ("open", "from", "to")):
                 spec["strobe"] = strobe
                 has.add("strobe")
+    if axes == {"PAN", "TILT"}:
+        has.add("pos")
     spec["has"] = sorted(has)
     return spec
 

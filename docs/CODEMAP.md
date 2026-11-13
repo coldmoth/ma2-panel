@@ -141,6 +141,35 @@ prepare/confirm (WS и loopback HTTP), stale/replay и соответствия 
 
 [Подготовка и первый сеанс зала](pre-hall-3.1.md), [заметки кандидата](RELEASE-3.1.md). Лицензия исходников — root LICENSE, в программном payload — docs/LICENSE.txt.
 
+## Защита от регрессий и перенос (2026-11-12)
+
+`quality_diagnostics.py`: пассивная готовность и обезличенный локальный snapshot,
+preview/download SHA256; регистрация из `api.register`, UI `static/quality-diagnostics.js`.
+`data_transfer.py`: явный приватный backup/preview/restore с проверкой байтов,
+без изменения legacy-путей. Проверки `tests/test_quality_*.py`, `test_data_transfer.py`.
+`scripts/quality_dataset.py` и `tests/data/ma2-v2/manifest.json` фиксируют происхождение V2.
+`scripts/run_quality_browser.py` переиспользует browser_smoke runner; тестовые
+управляющие hooks из `regression_server.py` доступны только во временной mock-копии.
+`scripts/quality_gate.py` связывает checks и ZIP с SHA; `.github/workflows/promote.yml`
+готовит только draft после отдельной приёмки. [Критерии](QUALITY-GATES.md),
+[установка и восстановление](OPERATIONS.md), [аудит](testing-infrastructure-audit.md).
+
+Исправления quality-аудита: `release_quality.py`, `scripts/stable_evidence.py`
+— GitHub-bound stable evidence; `mock_console.py` — независимый oracle;
+`check_reproducible.py`, `check_import_regression.py`, `first_run_zip.py`,
+`release_lifecycle.py` — чистый SHA, отрицательный import, pristine ZIP, реальный v3.3.0 lifecycle.
+Тесты: `test_stable_quality.py`, `test_audit_regressions.py`, `test_committed_mock.py`,
+`test_first_run_zip.py`, `test_reconnect_stream.py`.
+
+Исправления после чистой установки (2026-11-13): `bridge.py` — ограниченный повтор
+ошибок FixtureType, продолжение получения типов без Lua/readback; `fixtures.py` —
+подтверждённые Pan+Tilt в `has.pos`; `commands.can_move` и `static/app.js` учитывают
+только текущую карту. `static/interface.js` — локальное отображение инструментов,
+`light.js` — постоянно видимые способы выбора. Регрессии: `test_field_capabilities.py`,
+`field-interface.cjs`, `field_regression_browser.cjs` (пустая панель),
+`check_field_regression.py` (удаление RGB). Они включены в существующие Node/quality
+и clean-SHA runners; реальные V2 Patch и синтетические FixtureType разделены.
+
 ## Этап 2: readback и синхронизация (2026-11-10)
 
 `read_dmx`/`dmx_cycle`: retry и TTL отдельных блоков, dmx_wake при reconnect.

@@ -42,7 +42,7 @@ draft.blur();draft.fire('blur');assert.equal(typeof afterBlur,'function','blur s
 assert.match(page.textContent,/Обновлённый 1/,'pending config becomes visible without another WS packet');
 
 status();c.go('scenes');
-assert(nodes().some(n=>n.classList.contains('live-plan')),'scene screen exposes the working plan');
+assert(!nodes().some(n=>n.classList.contains('live-plan')),'scene screen has no hall plan');
 const scenesDOM=page.children[0];
 c.receive({running:{s:true},running_meta:{s:{source:'ma2',freshness:'fresh'}}});
 assert.equal(page.children[0],scenesDOM,'scene readback updates tiles without replacing the plan');

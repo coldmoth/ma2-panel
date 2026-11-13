@@ -6,6 +6,20 @@
 .panel .concert-workspace { grid-template-columns: minmax(220px,.75fr) minmax(0,2.6fr); gap: 16px; }
 .panel .concert-side { display: grid; min-width: 0; grid-row: auto; }
 .panel .concert-light { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(280px,1fr); align-items: start; height: auto; gap: 12px; }
+.panel .concert-light:has(> #light-selection) { grid-template-columns: minmax(0,1.8fr) minmax(300px,1fr); }
+#light-selection { min-width: 0; }
+#light-selection .pick > .bd { max-height: 68dvh; }
+#light-selection .pick > .bd.plan-mini { height: auto; max-height: none; }
+#light-selection .live-plan > .plan-viewport { height: clamp(420px,66dvh,800px); }
+#light-selection .pick .ft { flex-wrap: wrap; }
+#light-selection .row-item .meta { overflow-wrap: anywhere; white-space: normal; }
+#light-selection .seg button { min-height: 44px; }
+#interface-tools { display: grid; gap: 8px; }
+#interface-tools .opt { min-height: 44px; display: flex; align-items: center; gap: 12px; }
+@media (max-width: 1000px) {
+  .panel .concert-light:has(> #light-selection) { grid-template-columns: minmax(0,1fr); }
+  #light-selection .live-plan > .plan-viewport { height: min(58dvh,640px); }
+}
 .concert-light > .light-heading, .concert-light > .target-bar { grid-column: 1 / -1; }
 .concert-light .light-heading { min-width: 0; }
 .concert-light .light-heading h1, .concert-light .light-heading h2 { margin: 0; }

@@ -1,32 +1,49 @@
-/* Personal visibility only. Never changes features, safety or fixture capabilities. */
-var panelTools = {};
-var panelToolNames = {dim:'Яркость',strobe:'Strobe',focus:'Focus',zoom:'Zoom',color:'Color',pos:'Pan/Tilt'};
-function panelReadTools() {
-  try { var value=JSON.parse(localStorage.getItem('ma2.interface') || '{}'); panelTools = value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
-  catch (error) { panelTools = {}; }
+/* Browser display preferences. Never sent to the bridge as feature permissions. */
+var interfaceTools = {dim:'Яркость', color:'Цвет', pos:'Pan/Tilt', zoom:'Zoom', focus:'Focus', strobe:'Стробоскоп'};
+function readDisplayPrefs() {
+  try {
+    var value = JSON.parse(localStorage.getItem('ma2.interface') || '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    if (!value.tools || typeof value.tools !== 'object' || Array.isArray(value.tools)) {
+      value.tools = {};
+      Object.keys(interfaceTools).forEach(function(key) { if (value[key] === false) value.tools[key] = false; });
+    }
+    return value;
+  } catch (error) { return {}; }
 }
-function panelToolVisible(key) { return panelTools[key] !== false; }
-panelReadTools();
-function panelRefreshTools() {
-  panelReadTools();
-  if (typeof moveStop === 'function') moveStop();
-  if (typeof sliderChannels !== 'undefined') Object.keys(sliderChannels).forEach(cancelSlider);
-  if (typeof render === 'function') { sectionKey=null; render(); }
+var displayPrefs = readDisplayPrefs();
+function toolVisible(key) { return displayPrefs.tools ? displayPrefs.tools[key] !== false : displayPrefs[key] !== false; }
+function panelToolVisible(key) { return toolVisible(key); }
+function saveDisplayPrefs() {
+  try { localStorage.setItem('ma2.interface', JSON.stringify(displayPrefs)); } catch (error) {}
 }
-window.addEventListener('storage', function(e) { if (e.key === 'ma2.interface' || e.key === null) panelRefreshTools(); });
-window.addEventListener('pageshow', panelRefreshTools);
-document.addEventListener('DOMContentLoaded', function() {
-  var target=document.getElementById('interface-tools'); if (!target) return;
-  Object.keys(panelToolNames).forEach(function(key) {
-    var label=document.createElement('label'); label.className='opt';
-    var input=document.createElement('input'); input.type='checkbox'; input.checked=panelToolVisible(key); input.dataset.tool=key;
-    var text=document.createElement('span'); text.className='t'; text.textContent=panelToolNames[key];
+function interfaceControls(root) {
+  var inputs = [];
+  Object.keys(interfaceTools).forEach(function(key) {
+    var label = document.createElement('label'); label.className = 'opt';
+    var input = document.createElement('input'); input.type = 'checkbox'; input.checked = toolVisible(key); input.dataset.tool = key;
     input.addEventListener('change', function() {
-      var status=document.getElementById('interface-status');
-      panelTools[key]=input.checked;
-      try { localStorage.setItem('ma2.interface',JSON.stringify(panelTools)); status.textContent='Видимость сохранена в этом браузере.'; }
-      catch(error) { status.textContent='Браузер не разрешил сохранить настройку. Разрешите локальное хранение.'; }
+      displayPrefs.tools = Object.assign({}, displayPrefs.tools || {});
+      displayPrefs.tools[key] = input.checked; saveDisplayPrefs();
     });
-    label.append(input,text); target.append(label);
+    label.append(input, document.createTextNode(interfaceTools[key])); root.appendChild(label); inputs.push(input);
   });
-});
+  var reset = document.createElement('button'); reset.type = 'button'; reset.className = 'btn'; reset.textContent = 'Показать все инструменты';
+  reset.addEventListener('click', function() { displayPrefs.tools = {}; saveDisplayPrefs(); inputs.forEach(function(input){input.checked = true;}); });
+  root.appendChild(reset);
+}
+function refreshDisplayPrefs() {
+  displayPrefs = readDisplayPrefs();
+  if (typeof cancelTargetControls === 'function') cancelTargetControls();
+  if (typeof lightUI !== 'undefined') lightUI.moveBox = null;
+  if (typeof sectionKey !== 'undefined') sectionKey = null;
+  if (typeof render === 'function') render();
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', function(event) {
+    if (event.key === 'ma2.interface' || event.key === null) refreshDisplayPrefs();
+  });
+  window.addEventListener('pageshow', refreshDisplayPrefs);
+}
+var interfaceRoot = document.getElementById('interface-tools');
+if (interfaceRoot) interfaceControls(interfaceRoot);

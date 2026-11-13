@@ -220,12 +220,17 @@ async function checkEngine(name) {
         await page.getByRole('button', {name: 'Движение', exact: true}).tap();
         const pad = page.getByLabel('Пад Pan и Tilt');
         await pad.waitFor();
+        await pad.scrollIntoViewIfNeeded();
         const padBox = await pad.boundingBox();
-        assert(padBox && padBox.y >= 0 && padBox.y + padBox.height <= 768, 'Joystick fits viewport');
-        const stepBox = await page.getByRole('button', {name: 'Tilt −1°', exact: true}).boundingBox();
+        await screenshot(page, name + '-full-movement');
+        assert(padBox && padBox.y >= 0 && padBox.y + padBox.height <= 768, 'Joystick fits viewport: '+JSON.stringify(padBox));
+        const step = page.getByRole('button', {name: 'Tilt −1°', exact: true});
+        await step.scrollIntoViewIfNeeded();
+        const stepBox = await step.boundingBox();
         assert(stepBox && stepBox.y + stepBox.height <= 768, 'Step controls fit viewport');
         await noOverflow(page, name + '/movement');
         await screenshot(page, name + '-full-movement');
+        await pad.scrollIntoViewIfNeeded();
         const beforeJog = frames.length;
         await page.mouse.move(padBox.x + padBox.width / 2, padBox.y + padBox.height / 2);
         await page.mouse.down();
@@ -259,6 +264,7 @@ async function checkEngine(name) {
         for (const attr of ['pan', 'tilt']) {
           const label = (attr === 'pan' ? 'Pan' : 'Tilt') + ' — абсолютное положение';
           const range = page.getByRole('slider', {name: label, exact: true});
+          await range.scrollIntoViewIfNeeded();
           assert(await range.isEnabled(), `${label} must be enabled`);
           await range.scrollIntoViewIfNeeded();
           const bounds = await range.boundingBox();
@@ -333,7 +339,8 @@ async function checkEngine(name) {
       ok:true,current:'3.1.0+test',compatible_installation:true,
       available:{version:'v3.2.0',notes:'<script>throw Error("must stay text")</script>\nMock release notes'}
     }}));
-    await updates.goto(fullURL + '/settings.html');
+    await updates.goto(fullURL + '/settings.html?embedded=1');
+    await updates.getByRole('tab', {name:'Обновления', exact:true}).click();
     await updates.locator('#update-check').click();
     await updates.waitForFunction(() => !document.getElementById('update-start').disabled);
     assert.match(await updates.locator('#update-notes').textContent(), /<script>/);

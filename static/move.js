@@ -381,7 +381,7 @@ function renderMove(el) {
   els.saveHint.hidden = !unknown;
   Object.keys(els.sliders).forEach(function (attr) {
     var input = els.sliders[attr];
-    input.parentNode.hidden = !attributeVisible(attr) || typeof split === 'function' && !split(attr).yes.length;
+    input.parentNode.hidden = (typeof showTool === 'function' && !showTool(attr)) || !attributeVisible(attr) || typeof split === 'function' && !split(attr).yes.length;
     // Error #14 on this console taught the bridge which fixture types lack the attribute.
     var lacking = (state.noAttr || {})[attr] || [];
     input.disabled = !ready || !heads.length || !!featureReason(attr) || heads.every(function (f) { return lacking.indexOf(f.type) >= 0; });

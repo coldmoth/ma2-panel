@@ -23,6 +23,10 @@ def endpoint(*, logged_in=True, simple=False):
             return None
         if simple:
             return Response(404, 'Not Found', Headers(), b'no API on simple port')
+        if request.path == '/api/quality/readiness':
+            body = json.dumps({'checks': [{'id': 'connection', 'status': 'pass' if logged_in else 'fail',
+                                          'reason': 'synthetic connection', 'action': 'check setup'}]}).encode()
+            return Response(200, 'OK', Headers(), body)
         body = (json.dumps({'version': 'test', 'ma2': 'logged_in' if logged_in else 'offline',
                             'user': 'mock', 'show': {'name': 'mock'}, 'mode': 'test'}).encode()
                 if request.path == '/api/diag' else b'x' * 101)
@@ -79,7 +83,8 @@ def test_cli_mock_on_explicit_nondefault_port(tmp_path, logged_in):
     with endpoint(logged_in=logged_in) as (url, requests):
         result = run_check(tmp_path, url + '/')
     assert result.returncode == (0 if logged_in else 1), result.stdout + result.stderr
-    assert '/api/diag' in requests and 'fixtures_fetch' in requests
+    assert '/api/diag' in requests and '/api/quality/readiness' in requests
+    assert not any(a in requests for a in ('fixtures_fetch', 'ma2_read', 'select_fixtures', 'shows_list'))
     report = (tmp_path / 'selfcheck-report.txt').read_text()
     assert ('Ошибок: 0 из' in report) == logged_in
 

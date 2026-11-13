@@ -15,6 +15,8 @@ EMPTY_LIST = "WARNING, NO OBJECTS FOUND FOR LIST"
 
 class MockMA2:
     def __init__(self, user: str, export_dir: str | None):
+        self.simulation = None
+        self.strict_console = False
         self.user = user
         self.export_dir = export_dir
         self.export_text: str | None = None
@@ -105,6 +107,115 @@ class MockMA2:
                     attrs['dim'] *= 0 if self.native_blackout else self.grand_master / 100
         return values
 
+    def configure_simulation(self, config):
+        """Synthetic fixture-space output; never DMX or evidence from a console."""
+        self.simulation = {f['id']: {'dim': 0, 'rgb': [100, 100, 100], 'pan': 50, 'tilt': 50,
+                                   'zoom': 0, 'focus': 0, 'strobe': 0} for f in config['fixtures']}
+        from .mock_console import COLORS, RANGES
+        self.sim_attrs = {k: {'cmd': f'Attribute "{k}" At {{v}}', 'min': v[0], 'max': v[1]}
+                          for k, v in RANGES.items()}
+        self.sim_colors = COLORS.copy()
+        self.sim_cmy = False
+        self.sim_selection = []
+        self.sim_programmer = {}
+        self.sim_scenes = {}
+        self.sim_active = {}
+        self.sim_master = 100
+        self.sim_fade = None
+        for index, scene in enumerate(config.get('scenes', [])):
+            look = copy.deepcopy(self.simulation)
+            for values in look.values():
+                values.update(dim=70, rgb=[[100, 30, 10], [0, 0, 100], [100, 100, 100]][index % 3])
+            self.sim_scenes[scene['exec']] = look
+            if scene['exec'] in self.running:
+                self.sim_active[scene['exec']] = copy.deepcopy(look)
+
+    def simulation_output(self, master=True):
+        output = copy.deepcopy(self.simulation)
+        for look in self.sim_active.values():
+            for fid, values in look.items():
+                if fid in output:
+                    output[fid].update(copy.deepcopy(values))
+        for fid, values in self.sim_programmer.items():
+            if fid in output:
+                output[fid].update(copy.deepcopy(values))
+        if self.sim_fade:
+            start, duration, before = self.sim_fade
+            fraction = min(1, (time.monotonic() - start) / duration)
+            if fraction < 1:
+                for fid, values in output.items():
+                    for attr, target in values.items():
+                        old = before.get(fid, {}).get(attr, target)
+                        values[attr] = ([a + (b-a)*fraction for a, b in zip(old, target)] if isinstance(target, list)
+                                        else old + (target-old)*fraction)
+            else:
+                self.sim_fade = None
+        if master:
+            for values in output.values():
+                values['dim'] *= self.sim_master / 100
+        return output
+
+    def _simulate(self, text):
+        fade = re.search(r' Fade ([\d.]+)', text)
+        duration = float(fade[1]) if fade else 0
+        # Scene fades interpolate the composed output; commands still apply only after acceptance.
+        before = self.simulation_output(master=False) if duration else None
+        if re.fullmatch(r'Fixture \d+(?: \+ \d+)*', text):
+            self.sim_selection = [int(n) for n in re.findall(r'\d+', text) if int(n) in self.simulation]
+        elif m := re.fullmatch(r'Group (\d+)', text):
+            from .mock_console import GROUPS
+            number = int(m[1])
+            ids = GROUPS.get(number, ('', []))[1] if self.strict_console else [number, number + 1] if number in self.groups else []
+            self.sim_selection = [fid for fid in ids if fid in self.simulation]
+        elif text == 'ClearAll':
+            self.sim_programmer.clear()
+            self.sim_selection = []
+        elif text.startswith('Fixture Thru At 0'):
+            self.sim_programmer = {fid: {'dim': 0} for fid in self.simulation}
+            self.sim_fade = None
+        elif m := re.match(r'(?:Master \S+|SpecialMaster 2\.1) At ([\d.]+)', text):
+            self.sim_master = float(m[1])
+        elif m := re.fullmatch(r'Store Executor (\d+\.\d+) Cue 1 /Source=Output /Use=Allforselected', text):
+            output = self.simulation_output(master=False)
+            self.sim_scenes[m[1]] = {fid: output[fid] for fid in self.sim_selection}
+        elif m := re.match(r'StoreLook Executor (\S+)', text):
+            self.sim_scenes[m[1]] = self.simulation_output(master=False)
+        elif text.startswith('Off Executor 0.1.1 Thru'):
+            self.sim_active.clear()
+            self.sim_fade = None
+        elif m := re.match(r'(?:Go|Goto Cue 1) Executor (\S+)', text):
+            self.sim_active.pop(m[1], None)  # the most recently started look owns overlapping attributes
+            self.sim_active[m[1]] = copy.deepcopy(self.sim_scenes.get(m[1], {}))
+            self.sim_fade = (time.monotonic(), duration, before) if duration else None
+        elif m := re.match(r'Off Executor (\S+)', text):
+            self.sim_active.pop(m[1], None)
+            if duration:
+                self.sim_fade = (time.monotonic(), duration, before)
+        elif m := re.match(r'(?:At|Attribute "([^"\n]+)" At) ([+-] )?(-?[\d.]+)', text):
+            name = (m[1] or 'dim').lower()
+            attr = self.sim_colors.get(name, {'dimmer': 'dim'}.get(name, name))
+            value = 100 - float(m[3]) if name in self.sim_colors and self.sim_cmy else float(m[3])
+            for key, spec in self.sim_attrs.items():
+                if key in ('pan', 'tilt', 'zoom', 'focus', 'strobe') and name in spec.get('cmd', '').lower():
+                    attr = key
+                    if key in ('pan', 'tilt') and not m[2]:
+                        value = (float(m[3]) - spec['min']) / (spec['max'] - spec['min']) * 100
+                    break
+            current = self.simulation_output(master=False)
+            for fid in self.sim_selection:
+                target = self.sim_programmer.setdefault(fid, {})
+                if attr in ('r', 'g', 'b'):
+                    rgb = list(target.get('rgb', current[fid]['rgb']))
+                    rgb['rgb'.index(attr)] = value
+                    target['rgb'] = rgb
+                elif attr in current[fid]:
+                    delta = value
+                    if m[2] and attr in ('pan', 'tilt'):
+                        spec = self.sim_attrs.get(attr, {'min': 0, 'max': 100})
+                        delta = value / (spec['max'] - spec['min']) * 100
+                    target[attr] = max(0, min(100, current[fid][attr] + delta * (-1 if m[2] == '- ' else 1) if m[2] else value))
+            self.sim_fade = (time.monotonic(), duration, before) if duration else None
+
     async def _handle(self, reader, writer):
         if self.paused:
             writer.close()
@@ -150,7 +261,14 @@ class MockMA2:
         return "\x1b[37m" + reply.replace("[Channel]>", "\x1b[32m[Channel]>\x1b[37m\x1b[K")
 
     def _reply(self, text: str) -> str:
+        if self.strict_console:
+            from .mock_console import validate
+            error = validate(text, self.sim_selection)
+            if error:
+                return f'Error #14: {error}\r\n[Channel]>'
         reply = self._answer(text)
+        if self.simulation is not None and not re.search(r"Error|WARNING", reply, re.I):
+            self._simulate(text)
         if self.real and not text.lower().startswith("login"):
             reply = f"Executing : {text}\r\n" + reply
         return reply
@@ -190,8 +308,11 @@ class MockMA2:
                 for fid, address in self.patch.items():  # the export shows the new patch, as the desk's would
                     body = re.sub(rf'(<Fixture[^>]*fixture_id="{fid}".*?<(Address|Patch)>)[^<]*(</\2>)', rf"\g<1>{address}\g<3>", body, count=1, flags=re.S)
             if text.startswith("Export Group"):  # ponytail: guessed layout, see fixtures.parse_group_export
-                body = '<MA xmlns="urn:ma">' + "".join(f'<Group index="{n - 1}" name="{g}"><Subfixtures>' + "".join(f'<Subfixture fix_id="{fid}"/>' for fid in self.group_members.get(n, [n, n + 1])) + '</Subfixtures></Group>'
-                                                     for n, g in sorted(self.groups.items())) + "</MA>"
+                from .mock_console import GROUPS
+                body = '<MA xmlns="urn:ma">' + ''.join(
+                    f'<Group index="{n-1}" name="{g}"><Subfixtures>' + ''.join(
+                        f'<Subfixture fix_id="{fid}"/>' for fid in (GROUPS[n][1] if self.strict_console else self.group_members.get(n, [n, n+1]))) +
+                    '</Subfixtures></Group>' for n, g in sorted(self.groups.items())) + '</MA>'
             write = (lambda: shutil.copy(SAMPLE, path)) if body is None else (lambda: path.write_text(body, encoding="utf-8"))
             if self.export_delay:
                 asyncio.get_running_loop().call_later(self.export_delay, write)
@@ -281,7 +402,9 @@ class MockMA2:
                 if not self.off_times.get(ex, 0): self.running.discard(ex)
         if m := re.match(r"Delete Executor (\S+)", text):
             self.rows.pop(m[1], None)
-        if m := re.match(r"(Go|Off) Executor (\S+)", text):
+        if text == "Off Executor 0.1.1 Thru Fade 0":
+            self.running.clear()
+        elif m := re.match(r"(Go|Off) Executor (\S+)", text):
             if m[1] == 'Go': self.running.add(m[2])
             elif m[2] not in self.transitions: self.running.discard(m[2])
         if m := re.match(r"StoreLook Executor (\d+\.\d+)", text):

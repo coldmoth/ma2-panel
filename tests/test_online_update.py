@@ -38,7 +38,10 @@ def test_malformed_or_nonstable_release_is_refused(monkeypatch, data):
 
 
 def test_notes_are_plain_data(monkeypatch):
-    monkeypatch.setattr(bu, 'fetch_json', lambda _: metadata())
+    data = metadata()
+    data['assets'].append({'name': 'stable-quality.json', 'browser_download_url': f'https://github.com/{bu.REPO}/releases/download/v3.2.0/stable-quality.json'})
+    monkeypatch.setattr(bu.release_quality, 'authenticate', lambda *a: {'source_sha': 'a' * 40})
+    monkeypatch.setattr(bu, 'fetch_json', lambda u: data if u == bu.API else {'sha': 'a' * 40})
     info = bu.latest()
     assert info['notes'] == metadata()['body']
 

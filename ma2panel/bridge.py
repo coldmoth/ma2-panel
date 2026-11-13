@@ -279,7 +279,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         state["values_revision"] += 1
         # Panel-sent values only; none of these are physical readback.
         sent = {fid: {k: v for k, v in entry.items() if k in state["sent"].get(fid, ())} for fid, entry in known_shown().items()}
-        return {"values_revision": state["values_revision"], "master": state["master"], "shown": {fid: entry for fid, entry in sent.items() if entry}, "tracked": state["tracked"], "page": state["page"], "live": state["live"], "values_meta": values_meta()}
+        return {"values_revision": state["values_revision"], "master": state["master"], "shown": {fid: entry for fid, entry in sent.items() if entry}, "tracked": state["tracked"], "page": state["page"], "live": state["live"], "values_meta": values_meta(),
+                **({"simulation": app.state.mock.simulation_output() if link.ready else {}} if mock and hasattr(app.state, "mock") else {})}
 
     def session_msg(ws, msg):
         if sessions.get(ws, {}).get("simple") and "config" in msg:
@@ -1188,7 +1189,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     def mover(action):
         fixture = find(cfg["fixtures"], action.get("id"))
-        if not can_move(fixture):
+        if not can_move(fixture, cfg):
             raise ActionError("прибор не двигается")
         return fixture, {"home": 50, "invert": False, **fixture.get("beam", {})}
 
@@ -1345,6 +1346,15 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     f["id"]: [state["dmx"].get(a + i) for i in range(f.get("footprint") or 0)]
                     for f in cfg["fixtures"] if (a := absolute(f.get("address")))}})
 
+    async def poll_simulation():
+        previous = None
+        while True:
+            output = app.state.mock.simulation_output() if link.ready else {}
+            if output != previous:
+                await broadcast({"simulation": output})
+                previous = output
+            await asyncio.sleep(.05)
+
     async def poll_dmx():
         """What the desk outputs, read by Lua chunks with dmx_seconds idle time per sweep: the plan shows every lit fixture, not only the panel's.
         Needs allow_fixture_read; read only (getdmx). Failed reads back off; refusals have a bounded retry budget."""
@@ -1364,6 +1374,21 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             except Exception:  # one bad reply must not end the read-back until restart
                 log.exception("чтение DMX не удалось")
                 wait = 30
+    async def poll_types():
+        """Profile discovery remains available when live DMX readback is disabled."""
+        while True:
+            await asyncio.sleep(2)
+            if safety["allow_fixture_read"] is not True or state["loading"] or not link.ready or action_lock.locked():
+                continue
+            try:
+                state["background_type_read"] = True
+                await read_types(max_types=1, background=True)
+            except ActionError:
+                pass  # a changed show/connection/config cancels this read
+            except Exception:
+                log.exception("чтение типов не удалось")
+            finally:
+                state["background_type_read"] = False
 
     dmx_cycle = {"key": None, "index": 0, "initial": True, "seen": {}, "started": None, "seconds": None, "retry_after": {}}
 
@@ -2109,11 +2134,18 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         """Channel numbers (dim, r, g, b) of every fixture type of the plan, from one Export FixtureType per type: the
         fixture export names no attributes. Foreground caller holds action_lock; background locks only sends. Best effort: a failure leaves the plan without colours
         and is logged; failed reads have a bounded retry budget per context."""
+        def validate_editor():
+            if background and any(s.get("editing") or s.get("scene_offer", {}).get("expires", 0) > time.monotonic()
+                                  for s in sessions.values()):
+                raise ActionError("фоновое чтение типа отложено: идёт редактирование")
+
         validate()
+        validate_editor()
         epoch, gen = state["plan_epoch"], link._gen
         refresh = force or state.get("types_context") != (epoch, gen)
         if refresh:
-            invalidate_profiles()
+            types_tried.clear()
+            type_retries.clear()
         if state.get("types_context") != (epoch, gen):
             types_tried.clear()
             state["types_context"] = (epoch, gen)
@@ -2123,6 +2155,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
             def validate():
                 original_validate()
+                validate_editor()
                 if (context != (state["plan_epoch"], link._gen, link._stop_epoch, config_revision())
                         or not link.ready or link.halted or state["loading"] or rdm.active or updating()):
                     raise ActionError("фоновое чтение типа отменено: контекст изменился")
@@ -2134,7 +2167,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                     return await link.send(line, **kwargs)
             return await link.send(line, **kwargs)
 
-        maps, changed = dict(cfg.get("dmx_map", {})), refresh
+        maps = {k: {**v, **({"stale": True} if refresh else {})} for k, v in cfg.get("dmx_map", {}).items()}
+        changed = refresh
+        completed = set()
 
         def can_retry(kind):
             attempts, after = type_retries.get(kind, (0, 0))
@@ -2155,7 +2190,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 raise ActionError("контекст чтения типов изменился")
             sizes = parse_type_footprints(reply) if ok else {}
             if sizes:
-                types_tried.add(" list")
+                completed.add(" list")
                 type_retries.pop(" list", None)
                 state["type_names"] = parse_type_names(reply)
             else:
@@ -2191,11 +2226,11 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 break  # the same folder or refusal for the next type: each try holds the desk for up to export_wait
             if epoch != state["plan_epoch"] or gen != link._gen:
                 return
-            types_tried.add(kind)
+            completed.add(kind)
             type_retries.pop(kind, None)
             if spec and maps.get(kind) != spec:
                 maps[kind], changed = spec, True
-        fixtures = cfg["fixtures"]
+        fixtures = [{k: v for k, v in f.items() if k != "footprint"} for f in cfg["fixtures"]] if refresh else cfg["fixtures"]
         if not sizes and (force or " list" not in types_tried and can_retry(" list") and any(number(f.get("type")) and "footprint" not in f for f in fixtures if not f.get("missing"))):
             sizes = await read_type_table()
         if sizes:
@@ -2208,6 +2243,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 save_config(config_path, {**cfg, "attrs": original_attrs, "dmx_map": maps, "fixtures": fixtures})
                 cfg.update(dmx_map=maps, fixtures=fixtures)
                 add_strobe_attrs(maps)
+            types_tried.update(completed)
+            for kind in completed:
+                type_retries.pop(kind, None)
 
         if background:
             async with action_lock:
@@ -3131,12 +3169,17 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if mock:
                 app.state.mock = await start_mock(0, ma2["user"], export_dir)  # never the real console: a free local port
                 link.host, link.port = "127.0.0.1", app.state.mock.port
-            tasks = [asyncio.create_task(browser_update.watch_orphan(app, HERE)), asyncio.create_task(link.run()), asyncio.create_task(throttle.run()), asyncio.create_task(highlight_lease()), asyncio.create_task(expire_evidence())]
+                if app.state.mock.simulation is None:
+                    app.state.mock.configure_simulation(cfg)
+                tasks.append(asyncio.create_task(poll_simulation()))
+            tasks += [asyncio.create_task(browser_update.watch_orphan(app, HERE)), asyncio.create_task(link.run()), asyncio.create_task(throttle.run()), asyncio.create_task(highlight_lease()), asyncio.create_task(expire_evidence())]
             tasks.append(asyncio.create_task(diagnostic_uploader.run()))
             if poll_seconds:
                 tasks.append(asyncio.create_task(poll_running()))
             if dmx_seconds:
                 tasks.append(asyncio.create_task(poll_dmx()))
+            elif safety["allow_fixture_read"]:
+                tasks.append(asyncio.create_task(poll_types()))
             yield
         finally:
             await rdm_shutdown()

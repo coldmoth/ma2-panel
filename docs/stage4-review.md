@@ -1,7 +1,7 @@
 # Повторное независимое review — пакетная интеграция, 2026-11-10
 
 Работать с codex/stage4-review-fixes, база публичного main/v3.2.5 d95220f,
-worktree /Users/nevereply/.codex/worktrees/stage4-review-fixes/release-repo.
+worktree /path/to/ma2-panel
 Это задание следующему reviewer, не заключение о прохождении review.
 Не подключать MA2, не запускать без --mock, не публиковать локальную историю.
 

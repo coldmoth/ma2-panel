@@ -12,6 +12,13 @@ If the connection drops or a result is unknown, ask the operator to check the pa
 
 ## Full control panel
 
+- **Сцены:** выберите сцену из общего списка. Плана зала здесь нет; он находится в «Свете». Настройте переход при необходимости. Добавление, запись и удаление выполняйте только в выделенных исполнителях; проверьте номер executor перед подтверждением.
+- **Свет:** выберите приборы или группу, затем яркость и цвет. Для голов доступны джойстик, абсолютные ползунки Pan/Tilt и пресеты позиции. Неизвестные и разные значения показаны явно. Набор остальных параметров зависит от данных типа прибора; неподдерживаемые слайдеры скрыты.
+- **Зал:** получите приборы из MA2 или импортируйте XML, расставьте их на схеме, проверьте группы, тип и направление головы. Highlight требует разрешения и может менять свет на сцене.
+- **Шоу:** проверьте имя активного шоу и соответствие плана. Загрузка и сохранение реального шоу требуют отдельных разрешений; локальный план не заменяет файл шоу MA2.
+- **Патч:** просмотрите адреса и пересечения. Изменение адреса и RDM — отдельная операция на реальных устройствах; выполняйте её с оператором вне выступления.
+- **История:** просмотрите изменения и доступный откат. Это история поддерживаемых действий панели, а не полная резервная копия пульта.
+
 Open the main address, normally port **8080**. Check the connection and active show first. Available actions depend on the bridge permissions and fixture data.
 
 - **Scenes and executors:** select a scene and adjust its transition if needed. Record or delete only on allocated executors; check the executor number before confirming. Starting a scene sends ClearAll to the panel user's Programmer, so use a dedicated User Profile.

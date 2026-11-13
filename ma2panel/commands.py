@@ -118,9 +118,11 @@ def parse_executors(reply: str) -> list[tuple[str, str]]:
     return found
 
 
-def can_move(fixture: dict) -> bool:
-    """Heads: the old moves flag, or Pan/Tilt among the parameters read from the MA2 export."""
-    return not fixture.get("missing") and (fixture.get("moves") is True or any(str(p).lower() in ("pan", "tilt") for p in fixture.get("params") or []))
+def can_move(fixture: dict, cfg: dict | None = None) -> bool:
+    """Heads: explicit fixture attributes/flag, or Pan+Tilt from a current confirmed type."""
+    profile = (cfg or {}).get("dmx_map", {}).get(fixture.get("type"), {})
+    return not fixture.get("missing") and (fixture.get("moves") is True or any(str(p).lower() in ("pan", "tilt") for p in fixture.get("params") or [])
+            or not profile.get("stale") and not profile.get("unsupported") and "pos" in profile.get("has", []))
 
 
 def parse_ma2_objects(reply: str, pattern: str, preset_type: int | None = None) -> list[dict]:
@@ -176,7 +178,7 @@ def parse_running(reply: str) -> dict[str, bool]:
 
 
 def movers(ids: list[int], cfg: dict) -> list[int]:
-    moving = {f["id"] for f in cfg["fixtures"] if can_move(f)}
+    moving = {f["id"] for f in cfg["fixtures"] if can_move(f, cfg)}
     return [id_ for id_ in ids if id_ in moving]
 
 

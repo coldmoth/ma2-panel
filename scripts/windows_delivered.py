@@ -196,6 +196,7 @@ for name in update.user_data_names(root):
     path=root/name
     if path.is_file(): protected[name]=path.read_bytes()
 for name,data in {'shows/operator.json':b'{"plan":"user"}',
+                  'config.json':b'{"version":5,"fixtures":[{"id":1,"x":0.25,"y":0.75}],"groups":[{"id":"qa","fixtures":[1]}],"scenes":[{"id":"look","exec":"1.101"}]}',
                   'secret.env':b'MA2_PASSWORD=ci-synthetic',
                   'rdm-search.json':b'{"state":"pending","target":{"id":42}}',
                   'blackout.json':b'{broken blackout',
