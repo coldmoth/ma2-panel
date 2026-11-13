@@ -50,3 +50,16 @@ def test_rejects_tampered_or_incomplete_candidate(tmp_path, failure):
     with pytest.raises(ValueError):
         quality.authenticate_candidate(report, tag, 'coldmoth/ma2-panel', fetch)
         quality.verify_archive(archive, report, tag, candidate=True)
+
+
+@pytest.mark.parametrize('failure', [None, 'wrong-suite', 'wrong-url'])
+def test_github_canonical_check_link_is_bound_to_the_same_ci_suite(tmp_path, failure):
+    report, archive, fetch, run, check = evidence(tmp_path)
+    run['check_suite_id'] = 17
+    check.update(id=29, check_suite={'id': 17}, details_url='https://github.com/coldmoth/ma2-panel/runs/29')
+    if failure == 'wrong-suite': check['check_suite']['id'] = 18
+    if failure == 'wrong-url': check['details_url'] = 'https://github.com/coldmoth/ma2-panel/runs/30'
+    if failure:
+        with pytest.raises(ValueError): quality.authenticate_candidate(report, 'v3.3.2-rc.1', 'coldmoth/ma2-panel', fetch)
+    else:
+        assert quality.authenticate_candidate(report, 'v3.3.2-rc.1', 'coldmoth/ma2-panel', fetch) == report
