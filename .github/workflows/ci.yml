@@ -214,6 +214,8 @@ jobs:
         run: uv run --no-sync python scripts/first_run_zip.py
       - name: Real supported release upgrade, rollback and interrupted recovery
         run: uv run --no-sync python scripts/release_lifecycle.py --runtime dist/ma2-panel-win/ma2-panel/program
+      - name: Published v3.3.2 upgrade, user-data preservation, rollback and recovery
+        run: uv run --no-sync python scripts/release_lifecycle.py --previous dist/cache/previous-3.3.2.zip --previous-version 3.3.2 --previous-sha256 b9c11a56b6b9724e85511ad4ad19b0a131deaa8acb1b71dbdaac5aa16890f05f --runtime dist/ma2-panel-win/ma2-panel/program --output test-results/release-lifecycle-3.3.2
       - name: Published v3.3.0 existing buttons and opt-in RC (fixture GitHub)
         run: uv run --no-sync python scripts/update_channels_windows.py
       - name: Delivered embedded Python, BAT and update rollback

@@ -38,3 +38,16 @@ def test_real_panel_groups_scenes_layout_survive_update_rollback_and_move(tmp_pa
     for key in ('groups', 'scenes'):
         assert loaded[key] == cfg[key]
     assert [(f['x'], f['y']) for f in loaded['fixtures']] == [(.25, .75)]
+
+
+def test_lifecycle_pins_requested_previous_release(tmp_path):
+    import hashlib
+    import pytest
+    from scripts import release_lifecycle
+    previous = tmp_path / 'previous-3.3.2.zip'
+    previous.write_bytes(b'isolated package input')
+    digest = hashlib.sha256(previous.read_bytes()).hexdigest()
+    assert release_lifecycle.previous_zip(previous, '3.3.2', digest) == previous
+    previous.write_bytes(b'wrong release')
+    with pytest.raises(ValueError, match='Previous ZIP hash mismatch'):
+        release_lifecycle.previous_zip(previous, '3.3.2', digest)

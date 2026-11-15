@@ -54,15 +54,15 @@ bridge.main()
 '''
 
 
-def previous_zip(path):
+def previous_zip(path, version="3.3.0", sha256=PREVIOUS_SHA256):
     if not path.exists():
         path.parent.mkdir(parents=True,exist_ok=True)
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(PREVIOUS_URL,timeout=30) as response:
+        with opener.open(f'https://github.com/coldmoth/ma2-panel/releases/download/v{version}/ma2-panel-update.zip',timeout=30) as response:
             data=response.read(16*1024*1024)
-        if hashlib.sha256(data).hexdigest()!=PREVIOUS_SHA256: raise ValueError('Previous ZIP hash mismatch')
+        if hashlib.sha256(data).hexdigest()!=sha256: raise ValueError('Previous ZIP hash mismatch')
         path.write_bytes(data)
-    if hashlib.sha256(path.read_bytes()).hexdigest()!=PREVIOUS_SHA256: raise ValueError('Previous ZIP hash mismatch')
+    if hashlib.sha256(path.read_bytes()).hexdigest()!=sha256: raise ValueError('Previous ZIP hash mismatch')
     return path
 
 
@@ -98,10 +98,10 @@ def invoke(root, executable, code, *args, expected=0):
     if result.returncode!=expected: raise RuntimeError(result.stdout.decode('utf-8','replace')+result.stderr.decode('utf-8','replace'))
 
 
-def exercise(previous, candidate, output, runtime=None):
-    previous_zip(previous)
+def exercise(previous, candidate, output, runtime=None, previous_version="3.3.0", previous_sha256=PREVIOUS_SHA256):
+    previous_zip(previous, previous_version, previous_sha256)
     old,new=release.check(previous),release.check(candidate)
-    assert old['version'].startswith('3.3.0+') and new['version']!=old['version']
+    assert old['version'].startswith(previous_version + '+') and new['version']!=old['version']
     module = 'ma2panel/bridge.py' if 'ma2panel/bridge.py' in old['files'] else 'bridge.py'
     target = 'ma2panel/bridge.py' if 'ma2panel/bridge.py' in new['files'] else 'bridge.py'
     assert old['files'][module]['sha256']!=new['files'][target]['sha256'], 'Same code is not an inter-version test'
@@ -156,15 +156,16 @@ update.install(sys.argv[2],root)
         subprocess.run([str(executable),str(root/'.updates/recovery.py'),'--recover',str(root)],cwd=root,env=clean_environment(),check=True,timeout=30)
         preserved();boot(root,executable,output/'recovered.log')
         with zipfile.ZipFile(previous) as archive: assert (root/'bridge.py').read_bytes()==archive.read('bridge.py')
-    result={'previous':old['version'],'previous_sha256':PREVIOUS_SHA256,'candidate':new['version'],'candidate_sha256':hashlib.sha256(candidate.read_bytes()).hexdigest(),'upgrade':'success','rollback':'success','interrupted_recovery':'success','runtime':'embedded-windows' if runtime else 'host-python'}
+    result={'previous':old['version'],'previous_sha256':previous_sha256,'candidate':new['version'],'candidate_sha256':hashlib.sha256(candidate.read_bytes()).hexdigest(),'upgrade':'success','rollback':'success','interrupted_recovery':'success','runtime':'embedded-windows' if runtime else 'host-python'}
     (output/'result.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result))
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--previous',type=Path,default=Path('dist/cache/previous-3.3.0.zip'))
     p.add_argument('--candidate',type=Path,default=Path('dist/update/ma2-panel-update.zip'));p.add_argument('--runtime',type=Path)
+    p.add_argument('--previous-version',default='3.3.0');p.add_argument('--previous-sha256',default=PREVIOUS_SHA256)
     p.add_argument('--output',type=Path,default=Path('test-results/release-lifecycle'));a=p.parse_args()
-    exercise(a.previous.resolve(),a.candidate.resolve(),a.output.resolve(),a.runtime.resolve() if a.runtime else None)
+    exercise(a.previous.resolve(),a.candidate.resolve(),a.output.resolve(),a.runtime.resolve() if a.runtime else None,a.previous_version,a.previous_sha256)
 
 
 if __name__=='__main__': main()
