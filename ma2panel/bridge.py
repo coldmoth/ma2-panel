@@ -193,6 +193,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     action_lock = ActionLock()  # validate the shared-plan revision inside the same critical section
     bg: set[asyncio.Task] = set()
+    ws_workers: dict[asyncio.Task, asyncio.Queue] = {}
     journal: deque[dict] = deque(maxlen=300)  # who pressed what; sliders are left out (10 per second)
     # «История»: the last 100 changes with what undoes them. ponytail: in memory, a restart forgets it.
     history: deque[dict] = deque(maxlen=100)
@@ -3263,13 +3264,15 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return "не завершена операция: " + ", ".join(names)
         if throttle._pending or throttle.fades:
             return "не завершена очередь команд или плавный переход"
+        if any(not task.done() and not queue.empty() for task, queue in ws_workers.items()):
+            return "в очереди ожидают действия панели"
         if app.state.active_actions:
             return "выполняется действие панели"
         if app.state.active_http:
             return "выполняется HTTP-операция (сохранение или импорт)"
         if action_lock.locked() or link._lock.locked():
             return "выполняется обмен с MA2; ожидается завершение команды или чтения"
-        if any(not task.done() for task in bg):
+        if any(not task.done() and task not in ws_workers for task in bg):
             return "завершается фоновая операция моста"
         quiet = time.monotonic() - getattr(app.state, 'last_write', -1e9)
         if quiet < 10:
@@ -3434,8 +3437,12 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             task = asyncio.create_task(coro)
             bg.add(task)
             task.add_done_callback(bg.discard)
+            return task
 
-        spawn(worker())  # not cancelled on disconnect: a line already going to the console finishes, nothing queued runs
+        # Keep workers in bg for shutdown, but an empty waiting queue is not work.
+        task = spawn(worker())  # not cancelled on disconnect: an admitted line finishes
+        ws_workers[task] = queue
+        task.add_done_callback(lambda done: ws_workers.pop(done, None))
         try:
             for msg in (status_msg(), config_msg()) if simple else (status_msg(), config_msg(), shown_msg(), history_msg()):
                 await ws.send_json(session_msg(ws, msg))

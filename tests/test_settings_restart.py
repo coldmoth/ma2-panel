@@ -119,3 +119,39 @@ def test_restart_status_is_readable_only_by_local_pages(context, monkeypatch):
         assert 'access-control-allow-origin' not in client.get('/api/restart/status', headers={'Origin': 'https://evil.example'}).headers
         monkeypatch.setattr(bridge, 'is_loopback', lambda _: False)
         assert client.get('/api/restart/status').status_code == 403
+
+
+def test_idle_open_panel_does_not_block_restart(context):
+    from test_bridge import ready
+    app, c = context
+    with TestClient(app, base_url='http://127.0.0.1') as client:
+        with client.websocket_connect('/ws') as ws:
+            ready(ws)
+            assert any(not task.done() for task in c.bg)  # The passive worker lives until disconnect.
+            response = restart(client)
+            assert response.status_code == 200, response.text
+            assert app.state.server.should_exit
+
+
+def test_waiting_worker_is_ignored_but_queued_action_keeps_send_gate_open(context):
+    app, c = context
+    async def check():
+        queue = asyncio.Queue()
+        worker = asyncio.create_task(asyncio.Event().wait())
+        c.bg.add(worker)
+        c.ws_workers[worker] = queue
+        try:
+            queue.put_nowait('{"a":"blackout"}')
+            assert not await c.update_gate(restart=True)
+            assert 'очереди' in c.restart_busy()
+            assert not app.state.updating and c.link.admission()
+            assert queue.get_nowait() == '{"a":"blackout"}'
+            # Work consumed by a worker is covered until handle_load's finally.
+            app.state.active_actions = 1
+            assert not await c.update_gate(restart=True)
+            app.state.active_actions = 0
+            assert await c.update_gate(restart=True)
+        finally:
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+    asyncio.run(check())

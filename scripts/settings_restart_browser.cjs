@@ -15,11 +15,12 @@ const {chromium} = require('./browser_smoke/node_modules/playwright');
     processes.push(await (await page.request.get(base+'/api/update/health')).json());
     // Two-second polling continues during this test; no ten-second silence exists.
     await page.waitForTimeout(2500);
-    await page.evaluate(async port=>{
-      window.restartSockets=await Promise.all([location.port,port].map(p=>new Promise((resolve,reject)=>{
-        const ws=new WebSocket(`ws://127.0.0.1:${p}/ws`);ws.onopen=()=>resolve(ws);ws.onerror=reject;
-      })));
-    },simplePort);
+    const simplePage=await browser.newPage();
+    await simplePage.goto(`http://127.0.0.1:${simplePort}/`);
+    for(const connected of [page,simplePage])await connected.evaluate(()=>new Promise((resolve,reject)=>{
+      window.restartSocket=new WebSocket(`ws://${location.host}/ws`);
+      window.restartSocket.onopen=resolve;window.restartSocket.onerror=reject;
+    }));
     async function save(rate,port){
       await page.locator('#rate_hz').fill(String(rate));
       if(port)await page.locator('#port').fill(String(port));
@@ -44,7 +45,8 @@ const {chromium} = require('./browser_smoke/node_modules/playwright');
     assert.equal(await page.locator('#rate_hz').inputValue(),'6');
     processes.push(await (await page.request.get(base+'/api/update/health')).json());
     assert.notEqual(processes[0].instance,processes[1].instance);
-    assert.equal(await page.evaluate(()=>window.restartSockets.every(ws=>ws.readyState===WebSocket.CLOSED)),true);
+    assert.equal(await page.evaluate(()=>window.restartSocket.readyState===WebSocket.CLOSED),true);
+    assert.equal(await simplePage.evaluate(()=>window.restartSocket.readyState===WebSocket.CLOSED),true);
     assert.equal((await (await page.request.get(`http://127.0.0.1:${simplePort}/api/update/health`)).json()).instance,processes[1].instance);
     await page.screenshot({path:path.join(output,'same-port.png'),fullPage:true});
     await save(7,newPort);
