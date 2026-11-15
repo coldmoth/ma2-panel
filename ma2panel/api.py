@@ -168,12 +168,29 @@ def register(app, c, is_loopback):
     async def restart(request: Request):
         if not is_loopback(request) or request.headers.get("x-stop") != "1":
             return JSONResponse({"ok": False}, status_code=403)
-        if not await c.update_gate():
-            return JSONResponse({"ok": False, "err": "идёт передача команд"}, status_code=409)
+        server = getattr(app.state, "server", None)
+        if server is None:
+            return JSONResponse({"ok": False, "err": "Перезапуск недоступен: сервер моста не зарегистрирован. Запустите мост через start.bat."}, status_code=503)
+        if not await c.update_gate(restart=True):
+            reason = c.restart_busy()
+            return JSONResponse({"ok": False, "reason": reason, "retry_after": 2,
+                                 "err": "Перезапуск отложен: " + reason + ". Повторите после завершения операции."}, status_code=409)
         app.state.exit_code = 3
-        if server := getattr(app.state, "server", None):
-            server.should_exit = True
-        return {"ok": True}
+        server.should_exit = True
+        return {"ok": True, "instance": app.state.instance}
+
+    @app.get("/api/restart/status")
+    def restart_status(request: Request):
+        # Readable across local ports after a settings port change. No credentials
+        # or settings are exposed, and arbitrary web origins get no CORS access.
+        if not is_loopback(request) or request.url.hostname not in (*LOOPBACK, "localhost"):
+            return JSONResponse({"ok": False}, status_code=403)
+        origin = request.headers.get("origin", "")
+        parsed = urlsplit(origin)
+        headers = {"Cache-Control": "no-store", "Vary": "Origin"}
+        if parsed.scheme == "http" and parsed.hostname in (*LOOPBACK, "localhost"):
+            headers["Access-Control-Allow-Origin"] = origin
+        return JSONResponse({"ok": True, "instance": app.state.instance}, headers=headers)
 
     def export_report():
         """Everything about reading the fixtures that is already known, without sending anything to the console."""

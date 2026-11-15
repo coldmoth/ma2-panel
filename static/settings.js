@@ -59,11 +59,13 @@ function fill(data) {
 }
 async function load() {
   try {
-    const response = await fetch('/api/settings');
+    const response = await fetch('/api/settings', {cache: 'no-store', signal: AbortSignal.timeout(5000)});
     if (response.status === 403) { status('Настройки меняются только на самом ПК с мостом: откройте http://localhost:8080/settings.html там', true); return; }
     if (!response.ok) throw new Error('Не удалось загрузить настройки');
     fill(await response.json());
-  } catch (error) { status(error.message, true); }
+    savedPort = original.port || location.port || '80';
+    return true;
+  } catch (error) { status(error.message, true); return false; }
 }
 el('mode').addEventListener('change', warning);
 el('password').addEventListener('input', () => { passwordTouched = true; });
@@ -99,26 +101,56 @@ el('settings-form').addEventListener('submit', async event => {
   finally { el('save').disabled = false; }
 });
 el('restart').addEventListener('click', async () => {
+  if (el('restart').disabled) return;
   el('restart').disabled = true;
+  el('save').disabled = true;
+  const target = new URL(location.href); target.port = savedPort; target.pathname = '/settings.html'; target.search = ''; target.hash = '';
   try {
-    const response = await fetch('/api/restart', {method: 'POST', headers: {'X-Stop': '1'}});
+    const response = await fetch('/api/restart', {method: 'POST', headers: {'X-Stop': '1'}, signal: AbortSignal.timeout(5000)});
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.err || 'Не удалось перезапустить мост');
-    saved('Мост перезапускается…');
-    el('save').disabled = true;
-    const target = new URL(location.href); target.port = savedPort; target.pathname = '/'; target.search = ''; target.hash = '';
-    const sameOrigin = target.origin === location.origin;
-    // Allow the old process to stop before checking the new one.
-    setTimeout(async function poll() {
+    if (!result.instance) throw new Error('Мост не вернул ID процесса. Обновите страницу настроек.');
+    saved('Мост перезапускается… Ожидание нового процесса — до 45 секунд.');
+    const deadline = Date.now() + 45000;
+    let detail = 'прежний процесс ещё работает';
+    while (Date.now() < deadline) {
       try {
-        const response = await fetch(target.href, {cache: 'no-store', mode: sameOrigin ? 'same-origin' : 'no-cors', signal: AbortSignal.timeout(4000)});
-        if (sameOrigin && !response.ok) throw new Error('Мост ещё запускается');
-        saved('Мост перезапущен.'); el('restart').hidden = true;
-        if (sameOrigin) { el('save').disabled = false; await load(); saved('Мост перезапущен, настройки загружены заново.'); }
-        else { const link = document.createElement('a'); link.href = new URL('settings.html', target).href; link.textContent = 'Открыть настройки на новом порту'; el('save-status').append(' ', link); }
-      } catch (error) { setTimeout(poll, 2000); }
-    }, 2500);
-  } catch (error) { saved(error.message, true); el('restart').disabled = false; }
+        const health = await fetch(new URL('/api/restart/status', target).href,
+          {cache: 'no-store', signal: AbortSignal.timeout(Math.min(4000, Math.max(1, deadline - Date.now())))});
+        if (!health.ok) throw new Error('HTTP ' + health.status);
+        const data = await health.json();
+        if (!data.ok || !data.instance) throw new Error('некорректный ответ проверки моста');
+        if (data.instance !== result.instance) {
+          if (target.origin !== location.origin) {
+            saved('Новый процесс моста работает. Загружаю настройки на новом порту…');
+            location.assign(target.href);
+            return;
+          }
+          if (!await load()) throw new Error('Новый процесс работает, но не удалось загрузить настройки. Обновите страницу.');
+          saved('Мост перезапущен, настройки загружены заново.');
+          el('restart').hidden = true;
+          return;
+        }
+        detail = 'прежний процесс ещё работает';
+      } catch (error) {
+        if (error.message.startsWith('Новый процесс работает')) throw error;
+        detail = error.message;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    throw new Error('Истекло время ожидания перезапуска (45 секунд): ' + detail + '. Проверьте окно start.bat и bridge.log: ошибка запуска, занятый порт или мост запущен без start.bat.');
+  } catch (error) {
+    saved(error.name === 'TimeoutError' || error.name === 'AbortError'
+      ? 'Мост не ответил на запрос перезапуска за 5 секунд. Проверьте окно start.bat и bridge.log, затем повторите проверку.' : error.message, true);
+    el('restart').textContent = 'Повторить перезапуск';
+    if (target.origin !== location.origin) {
+      const link = document.createElement('a'); link.href = target.href; link.textContent = 'Проверить настройки на новом порту';
+      el('save-status').append(' ', link);
+    }
+  } finally {
+    el('restart').disabled = false;
+    el('save').disabled = false;
+  }
 });
 load();
 

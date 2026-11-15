@@ -18,19 +18,20 @@
   - 111 `get_settings`
   - 123 `put_settings`
   - 168 `restart`
-  - 178 `export_report` — Everything about reading the fixtures that is already known, without sending anything to t
-  - 190 `diagnostics`
-  - 204 `upload_status`
-  - 211 `upload_diagnostics`
-    - 242 `private_names`
-    - 261 `collect`
-  - 275 `link_test` — Read-only: the connection attempts so far, who holds port 30000 on this PC, and one bare T
-  - 316 `export_probe`
-  - 335 `probe_console`
-  - 352 `diagnostic_package` — Only reads what is already on disk or in memory: nothing is sent to the console. One faili
-    - 356 `part`
-    - 362 `read`
-  - 402 `quality_snapshot`
+  - 183 `restart_status`
+  - 195 `export_report` — Everything about reading the fixtures that is already known, without sending anything to t
+  - 207 `diagnostics`
+  - 221 `upload_status`
+  - 228 `upload_diagnostics`
+    - 259 `private_names`
+    - 278 `collect`
+  - 292 `link_test` — Read-only: the connection attempts so far, who holds port 30000 on this PC, and one bare T
+  - 333 `export_probe`
+  - 352 `probe_console`
+  - 369 `diagnostic_package` — Only reads what is already on disk or in memory: nothing is sent to the console. One faili
+    - 373 `part`
+    - 379 `read`
+  - 419 `quality_snapshot`
 
 ## ma2panel/bridge.py
 - 61 `is_loopback`
@@ -149,43 +150,44 @@
   - 2465 `load_show`
   - 2564 `handle`
   - 3118 `on_result`
-  - 3135 `rdm_busy`
-  - 3150 `ProtocolThrottle`
-    - 3151 `clear`
-  - 3166 `lifespan`
-  - 3198 `mask`
-  - 3201 `safe_data`
-  - 3213 `DiagnosticHandler`
-    - 3214 `emit`
-  - 3229 `updating`
-  - 3239 `update_busy`
-  - 3246 `update_gate`
-  - 3253 `update_reopen`
-  - 3257 `update_stop`
-  - 3262 `perform_action_inner`
-  - 3299 `operation_reply`
-  - 3311 `finish_operation`
-  - 3327 `perform_action`
-  - 3371 `handle_load`
-  - 3380 `ws_endpoint`
-  - 3383 `simple_ws_endpoint`
-  - 3386 `serve_ws`
-    - 3396 `worker`
-    - 3400 `spawn`
-  - 3451 `no_cache`
-  - 3472 `simple_index`
-  - 3476 `simple_style`
-  - 3480 `simple_script`
-  - 3484 `simple_feedback_script`
-  - 3488 `simple_health`
-  - 3492 `update_health`
-- 3505 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
-- 3527 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
-- 3539 `local_addresses`
-- 3546 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
-- 3566 `stop_running`
-- 3578 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
-- 3591 `main`
+  - 3137 `rdm_busy`
+  - 3152 `ProtocolThrottle`
+    - 3153 `clear`
+  - 3168 `lifespan`
+  - 3200 `mask`
+  - 3203 `safe_data`
+  - 3215 `DiagnosticHandler`
+    - 3216 `emit`
+  - 3231 `updating`
+  - 3241 `update_busy`
+  - 3248 `restart_busy`
+  - 3279 `update_gate`
+  - 3286 `update_reopen`
+  - 3290 `update_stop`
+  - 3295 `perform_action_inner`
+  - 3332 `operation_reply`
+  - 3344 `finish_operation`
+  - 3360 `perform_action`
+  - 3404 `handle_load`
+  - 3413 `ws_endpoint`
+  - 3416 `simple_ws_endpoint`
+  - 3419 `serve_ws`
+    - 3429 `worker`
+    - 3433 `spawn`
+  - 3484 `no_cache`
+  - 3505 `simple_index`
+  - 3509 `simple_style`
+  - 3513 `simple_script`
+  - 3517 `simple_feedback_script`
+  - 3521 `simple_health`
+  - 3525 `update_health`
+- 3538 `probe` — Send read-only commands and write the raw replies to probe.txt: the replies are the format
+- 3560 `backup_config` — One copy of config.json per day in backups/, the last `keep` days.
+- 3572 `local_addresses`
+- 3579 `check` — Read nothing from the console: only prints the settings and tests that the Telnet port acc
+- 3599 `stop_running`
+- 3611 `open_start_page` — Open only after the listener is ready; failure does not stop the bridge.
+- 3624 `main`
 
 ## ma2panel/browser_update.py
 - 39 `trusted_url`
@@ -838,10 +840,10 @@
 - 27 `csv`
 - 28 `fill`
 - 60 `load`
-- 128 `importElement`
-- 134 `importComplete`
-- 146 `renderImportChoices`
-- 200 `importResult`
+- 160 `importElement`
+- 166 `importComplete`
+- 178 `renderImportChoices`
+- 232 `importResult`
 
 ## static/static/setup.js
 

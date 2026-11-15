@@ -3121,6 +3121,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             if entry.get("status") == "unknown" or not re.match(r"^(?:List|Get|Lua |cd |CD )", entry.get("cmd", "")):
                 op["evidence"].append(entry["status"])
         app.state.last_send = time.monotonic()
+        if not re.match(r"^(?:List|Get|Lua |cd |CD )", entry.get("cmd", "")):
+            app.state.last_write = app.state.last_send
         if entry.get("status") == "unknown":
             invalidate_evidence()
         spawn_broadcast({"last": entry})
@@ -3243,8 +3245,39 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 or highlight['state'] != 'idle' or time.monotonic() - app.state.last_action < 10
                 or time.monotonic() - getattr(app.state, 'last_send', -1e9) < 10)
 
-    async def update_gate():
-        if update_busy():
+    def restart_busy():
+        # Unlike installation, restart needs no ten-second quiet window after
+        # completed work. Periodic reads otherwise keep last_send fresh forever.
+        if updating():
+            return "идёт обновление или уже принят перезапуск"
+        if rdm.active:
+            return "выполняется поиск RDM"
+        if highlight['state'] != 'idle':
+            return "активна подсветка Highlight; сначала выключите её"
+        if state['loading']:
+            return "загружается шоу"
+        if state.get('background_type_read'):
+            return "читаются типы приборов"
+        if active_operations:
+            names = sorted({HISTORY_NAMES.get(op['a'], op['a']) for op in active_operations.values()})
+            return "не завершена операция: " + ", ".join(names)
+        if throttle._pending or throttle.fades:
+            return "не завершена очередь команд или плавный переход"
+        if app.state.active_actions:
+            return "выполняется действие панели"
+        if app.state.active_http:
+            return "выполняется HTTP-операция (сохранение или импорт)"
+        if action_lock.locked() or link._lock.locked():
+            return "выполняется обмен с MA2; ожидается завершение команды или чтения"
+        if any(not task.done() for task in bg):
+            return "завершается фоновая операция моста"
+        quiet = time.monotonic() - getattr(app.state, 'last_write', -1e9)
+        if quiet < 10:
+            return f"ожидание после команды MA2: ещё {max(1, int(10 - quiet + .999))} с"
+        return ""
+
+    async def update_gate(*, restart=False):
+        if (restart_busy() if restart else update_busy()):
             return False
         # No await between checking admitted work and closing the physical send gate.
         app.state.updating = True

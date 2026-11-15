@@ -148,11 +148,13 @@ def test_bad_password_payload_is_not_written(site):
 def test_restart_header_idle_and_exit_code(site):
     with site() as s:
         assert s.client.post('/api/restart').status_code == 403
-        s.app.state.last_send = time.monotonic()
+        s.app.state.last_write = time.monotonic()
         response = s.client.post('/api/restart', headers={'X-Stop': '1'})
-        assert response.status_code == 409 and response.json()['err'] == 'идёт передача команд'
+        assert response.status_code == 409
+        assert 'после команды MA2' in response.json()['reason']
         assert not s.app.state.server.should_exit
-        s.app.state.last_send = -1e9
+        s.app.state.last_write = -1e9
+        s.app.state.last_send = time.monotonic()  # A completed periodic read does not defer restart.
         assert s.client.post('/api/restart', headers={'X-Stop': '1'}).json()['ok']
         assert s.app.state.exit_code == 3 and s.app.state.server.should_exit
 
