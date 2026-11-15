@@ -1,11 +1,11 @@
-# 3.3.3 — bridge restart fix
+# 3.3.3-rc.1 — bridge restart fix
 
 - Fix bridge restarts after saving settings when a panel WebSocket remains open or periodic MA2 reads are running.
 - Report the specific busy operation and allow a safe retry after it finishes. Active commands, RDM, Blackout, scene writes and queued actions continue to block restart.
 - Bound restart requests and startup checks; confirm a new process instance and reload settings, including after a port change.
 - Keep the existing Windows start.bat restart loop and lighting controls unchanged.
 
-This candidate requires current release acceptance before stable publication.
+This prerelease is available through Settings → Receive test updates → Check for updates → Update in v3.3.2. Test updates are disabled by default. Hardware acceptance remains pending; this is not a stable release.
 
 # 3.3.2 — stable bootstrap candidate (not yet published)
 
