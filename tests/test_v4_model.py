@@ -1,6 +1,9 @@
 """Task 2: hall, service fixtures and lossless startup migration."""
+from test_bridge import scene_frame
+
 import asyncio
 import json
+from uuid import UUID
 import threading
 
 import pytest
@@ -110,7 +113,7 @@ def test_model_changes_wait_for_action_lock(tmp_path, monkeypatch, action):
     monkeypatch.setattr(bridge.MA2Link, 'send', delayed)
     with tabs(tmp_path, FULL) as ((a, b), _, client, path):
         before = path.read_bytes()
-        a.send_json({'a': 'scene_go', 'id': 'pianist'})
+        a.send_json(scene_frame(a.last_config, {'a': 'scene_go', 'id': 'pianist'}))
         assert entered.wait(3)
         b.send_json(action)
         try:
@@ -137,7 +140,10 @@ def test_startup_migrates_without_clearing_or_repeating(tmp_path, show):
     path.write_bytes(raw)
     archive = legacy_archive_path(path, cfg)
     with TestClient(bridge.create_app(cfg, True, str(path), FULL)):
-        assert json.loads(path.read_text()) == {**{k: v for k, v in json.loads(raw).items() if k not in SITE_KEYS}, 'version': 5}
+        migrated = json.loads(path.read_text())
+        for scene in migrated['scenes']:
+            assert UUID(scene.pop('identity')).version == 4
+        assert migrated == {**{k: v for k, v in json.loads(raw).items() if k not in SITE_KEYS}, 'version': 5}
         assert archive.read_bytes() == raw
         expected_settings = {k: v for k, v in json.loads(raw).items() if k in SITE_KEYS}
         expected_settings['ma2'].pop('password', None)

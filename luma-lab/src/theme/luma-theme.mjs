@@ -1,0 +1,51 @@
+import { defineTheme } from "@astryxdesign/core/theme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+
+const fontFamily = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const ink = "#131620";
+
+export const lumaTheme = defineTheme({
+  name: "luma",
+  extends: neutralTheme,
+  tokens: {
+    "--color-background-body": "#0c0e14",
+    "--color-background-surface": ink,
+    "--color-background-card": ink,
+    "--color-background-popover": "#1c1e2b",
+    "--color-text-primary": "#eae7f1",
+    "--color-text-secondary": "#bab3ca",
+    "--color-text-disabled": "#9691a7",
+    "--color-border": "#393547",
+    "--color-border-emphasized": "#6c627f",
+    "--color-background-gray": "var(--color-border-emphasized)",
+    "--color-accent": "#baa5fa",
+    "--color-text-accent": "var(--color-accent)",
+    "--color-accent-muted": "#2d2543",
+    "--color-on-accent": ink,
+    "--color-tint-hover": "#fff",
+    "--color-overlay-hover": "#ffffff0c",
+    "--color-overlay-pressed": "#00000026",
+    "--focus-outline-color": "#a7d9f3",
+    "--focus-outline-width": "2px",
+    "--focus-outline-offset": "3px",
+    "--radius-element": "8px",
+    "--radius-container": "12px",
+    "--spacing-1": "4px",
+    "--spacing-2": "8px",
+    "--spacing-3": "12px",
+    "--spacing-4": "16px",
+    "--font-family-body": fontFamily,
+    "--font-family-heading": fontFamily,
+    "--font-size-sm": "0.9375rem",
+    "--font-size-base": "1.0625rem",
+    "--color-success": "#8bcbaf",
+    "--color-warning": "#e8c17c",
+    "--color-error": "#f4899b",
+    "--color-on-success": ink,
+    "--color-on-warning": ink,
+    "--color-on-error": ink,
+    "--color-text-success": "var(--color-success)",
+    "--color-text-warning": "var(--color-warning)",
+    "--color-text-error": "var(--color-error)",
+  },
+});

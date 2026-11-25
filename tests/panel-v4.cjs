@@ -301,12 +301,14 @@ const simpleContext=vm.createContext({document:simpleDoc,WebSocket:SimpleSocket,
 vm.runInContext(fs.readFileSync('static/command-feedback.js','utf8'),simpleContext);
 vm.runInContext(fs.readFileSync(process.env.MA2_SIMPLE_SCRIPT || 'static/simple.js','utf8'),simpleContext);
 simpleSocket.onmessage({data:JSON.stringify({status:{ma2:'logged_in',safety:{mode:'full'}}})});
-simpleSocket.onmessage({data:JSON.stringify({config:{scenes:[{id:'z',exec:'2.105',label:'Финал'},{id:'a',exec:'1.101',label:'Рояль'}]}})});
+simpleSocket.onmessage({data:JSON.stringify({config:{revision:'simple-rev',scenes:[{id:'z',identity:'uuid-z',exec:'2.105',label:'Финал'},{id:'a',exec:'1.101',label:'Рояль'}]}})});
 assert.match(simpleDoc.getElementById('scenes').textContent,/1 · Финал/);
 assert.match(simpleDoc.getElementById('scenes').textContent,/2 · Рояль/);
 assert.doesNotMatch(simpleDoc.getElementById('scenes').textContent,/Страница|2\.105|1\.101/);
 simpleDoc.getElementById('scenes').all().find(n=>n.tagName==='BUTTON').click();
 assert.equal(simpleSocket.sent[0].id,'z');
+assert.equal(simpleSocket.sent[0].scene_identity,'uuid-z');
+assert.equal(simpleSocket.sent[0].config_revision,'simple-rev');
 console.log('simple panel flat scene order passed');
 
 // One inversion gesture must affect every selected head, despite duplicate-submit protection.
@@ -382,9 +384,11 @@ console.log('focused master follows confirmed state passed');
 // A transport acknowledgement is never evidence that a scene is running.
 context.discardPending();
 status({show_load:{state:'idle'}});
-context.receive({config:{show:'Demo',fixtures:[],groups:[],scenes:[{id:'evidence',exec:'1.101',label:'Проверка'}],presets:[],attrs:{}}});
+context.receive({config:{show:'Demo',revision:'classic-rev',fixtures:[],groups:[],scenes:[{id:'evidence',identity:'uuid-evidence',exec:'1.101',label:'Проверка'}],presets:[],attrs:{}}});
 context.go('scenes');
 page.all().find(n=>n.tagName==='BUTTON' && n.dataset.scene==='evidence').click();
+assert.equal(ws().sent.at(-1).scene_identity,'uuid-evidence');
+assert.equal(ws().sent.at(-1).config_revision,'classic-rev');
 reply({ok:true,a:'scene_go'});
 assert.notEqual(context.state.scenes.evidence,true);
 assert.match(page.textContent,/неизвест/i);
@@ -398,6 +402,8 @@ const unknownOff=page.all().find(n=>n.tagName==='BUTTON' && n.textContent==='В�
 assert.ok(unknownOff && !unknownOff.disabled);
 unknownOff.click();
 assert.equal(sent().at(-1).a,'scene_off');
+assert.equal(ws().sent.at(-1).scene_identity,'uuid-evidence');
+assert.equal(ws().sent.at(-1).config_revision,'classic-rev');
 reply({ok:true,a:'scene_off'});
 assert.equal(context.state.scenes.evidence,null);
 console.log('main scenes distinguish command acknowledgement and evidence passed');

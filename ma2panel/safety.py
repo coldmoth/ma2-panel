@@ -35,7 +35,7 @@ DEFAULT_MA2 = {"listshows_regex": r'(?im)"([^"\r\n]+?)"(?:\.show(?:\.gz)?)?|^\s*
                "loadshow_cmd": 'LoadShow "{name}" /nosave', "load_timeout": 120, "shows_dir": "",
                "export_cmd": 'Export Fixture 1 Thru 9999 "panel_fixtures"',
                "export_wait": 5, "export_search": ["C:/ProgramData/MA Lighting Technologies/grandma/*/importexport"],
-               "showfile_regex": r'(?im)\$?SHOWFILE\s*[=:]\s*"?([^"\r\n]+?)"?\s*$',
+               "showfile_regex": r'(?im)\$?SHOWFILE[ \t]*[=:][ \t]*"?([^"\r\n]+?)"?\s*$',
                "host": "127.0.0.1", "port": 30000, "user": "Remote", "require_prompt": True}
 # MA2 3.9.60.68 (hall 2026-10-18): "Group 1 1    HEAD STAGE", "Color 4.1 4.1  red      Normal" (columns 2+ spaces apart),
 # empty: "WARNING, NO OBJECTS FOUND FOR LIST". The older quoted form Group n "Name" / Preset t.n "Name" still parses.

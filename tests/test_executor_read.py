@@ -31,7 +31,7 @@ def test_import_without_recognised_show_identity_is_cancelled(bridge_cfg):
         before = path.read_bytes()
         mock.list_garbage = True
         result = ask(ws, {"a": "scenes_import"})
-        assert not result["ok"] and "имя шоу" in result["err"]
+        assert not result["ok"] and result["code"] == "show_pending"
         assert path.read_bytes() == before
         assert not any(cmd.startswith("List Executor") for cmd in mock.received)
 

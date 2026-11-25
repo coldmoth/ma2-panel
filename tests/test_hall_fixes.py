@@ -9,7 +9,7 @@ import pytest
 from ma2panel import bridge
 from ma2panel.fixtures import parse_export
 from ma2panel.safety import redact
-from test_bridge import ask, bridge_cfg, confirm_fixture_import  # noqa: F401
+from test_bridge import ask, bridge_cfg, confirm_fixture_import, until  # noqa: F401
 from test_diag import site  # noqa: F401
 
 READ = {"safety": {"mode": "full", "allow_fixture_read": True}}
@@ -98,6 +98,8 @@ def test_export_failures_keep_plan_and_say_why(bridge_cfg, mode, words):
         mock.export_mode = mode
         result = confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))
         assert result["ok"] is False and words in result["err"]
+        if mode == "none":
+            assert result["code"] == "timeout" and result["params"] == {}
         assert str(path.parent) in result["err"] or mode == "reject"
         assert path.read_bytes() == old and stale.exists()  # the unique name never touches an unrelated file
         assert "fixtures_read" not in json.loads(path.read_text())
@@ -116,11 +118,14 @@ def test_export_corrupt_xml_names_the_file(bridge_cfg):
 
 def test_export_with_link_lost(bridge_cfg):
     with bridge_cfg(settings=export_settings()) as (ws, mock, path):
+        before, received = path.read_bytes(), len(mock.received)
         mock.drop()
-        import time
-        time.sleep(.1)
+        until(ws, lambda m: m.get("status", {}).get("ma2") == "down")
         result = confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))
-        assert not result["ok"] and "нет связи" in result["err"]
+        assert not result["ok"] and result["code"] == "disconnected"
+        assert result["err"] == "чтение отменено: изменилось соединение; повторите явно"
+        assert path.read_bytes() == before
+        assert not any(cmd.startswith("Export ") for cmd in mock.received[received:])
 
 
 def test_active_export_probe_reports_files_and_never_leaves_the_door_open(site):

@@ -102,7 +102,7 @@ def test_paused_mock_is_not_connected():
 @pytest.fixture
 def bridge_cfg(tmp_path):
     @contextmanager
-    def start(edit=lambda cfg: None, settings=FULL, confirmed_profiles=False, mock_setup=None):
+    def start(edit=lambda cfg: None, settings=FULL, confirmed_profiles=False, mock_setup=None, wait_for_login=True):
         with open(CONFIG, encoding="utf-8") as f:
             cfg = json.load(f)
         cfg["show"] = "Mock show"  # control tests have an explicitly bound show
@@ -128,7 +128,8 @@ def bridge_cfg(tmp_path):
         with patch.object(module, 'register_api', capture), patch.object(module, 'start_mock', configured_start):
             app = create_app(cfg, mock=True, config_path=str(path), settings={"poll_seconds": 0, **settings})
         with patch.object(module, "start_mock", configured_start), TestClient(app) as client, client.websocket_connect("/ws") as ws:
-            ready(ws)
+            if wait_for_login:
+                ready(ws)
             if confirmed_profiles:
                 # Inject current profile evidence for tests of DMX transport/control, not profile discovery.
                 def confirm():
@@ -138,8 +139,9 @@ def bridge_cfg(tmp_path):
                     c.cfg['dmx_map'] = initial.get('dmx_map', {})
                     c.state['types_context'] = (c.state['plan_epoch'], c.link._gen)
                     for session in c.sessions.values():
-                        session['legacy_revision'] = c.revision_token()
-                client.portal.call(confirm)
+                        session['legacy_revision'] = c.config_revision()
+                    return c.config_msg()["config"]
+                ws.last_config = client.portal.call(confirm)
             yield ws, app.state.mock, path
     return start
 
@@ -148,8 +150,22 @@ def bridge(bridge_cfg):
     with bridge_cfg() as b:
         yield b
 
+def receive_panel_frame(ws):
+    frame = ws.receive_json()
+    if "config" in frame:
+        ws.last_config = frame["config"]
+    return frame
+
+
+def scene_frame(config, action):
+    if action.get("a") not in ("scene_go", "scene_off"):
+        return action
+    row = next((sc for sc in config.get("scenes", []) if sc["id"] == action.get("id")), {})
+    return {"config_revision": config.get("revision"), "scene_identity": row.get("identity"), **action}
+
+
 def until(ws, pred):
-    while not pred(m := ws.receive_json()):
+    while not pred(m := receive_panel_frame(ws)):
         pass
     return m
 
@@ -158,14 +174,17 @@ def ready(ws):
     the first status is already logged_in and the stale connect-time config would be read as a later broadcast."""
     seen = set()
     while seen != {"in", "shown"}:
-        m = ws.receive_json()
+        m = receive_panel_frame(ws)
         if m.get("status", {}).get("ma2") == "logged_in":
             seen.add("in")
         if "shown" in m:
             seen.add("shown")
 
 def ask(ws, msg):
-    ws.send_text(msg) if isinstance(msg, str) else ws.send_json(msg)
+    if isinstance(msg, str):
+        ws.send_text(msg)
+    else:
+        ws.send_json(scene_frame(getattr(ws, "last_config", {}), msg))
     return until(ws, lambda m: "ok" in m)
 
 def confirm_fixture_import(ws, result):
@@ -320,7 +339,8 @@ def test_ws_move_before_start(bridge):
     ws, mock, _ = bridge
     ask(ws, {"a": "select_group", "id": "front"})
     ws.send_json({"a": "move", "dx": 10, "dy": 0})
-    assert until(ws, lambda m: "ok" in m) == {"ok": False, "a": "move", "err": "нет move_start"}
+    assert until(ws, lambda m: "ok" in m) == {"ok": False, "a": "move", "err": "нет move_start",
+                                              "code": "action_failed", "params": {}}
     assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"] is True
 
 
@@ -375,7 +395,7 @@ def test_ws_groups(bridge):
     until(ws, lambda m: m.get("shown", {}).get("5"))
     assert mock.received[-2:] == ["Fixture 12 + 5", "At 40"]
     assert ask(ws, {"a": "group_delete", "id": "front"}) == {"ok": False, "a": "group_delete",
-                                                             "err": "группа из пульта"}
+                                                             "err": "группа из пульта", "code": "action_failed", "params": {}}
     assert ask(ws, {"a": "group_delete", "id": "g1"})["ok"] is True
     assert "g1" not in [g["id"] for g in saved(path)["groups"]]
 
@@ -511,9 +531,10 @@ def test_scene_overwrite(bridge_cfg):
 def test_running_poll(bridge_cfg):
     with bridge_cfg(settings={**FULL, "poll_seconds": 0.3}) as (ws, mock, _):
         assert ask(ws, {"a": "scenes_import"})["ok"] is True
-        ask(ws, {"a": "scene_go", "id": "pianist"})
-        m = until(ws, lambda m: m.get("running", {}).get("pianist") is True and m.get("running", {}).get("s1") is False)
-        assert m["running_meta"]["s1"]["source"] == "ma2"
+        imported = next(sc["id"] for sc in ws.last_config["scenes"] if sc["exec"] == "1.102")
+        assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"]
+        m = until(ws, lambda m: m.get("running", {}).get("pianist") is True and m.get("running", {}).get(imported) is False)
+        assert m["running_meta"][imported]["source"] == "ma2"
 
 def test_probe_and_backup(tmp_path, monkeypatch):
     from ma2panel import bridge as b
@@ -958,12 +979,16 @@ def test_plan_copy_from_other_show(bridge_cfg):
         assert not ask(ws, {"a": "plan_copy", "from": "Nope"})["ok"]
 
 
-def test_scenes_import_reads_filled_pages_and_follows_desk_show(bridge_cfg):
+def test_scenes_import_requires_matching_plan_and_reads_filled_pages(bridge_cfg):
     with bridge_cfg() as (ws, mock, path):
         assert ask(ws, {"a": "show_bind", "name": "Old plan", "confirm": True})["ok"]
         mock.rows["2.5"] = "Chorus"  # a page the plan has never seen
+        before = path.read_bytes()
+        assert not ask(ws, {"a": "scenes_import"})["ok"]
+        assert path.read_bytes() == before
+        assert ask(ws, {"a": "show_open_plan", "name": mock.show_name})["ok"]
         r = ask(ws, {"a": "scenes_import"})
-        assert r["ok"] and r["switched"] == mock.show_name
+        assert r["ok"] and r["switched"] is None
         cfg = json.loads(path.read_text())
         assert cfg["show"] == mock.show_name and {s["exec"] for s in cfg["scenes"]} >= {"1.101", "2.5"}
 
@@ -986,7 +1011,7 @@ def test_blackout_without_scenes_darkens_fixtures(bridge_cfg):
 def test_halt_overtakes_this_tabs_running_action(bridge):
     ws, mock, _ = bridge
     mock.late = 0.5  # a slow console: the Go is still waiting for its answer when Stop arrives
-    ws.send_json({"a": "scene_go", "id": "pianist"})
+    ws.send_json(scene_frame(ws.last_config, {"a": "scene_go", "id": "pianist"}))
     ws.send_json({"a": "halt"})
     assert until(ws, lambda m: "ok" in m)["a"] == "halt"
 
@@ -1152,11 +1177,11 @@ def simple_bridge(tmp_path):
             ready(normal)
             conf, logged_in = None, False
             while conf is None or not logged_in:
-                msg = ws.receive_json()
+                msg = receive_panel_frame(ws)
                 assert 'history' not in msg and 'shown' not in msg  # no log on the simple port
                 if 'config' in msg:
                     conf = msg['config']
-                logged_in |= msg.get('status', {}).get('ma2') == 'logged_in'
+                logged_in |= msg.get('status', {}).get('ma2') == 'logged_in' and not msg['status'].get('recovering')
             yield ws, normal, TestClient(app.state.simple_app), app.state.mock, conf
 
 
@@ -1170,7 +1195,8 @@ def test_simple_rejects_actions(simple_bridge, action):
     ws, normal, _, mock, _ = simple_bridge
     before = list(mock.received)
     result = ask(ws, action)
-    assert result == {'ok': False, 'a': action['a'], 'err': 'в простом режиме недоступно'}
+    assert result == {'ok': False, 'a': action['a'], 'err': 'в простом режиме недоступно',
+                      'code': 'permission_denied', 'params': {}}
     assert mock.received == before
     assert ask(normal, {'a': 'select_fixtures', 'ids': [12]})['ok'] is True
 
@@ -1186,11 +1212,11 @@ def test_simple_allowed(simple_bridge):
 
 def test_simple_config_and_routes(simple_bridge):
     ws, normal, client, _, conf = simple_bridge
-    assert set(conf) == {'scenes', 'pages'}
+    assert set(conf) == {'scenes', 'pages', 'revision'}
     assert conf['scenes']
     assert ask(normal, {'a': 'scene_rename', 'id': 'pianist', 'label': 'New name'})['ok']
     updated = until(ws, lambda m: 'config' in m)['config']
-    assert set(updated) == {'scenes', 'pages'}
+    assert set(updated) == {'scenes', 'pages', 'revision'}
     assert updated['scenes'][0]['label'] == 'New name'
     assert 'Погасить всё' in client.get('/').text
     for path in ('/style.css', '/simple.js', '/command-feedback.js'):
@@ -1355,3 +1381,147 @@ def test_unknown_dim_uses_console_fade_without_default_steps(bridge, mixed):
     until(ws, lambda m: m.get("shown", {}).get("12", {}).get("dim") == 42)
     levels = [line for line in mock.received[start:] if line.startswith("At ")]
     assert levels == ["At 42 Fade 0.2"]
+
+
+def test_local_fixture_arbitrary_rotation_and_icons(bridge_cfg):
+    with bridge_cfg() as (ws, mock, path):
+        for rot in (-110.5, 37.25, 0):
+            assert ask(ws, {"a":"fixture_flag", "id":17, "rot":rot})["ok"]
+        for icon in ("profile", "washer", "generic"):
+            assert ask(ws, {"a":"fixture_flag", "id":17, "icon":icon})["ok"]
+        for rot in (True, "90", 361):
+            assert not ask(ws, {"a":"fixture_flag", "id":17, "rot":rot})["ok"]
+        f = next(f for f in json.loads(path.read_text())["fixtures"] if f["id"]==17)
+        assert f["rot"] == 0 and f["icon"] == "generic"
+
+
+def test_layout_atomic_visual_edit_and_auto_reset(bridge_cfg):
+    with bridge_cfg() as (ws, mock, path):
+        before_commands = len(mock.received)
+        edit = {"id": 17, "x": .12, "y": .34, "rot": 45.1, "icon": "bar"}
+        assert ask(ws, {"a": "layout_save", "pos": [edit]})["ok"]
+        f = next(f for f in json.loads(path.read_text())["fixtures"] if f["id"] == 17)
+        assert all(f[k] == v for k, v in edit.items())
+        assert ask(ws, {"a": "layout_save", "pos": [{**edit, "rot": None, "icon": None}]})["ok"]
+        f = next(f for f in json.loads(path.read_text())["fixtures"] if f["id"] == 17)
+        assert "rot" not in f and "icon" not in f
+        assert ask(ws, {"a": "fixture_flag", "id": 17, "rot": 90})["ok"]
+        assert ask(ws, {"a": "fixture_flag", "id": 17, "rot": None})["ok"]
+        assert "rot" not in next(f for f in json.loads(path.read_text())["fixtures"] if f["id"] == 17)
+        assert not any(re.match(r"(?i)(Fixture|At |Attribute|Clear|Undo|Store|Go |Off )", c) for c in mock.received[before_commands:])
+
+
+@pytest.mark.parametrize("bad", [True, "45", 361, float("nan"), float("inf")])
+def test_layout_invalid_visual_edit_is_atomic(bridge_cfg, bad):
+    with bridge_cfg() as (ws, mock, path):
+        before = path.read_bytes()
+        result = ask(ws, {"a": "layout_save", "pos": [
+            {"id": 12, "x": .1, "y": .2, "rot": 45},
+            {"id": 17, "x": .3, "y": .4, "rot": bad}]})
+        assert not result["ok"]
+        assert path.read_bytes() == before
+
+
+def test_layout_disk_failure_keeps_memory_and_file(bridge_cfg):
+    from unittest.mock import patch
+    with bridge_cfg() as (ws, mock, path):
+        before = path.read_bytes()
+        original = next(f for f in json.loads(before)["fixtures"] if f["id"] == 17)
+        with patch("ma2panel.bridge.save_config", side_effect=OSError("layout write rejected")):
+            assert not ask(ws, {"a": "layout_save", "pos": [{"id": 17, "x": .77, "y": .88, "rot": 45.1}]})["ok"]
+        assert path.read_bytes() == before
+        assert ask(ws, {"a": "fixture_flag", "id": 17, "rot": 90})["ok"]
+        after = next(f for f in json.loads(path.read_text())["fixtures"] if f["id"] == 17)
+        assert after.get("x") == original.get("x") and after.get("y") == original.get("y")
+
+
+def readiness(ws, predicate):
+    return until(ws, lambda m: "readiness" in m.get("status", {}) and predicate(m["status"]["readiness"]))["status"]["readiness"]
+
+
+@pytest.mark.parametrize("case, phase, show_state, code", [
+    ("unknown", "login_unconfirmed", "pending", "login_unconfirmed"),
+    ("wrong_user", "connection_error", "pending", "connection_error"),
+    ("no_show", "authenticated", "pending", "show_pending"),
+    ("empty_show", "authenticated", "pending", "show_pending"),
+    ("other_show", "authenticated", "mismatch", "show_mismatch"),
+])
+def test_c1_ws_reports_admission_without_sending_desk_commands(bridge_cfg, case, phase, show_state, code):
+    def setup(mock):
+        if case == "unknown":
+            mock.list_garbage = True
+        elif case == "wrong_user":
+            mock.user = "other"
+        elif case == "no_show":
+            reply = mock._reply
+            mock._reply = lambda cmd: re.sub(r"^.*\$SHOWFILE[^\n]*\n", "", reply(cmd), flags=re.M) if cmd == "ListVar" else reply(cmd)
+        else:
+            mock.show_name = "" if case == "empty_show" else "Other show"
+
+    with bridge_cfg(mock_setup=setup, wait_for_login=False) as (ws, mock, _):
+        status = readiness(ws, lambda r: r["connection"] == phase and r["show"]["state"] == show_state)
+        assert status["show"]["name"] == ("Other show" if case == "other_show" else None)
+        assert status["actions"]["view"]["show_status"] is None
+        assert status["actions"]["plan"]["group_save"] is None
+        assert status["actions"]["recovery"]["halt"] is None
+        before = list(mock.received)
+        for action in ({"a": "select_fixtures", "ids": [12]}, {"a": "dim", "v": 20},
+                       {"a": "scene_go", "id": "pianist"}):
+            denial = status["actions"]["light"][action["a"]]
+            reply = ask(ws, action)  # Direct WS request, independent of client state.
+            assert denial["code"] == code
+            assert reply["ok"] is False and reply["reason"] == denial
+            assert reply["err"] == denial["message"]
+            assert reply["code"] == code
+            assert reply["params"] == (
+                {"deskShow": "Other show", "planShow": "Mock show"} if case == "other_show" else {}
+            )
+        assert mock.received == before
+        if case == "other_show":
+            assert status["actions"]["general"]["master"] is None
+            assert status["actions"]["general"]["blackout"] is None
+            assert ask(ws, {"a": "master", "v": 25, "request_id": "c1-master"})["ok"]
+            assert "Master 2.1 At 25" in mock.received
+        assert ask(ws, {"a": "halt"})["ok"]
+
+
+def test_c1_permissions_and_reconnect(bridge_cfg):
+    settings = {**FULL, "safety": {"mode": "test", "allowed_fixtures": [12]}}
+    with bridge_cfg(settings=settings, wait_for_login=False) as (ws, mock, path):
+        def ready_now(r):
+            return r["show"]["state"] == "matched" and r["actions"]["light"]["dim"] is None
+
+        status = readiness(ws, ready_now)
+        denied = status["actions"]["general"]["master"]
+        assert denied["code"] == "safety_denied"
+        assert ask(ws, {"a": "master", "v": 20})["reason"] == denied
+        assert status["actions"]["general"]["blackout"]["code"] == "safety_denied"
+        assert not ask(ws, {"a": "select_fixtures", "ids": [13]})["ok"]  # target still checked by server
+        assert ask(ws, {"a": "select_fixtures", "ids": [12]})["ok"]
+        assert ask(ws, {"a": "dim", "v": 30, "request_id": "c1-dim"})["ok"]
+        assert ask(ws, {"a": "link_drop"})["ok"]
+        config = path.read_bytes()
+        dropped = until(ws, lambda m: m.get("status", {}).get("readiness", {}).get("connection") == "disconnected")["status"]
+        before = list(mock.received)
+        assert ask(ws, {"a": "dim", "v": 89, "blackout_epoch": dropped["blackout_epoch"]})["reason"]["code"] == "disconnected"
+        assert mock.received == before and path.read_bytes() == config
+        assert ask(ws, {"a": "link_connect"})["ok"]
+        recovered = until(ws, lambda m: m.get("status", {}).get("recovery_error"))["status"]
+        ready = recovered["readiness"]
+        assert ready["connection"] == "authenticated" and ready["show"]["name"] == "Mock show"
+        assert ready["actions"]["light"]["dim"]["code"] == "recovering"
+        assert "allow_fixture_read" in recovered["recovery_error"]
+        assert not any("At 89" in line for line in mock.received)
+
+
+def test_c1_reconnect_returns_to_ready_without_replaying(bridge_cfg):
+    with bridge_cfg(edit=lambda cfg: cfg.update(fixtures=[]), wait_for_login=False) as (ws, mock, _):
+        def ready_now(r):
+            return r["show"]["state"] == "matched" and r["actions"]["general"]["master"] is None
+
+        readiness(ws, ready_now)
+        mock.drop()
+        readiness(ws, lambda r: r["connection"] == "connection_error")
+        readiness(ws, ready_now)
+        assert sum(line.startswith('login ') for line in mock.received) == 2
+        assert not any(line.startswith(("Master ", "Fixture ", "Go ")) for line in mock.received)

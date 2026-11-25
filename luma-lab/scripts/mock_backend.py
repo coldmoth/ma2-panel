@@ -1,0 +1,65 @@
+"""Local lab harness. Imports the unmodified release backend; never connects to a desk."""
+import json
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+RUNTIME = Path(os.environ.get('LUMA_RUNTIME_DIR', ROOT / 'luma-lab' / '.runtime')).expanduser().resolve()
+sys.path[:0] = [str(ROOT), str(ROOT / 'scripts')]
+from concert_demo import demo_data, seed_mock, network_guard
+from ma2panel import bridge
+
+
+def main():
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    config_path, settings_path = RUNTIME / 'config.json', RUNTIME / 'settings.json'
+    ports = [int(os.environ.get('LUMA_BACKEND_PORT', '18781')), int(os.environ.get('LUMA_SIMPLE_PORT', '18782'))]
+    if not config_path.exists():
+        resources = ROOT / 'ma2panel' / 'resources'
+        cfg = json.loads((resources / 'config.example.json').read_text())
+        settings = json.loads((resources / 'settings.example.json').read_text())
+        cfg, settings = demo_data(cfg, settings, RUNTIME, ports)
+        # Isolated mock show, not the user's show or LUMA's hard-coded fixture array.
+        samples = cfg['fixtures']
+        picks = [*range(40, 48), *range(0, 6), *range(48, 52), *range(56, 58)]
+        coords = [(.2,.12),(.4,.12),(.6,.12),(.8,.12),(.05,.35),(.05,.6),(.95,.35),(.95,.6),
+                  (.12,.22),(.5,.22),(.88,.22),(.18,.86),(.5,.88),(.82,.86),
+                  (.12,.73),(.34,.84),(.66,.84),(.88,.73),(.4,.98),(.6,.98)]
+        fixtures = []
+        for i, (sample, xy) in enumerate(zip(picks, coords), 1):
+            f = dict(samples[sample]);kind = 'bar' if i<=8 else 'head' if i<=14 else 'par' if i<=18 else 'fresnel'
+            f.update(id=i, label=f'{dict(bar="LED Bar",head="Moving Head",par="PAR",fresnel="Fresnel")[kind]} {i:02}',
+                     name=f'LUMA mock {i}', x=xy[0], y=xy[1], icon=kind)
+            fixtures.append(f)
+        cfg.update(show='LUMA · Mock Hall',fixtures=fixtures,scenes=cfg['scenes'][:6],presets=[],ma2groups=[],
+                   scene_fade=1.5,groups=[{'id':'bars','label':'LED-бары','fixtures':list(range(1,9))},
+                   {'id':'heads','label':'Движущиеся головы','fixtures':list(range(9,15))},
+                   {'id':'front','label':'Фронтальный свет','fixtures':list(range(15,21))}])
+        settings['safety']['allow_show_load']=False
+        settings['safety']['allow_show_save']=False
+        config_path.write_text(json.dumps(cfg,ensure_ascii=False,indent=2))
+        settings_path.write_text(json.dumps(settings,ensure_ascii=False,indent=2))
+    # Even after editing settings, listeners and every outbound socket stay isolated.
+    settings=json.loads(settings_path.read_text());settings.update(bind='127.0.0.1',port=ports[0],simple_port=ports[1])
+    settings_path.write_text(json.dumps(settings,ensure_ascii=False,indent=2))
+    allowed=set();sys.addaudithook(network_guard(allowed))
+    original_start=bridge.start_mock
+    async def start(*args,**kwargs):
+        mock=await original_start(*args,**kwargs);allowed.add(mock.port)
+        cfg=json.loads(config_path.read_text());seed_mock(mock,cfg,RUNTIME)
+        mock.configure_simulation(cfg)
+        # Test-state initialization, never an action sent by the browser.
+        palettes=[[[100,58,20],[100,80,42]],[[16,28,100],[56,46,100]],[[55,30,100],[100,20,58]],
+                  [[100,86,64],[100,96,82]],[[100,8,24],[100,35,46]],[[5,50,62],[22,26,60]]]
+        for index,scene in enumerate(cfg['scenes']):
+            for fid,values in mock.sim_scenes[scene['exec']].items():
+                values.update(rgb=palettes[index%6][fid%2],dim=65 if fid<=14 else 38,zoom=35,tilt=60)
+        mock.sim_active={ex:mock.sim_scenes[ex] for ex in mock.running if ex in mock.sim_scenes}
+        mock.cues={s['exec']:{1:{}} for s in cfg['scenes']}
+        return mock
+    bridge.start_mock=start
+    sys.argv=[str(ROOT/'bridge.py'),'--mock','--config',str(config_path),'--settings',str(settings_path)]
+    bridge.main()
+
+if __name__=='__main__':main()

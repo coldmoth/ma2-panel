@@ -1,5 +1,23 @@
 # Карта кода ma2-panel
 
+Экспериментальная LUMA: `luma-lab/src/App.jsx` — layout и нижние быстрые сцены;
+`FixturesWorkspace.jsx` + `groups.css` — каталог, категории, CRUD локальных групп,
+GroupEditor с revision снимка; `tests/groups-editor.mjs` — Chromium/WebKit сценарии;
+`tests/test_local_groups.py` — атомарность/валидация/сохранность без команд MA2;
+`Stage.jsx` — getBBox/ResizeObserver и единый SVG-масштаб главного зала;
+редакторские Pointer Events/вращение/отмена и CSS-порог 5 px;
+`LayoutWorkspace.jsx` + `layout.css` — правый инспектор, метры, геометрия,
+атомарные локальные операции и сеансовый Undo/Redo;
+`model.mjs:stageViewBox` — начальные границы до измерения DOM;
+`InspectorDock.jsx` — ширина/Pointer Events/ResizeObserver/localStorage;
+`Inspector.jsx` — контролы, `client.mjs` — общая история и достоверность Pan/Tilt.
+Проверки расстановки: `luma-lab/tests/layout-editor.mjs` (Chromium + WebKit);
+backend: `tests/test_bridge.py -k layout`, `test_v3.py -k fixture_flag_rot`.
+Проверки масштаба: `luma-lab/tests/scale-fit.mjs` (изолированный mock, Chromium/WebKit).
+Другие проверки: `luma-lab/tests/client.test.mjs`, `workspace-v2.mjs`, `browser.mjs`,
+`premium-v2.mjs`. Изолированный mock: `scripts/mock_backend.py` внутри luma-lab,
+runtime задаётся `LUMA_RUNTIME_DIR`; production backend остаётся в `ma2panel/`.
+
 Читать это перед любой правкой, в код лезть только по указанным местам. Точные строки: `docs/code-index.md` (генерируется: `python3 scripts/codemap.py > docs/code-index.md`, после правок кода обновить). Контракт: `docs/spec.md`.
 
 ## Поток одного действия
@@ -84,6 +102,14 @@ Backend расположен в `ma2panel/`; имена модулей ниже 
 видимость инструментов, `static/command-feedback.js` — достоверные статусы действий.
 Регрессии выбора/плана/движения включены в `tests/panel-v4.cjs`.
 Отдельные локальные прототипы и demo-адаптер не входят в публичную поставку.
+
+## Локальная LUMA v2
+
+`luma-lab/src/Stage.jsx` — Premium Console B, обе проекции, drag и точный выбор;
+`model.mjs` — геометрия/ориентация/достоверность; `client.mjs` — история по параметрам,
+дедупликация наблюдений и подтверждённый рабочий выбор. `App.jsx` — независимый выбор
+расстановки, HallGeometry/LayoutFields и Grandmaster; `Inspector.jsx`/`ui.jsx` — метки
+источников и управление. Проверки: `npm test`, `tests/premium-v2.mjs`, `tests/browser.mjs`.
 
 ## Данные
 

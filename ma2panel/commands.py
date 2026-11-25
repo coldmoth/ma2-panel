@@ -19,8 +19,28 @@ PLAN_WRITES = (SLIDERS - {"master"}) | {"select_group", "select_fixtures", "stor
                                         "ma2_group_go", "ma2_preset_go", "group_store_ma2"}
 
 
+# Status describes admission by action. Payload, target and per-line validation still run at execution.
+LINK_REQUIRED = PLAN_WRITES | {"master", "blackout", "page_go", "clear", "patch_apply", "rdm_identify", "show_save", "show_load", "undo"}
+READINESS_ACTIONS = {
+    "view": {"show_status", "shows_list"},
+    "plan": {"group_save", "group_delete", "layout_save", "hall_save", "fixture_flag", "scene_fade",
+             "preset_save", "preset_delete", "show_bind", "show_open_plan", "plan_copy", "plan_editing"},
+    "light": PLAN_WRITES | {"scene_slot_find"},
+    "general": {"master", "blackout", "page_go", "clear"},
+    "recovery": {"halt", "resume", "link_connect", "link_drop", "show_identify", "highlight_off", "rdm_stop",
+                 "rdm_check", "scene_slot_cancel", "undo"},
+}
+
+
+def failure(err, code="action_failed", params=None):
+    return {"ok": False, "err": err, "code": code, "params": params or {}}
+
+
 class ActionError(Exception):
-    pass
+    def __init__(self, message, *, code=None, params=None):
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 def nudge_step(action, cfg):
@@ -355,7 +375,7 @@ def targets(action: dict, cfg: dict) -> list[int] | None:
 
 
 def validate_hall(hall) -> dict:
-    if not isinstance(hall, dict) or set(hall) != {"w", "d", "stage", "stageDepth"}:
+    if not isinstance(hall, dict) or not {"w", "d", "stage", "stageDepth"} <= set(hall) or set(hall) - {"w", "d", "stage", "stageDepth", "stageWidth", "stageOffset"}:
         raise ActionError("hall: нужны w, d, stage, stageDepth")
     if any(type(hall[k]) not in (int, float) or not 2 <= hall[k] <= 80
            for k in ("w", "d", "stageDepth")):
@@ -365,6 +385,11 @@ def validate_hall(hall) -> dict:
     side = hall["d"] if hall["stage"] in ("top", "bottom") else hall["w"]
     if hall["stageDepth"] >= side:
         raise ActionError("hall.stageDepth: глубина сцены должна быть меньше стороны зала")
+    width = hall["w"] if hall["stage"] in ("top", "bottom") else hall["d"]
+    if "stageWidth" in hall and (type(hall["stageWidth"]) not in (int, float) or not 0 < hall["stageWidth"] <= width):
+        raise ActionError("hall.stageWidth: ширина сцены должна помещаться в зале")
+    if "stageOffset" in hall and (type(hall["stageOffset"]) not in (int, float) or not 0 <= hall["stageOffset"] <= 1):
+        raise ActionError("hall.stageOffset: нужно число 0–1")
     return dict(hall)
 
 

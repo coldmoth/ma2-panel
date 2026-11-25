@@ -208,7 +208,8 @@ def test_probe_only_read_commands_and_halt(site):
         assert s.mock.received[before:] == sent
         s.link.halted = False
         s.link.state = 'down'
-        assert s.client.post('/api/probe').json() == {'ok': False, 'err': 'нет связи с пультом'}
+        probe = s.client.post('/api/probe').json()
+    assert probe == {'ok': False, 'err': 'нет связи с пультом', 'code': 'connecting', 'params': {}}
 
 
 def test_zip_has_artifacts_but_no_passwords_or_secret_file(site):

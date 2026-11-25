@@ -1,6 +1,8 @@
 """Light history and state regressions; fake transport, no console."""
 import asyncio
 import pytest
+from test_bridge import scene_frame
+
 from test_status_evidence import context  # noqa: F401
 
 
@@ -76,7 +78,7 @@ def test_failed_native_launch_never_clears_programmer(context, failure):
                 probe = re.search(r"PANELSCENE','([a-f0-9]{16})", line)[1] + ' manual'
             return True, 'Global : $SHOWFILE = Mock show\nGlobal : $PANELSCENE = ' + probe if line == 'ListVar' else 'OK'
         c.link.send = send
-        assert await c.execute('scene_go', {'a': 'scene_go', 'id': 'pianist'}, session, [])
+        assert await c.execute('scene_go', scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': 'pianist'}), session, [])
         assert calls[-1] == 'Goto Cue 1 Executor 1.101 Fade 0'
         assert 'ClearAll' not in calls
         if failure not in ('unknown','reconnect'):
@@ -174,10 +176,10 @@ def test_successful_config_history_does_not_capture_other_client_delta(context):
         a, b = Socket(), Socket()
         for ws in (a, b):
             c.clients.add(ws)
-            c.sessions[ws] = {'selection': [], 'base': None, 'requests': set(), 'legacy_revision': c.revision_token()}
+            c.sessions[ws] = {'selection': [], 'base': None, 'requests': set(), 'legacy_revision': c.config_revision()}
         first = asyncio.create_task(c.perform_action(a, json.dumps({'a': 'group_save', 'label': 'A', 'ids': [12]})))
         await paused.wait()
-        c.sessions[b]['legacy_revision'] = c.revision_token()
+        c.sessions[b]['legacy_revision'] = c.config_revision()
         second = asyncio.create_task(c.perform_action(b, json.dumps({'a': 'fixture_flag', 'id': 12, 'flip_pan': True})))
         for _ in range(100):
             await asyncio.sleep(0)

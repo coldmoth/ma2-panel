@@ -170,9 +170,13 @@ USER_DATA = ('config.json', 'settings.json', 'secret.env', 'highlight.json', 'bl
 
 def user_data_names(root):
     """Literal user files plus recovery journals of individual executors."""
-    journals = sorted(path.name for path in root.glob('scene-write-*.json')
-                      if re.fullmatch(r'scene-write-[0-9]+\.[0-9]+\.json', path.name)
-                      and path.is_file() and not path.is_symlink())
+    journals = sorted(
+        path.name for path in root.glob('scene-*')
+        if re.fullmatch(
+            r'scene-(?:write-[0-9]+\.[0-9]+\.json(?:\.verified)?|generation-[0-9a-f]{64}-[0-9]+\.[0-9]+\.json)',
+            path.name,
+        ) and path.is_file() and not path.is_symlink()
+    )
     return (*USER_DATA, *journals)
 
 

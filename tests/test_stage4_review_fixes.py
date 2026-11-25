@@ -5,6 +5,8 @@ import json
 
 import pytest
 
+from test_bridge import scene_frame
+
 from ma2panel.commands import build
 from ma2panel.fixtures import merge_fixtures
 from test_highlight_ordering import context  # noqa: F401
@@ -130,7 +132,7 @@ def test_manual_off_updates_off_time_after_shared_fade_change(context):
         ws = client(c)
         result = await c.handle(ws, json.dumps({'a': 'scene_fade', 'fade': 7}))
         assert result['ok']
-        result = await c.handle(ws, json.dumps({'a': 'scene_off', 'id': 'pianist', 'fade': 29}))
+        result = await c.handle(ws, json.dumps(scene_frame(c.config_msg()['config'], {'a': 'scene_off', 'id': 'pianist', 'fade': 29})))
         assert result['ok'], result
         assert calls[-2:] == ['Masterfade 7 Executor 1.101', 'Off Executor 1.101']
     asyncio.run(go())

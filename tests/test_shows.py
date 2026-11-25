@@ -257,3 +257,254 @@ def test_real_ma2_listshows_format():
              '     school cocerts 17:20 13.Okt.2026   171 KB\r\n         newshow 14:58  9.Okt.2026    95 KB\r\n [Group]>')
     names = [next(v for v in m.groups() if v).strip() for m in re.finditer(DEFAULT_MA2['listshows_regex'], reply)]
     assert names == ['big room v2', 'school cocerts', 'newshow']
+
+
+def saved_auto_plan(path, name='Concert B'):
+    folder = path.parent / 'shows'
+    folder.mkdir(exist_ok=True)
+    candidate = plan_path(folder, name, write=True)
+    data = json.loads(path.read_text())
+    data['show'] = name
+    data['fixtures'][0]['label'] = 'B position'
+    candidate.write_text(json.dumps(data))
+    return candidate
+
+
+def test_identify_automatically_opens_existing_plan(bridge_cfg):
+    with bridge_cfg(settings=SETTINGS) as (ws, mock, path):
+        candidate = saved_auto_plan(path)
+        before = path.read_bytes(), candidate.read_bytes()
+        mock.show_name = 'Concert B'
+        assert ask(ws, {'a': 'show_identify'})['ok']
+        assert json.loads(path.read_text())['show'] == 'Concert B'
+        assert plan_path(candidate.parent, 'Mock show').read_bytes() == before[0]
+        assert candidate.read_bytes() == before[1]
+
+
+def identify_plan(ws):
+    ws.send_json({'a': 'show_identify'})
+    status = None
+    while 'ok' not in (message := ws.receive_json()):
+        status = message.get('status', status)
+    assert message['ok'] and status is not None, message
+    return status
+
+
+def test_auto_match_and_unknown_leave_files_as_is(bridge_cfg):
+    with bridge_cfg(settings=SETTINGS) as (ws, mock, path):
+        candidate = saved_auto_plan(path)
+        initial = path.read_bytes(), path.stat().st_mtime_ns, candidate.read_bytes()
+        start = len(mock.received)
+        assert identify_plan(ws)['plan_selection'] == {'state': 'matched'}
+        mock.show_name = ''
+        assert identify_plan(ws)['plan_selection'] == {'state': 'pending'}
+        assert (path.read_bytes(), path.stat().st_mtime_ns, candidate.read_bytes()) == initial
+        assert list(candidate.parent.iterdir()) == [candidate]
+        assert mock.received[start:] == ['ListVar', 'ListVar']
+
+
+@pytest.mark.parametrize(('problem', 'code'), [
+    ('missing', 'plan_missing'), ('broken', 'plan_conflict'), ('owner', 'plan_conflict'),
+    ('invalid_scene', 'plan_conflict'), ('invalid_map', 'plan_conflict'), ('copies', 'plan_conflict'),
+    ('archive', 'plan_archive_conflict'), ('working_revision', 'plan_conflict'),
+    ('foreign_legacy', 'plan_missing'),
+])
+def test_auto_refuses_unsafe_files(bridge_cfg, problem, code):
+    with bridge_cfg(settings=SETTINGS) as (ws, mock, path):
+        target = saved_auto_plan(path)
+        data = json.loads(target.read_text())
+        if problem in ('missing', 'foreign_legacy'):
+            target.unlink()
+        if problem == 'broken':
+            target.write_text('{broken')
+        if problem == 'owner':
+            target.write_text(json.dumps({**data, 'show': 'Other'}))
+        if problem == 'invalid_scene':
+            target.write_text(json.dumps({**data, 'scenes': [{'id': 's', 'exec': '1.101; Go'}]}))
+        if problem == 'invalid_map':
+            target.write_text(json.dumps({**data, 'dmx_map': {'type': {'strobe': {'attr': []}}}}))
+        if problem in ('copies', 'foreign_legacy'):
+            legacy = target.parent / 'Concert B.json'
+            legacy.write_text(json.dumps({**data, 'show': 'Other' if problem == 'foreign_legacy' else 'Concert B',
+                                          'fixtures': []}))
+        if problem == 'archive':
+            archive = plan_path(target.parent, 'Mock show', write=True)
+            archive.write_text(json.dumps({**data, 'show': 'Mock show', 'fixtures': []}))
+        if problem == 'working_revision':
+            path.write_text(json.dumps({**json.loads(path.read_text()), 'fixtures': []}))
+        before = path.read_bytes(), {p.name: p.read_bytes() for p in target.parent.iterdir()}
+        start = len(mock.received)
+        mock.show_name = 'Concert B'
+        status = identify_plan(ws)
+        assert status['plan_selection']['code'] == code
+        if code in ('plan_missing', 'plan_conflict'):
+            assert status['plan_selection']['params'] == {'deskShow': 'Concert B'}
+        assert status['readiness']['actions']['light']['scene_go']['code'] == 'show_mismatch'
+        assert (path.read_bytes(), {p.name: p.read_bytes() for p in target.parent.iterdir()}) == before
+        assert mock.received[start:] == ['ListVar']
+
+
+def test_two_tabs_choose_once_and_reject_old_light(tmp_path, monkeypatch):
+    from ma2panel import bridge
+
+    with tabs(tmp_path, SETTINGS) as ((first, second), mock, _, path):
+        candidate = saved_auto_plan(path)
+        initial = candidate.read_bytes()
+        status = identify_plan(first)
+        assert ask(first, {'a': 'select_fixtures', 'ids': [12]})['ok']
+        assert ask(second, {'a': 'select_fixtures', 'ids': [12]})['ok']
+        old_epoch = status['blackout_epoch']
+        saved = []
+        save = bridge.save_config
+
+        def track(filename, *args, **kwargs):
+            saved.append(filename)
+            return save(filename, *args, **kwargs)
+
+        monkeypatch.setattr(bridge, 'save_config', track)
+        before = len(mock.received)
+        mock.show_name = 'Concert B'
+        first.send_json({'a': 'show_identify'})
+        second.send_json({'a': 'show_identify'})
+        for ws in (first, second):
+            transition = until(ws, lambda m: m.get('config', {}).get('show') == 'Concert B')
+            assert transition['status']['plan_selection']['state'] == 'loaded'
+            assert transition['config']['fixtures'][0]['label'] == 'B position'
+            assert until(ws, lambda m: m.get('a') == 'show_identify' and 'ok' in m)['ok']
+            assert not ask(ws, {'a': 'dim', 'v': 50, 'blackout_epoch': old_epoch})['ok']
+            assert not ask(ws, {'a': 'select_fixtures', 'ids': [12], 'blackout_epoch': old_epoch})['ok']
+            refused = ask(ws, {'a': 'clear', 'blackout_epoch': old_epoch})
+            assert not refused['ok'] and refused['code'] == 'plan_context_changed'
+            assert refused['err'] == 'План изменился; начните новое действие.'
+        archive = plan_path(candidate.parent, 'Mock show')
+        assert ask(first, {'a': 'show_status'})['plan_selection']['state'] == 'loaded'
+        assert saved == [str(archive), str(path)]
+        assert json.loads(archive.read_text())['show'] == 'Mock show'
+        assert candidate.read_bytes() == initial
+        assert mock.received[before:] == ['ListVar', 'ListVar']
+
+
+def test_open_draft_in_one_tab_blocks_other_tab(tmp_path):
+    with tabs(tmp_path, SETTINGS) as ((first, second), mock, _, path):
+        candidate = saved_auto_plan(path)
+        second.send_json({'a': 'show_bind', 'name': 'Mock show'})
+        revision = until(second, lambda m: 'config' in m)['config']['revision']
+        assert until(second, lambda m: 'ok' in m)['ok']
+        initial = path.read_bytes(), candidate.read_bytes()
+        assert ask(second, {'a': 'plan_editing', 'active': True, 'config_revision': revision})['ok']
+        mock.show_name = 'Concert B'
+        assert identify_plan(first)['plan_selection']['code'] == 'plan_draft'
+        assert (path.read_bytes(), candidate.read_bytes()) == initial
+        assert ask(second, {'a': 'plan_editing', 'active': False})['ok']
+        assert identify_plan(first)['plan_selection']['state'] == 'loaded'
+
+
+@pytest.mark.parametrize('failure', ['archive_write', 'working_write', 'generation', 'target_revision'])
+def test_auto_can_recover_after_fault_between_saves(bridge_cfg, monkeypatch, failure):
+    from ma2panel import bridge
+
+    with bridge_cfg(settings=SETTINGS) as (ws, mock, path):
+        candidate = saved_auto_plan(path)
+        initial = path.read_bytes(), candidate.read_bytes()
+        archive = plan_path(candidate.parent, 'Mock show', write=True)
+        save = bridge.save_config
+        send = bridge.MA2Link.send
+        link = None
+        writes = []
+
+        async def track_send(self, *args, **kwargs):
+            nonlocal link
+            link = self
+            return await send(self, *args, **kwargs)
+
+        def fail(filename, data, *, before_replace=None):
+            writes.append(filename)
+            if (filename == str(archive) and failure == 'archive_write' or
+                    filename == str(path) and failure == 'working_write'):
+                raise OSError('disk unavailable')
+            if filename == str(path) and failure == 'generation':
+                link.disconnect()
+            if filename == str(path) and failure == 'target_revision':
+                candidate.write_bytes(initial[1] + b'\n')
+            return save(filename, data, before_replace=before_replace)
+
+        monkeypatch.setattr(bridge.MA2Link, 'send', track_send)
+        monkeypatch.setattr(bridge, 'save_config', fail)
+        start = len(mock.received)
+        mock.show_name = 'Concert B'
+        status = identify_plan(ws)
+        expected = 'pending' if failure == 'generation' else 'operator'
+        assert status['plan_selection']['state'] == expected
+        assert path.read_bytes() == initial[0]
+        assert candidate.read_bytes() == initial[1] + (b'\n' if failure == 'target_revision' else b'')
+        if failure == 'archive_write':
+            assert not archive.exists()
+        else:
+            assert json.loads(archive.read_text())['show'] == 'Mock show'
+        assert not list(path.parent.glob('*.tmp')) and not list(archive.parent.glob('*.tmp'))
+        assert mock.received[start:] == ['ListVar']
+
+        monkeypatch.setattr(bridge, 'save_config', save)
+        if failure == 'generation':
+            assert ask(ws, {'a': 'link_connect'})['ok']
+            until(ws, lambda m: m.get('status', {}).get('plan_selection', {}).get('state') == 'operator')
+            assert path.read_bytes() == initial[0]
+        if archive.exists():
+            archived_at = archive.stat().st_mtime_ns
+        else:
+            archived_at = None
+        assert identify_plan(ws)['plan_selection']['state'] == 'loaded'
+        if archived_at is not None:
+            assert archive.stat().st_mtime_ns == archived_at
+
+
+def test_disconnect_before_identification_leaves_plans_untouched(bridge_cfg):
+    with bridge_cfg(settings=SETTINGS) as (ws, mock, path):
+        candidate = saved_auto_plan(path)
+        initial = path.read_bytes(), candidate.read_bytes()
+        assert ask(ws, {'a': 'link_drop'})['ok']
+        mock.show_name = 'Concert B'
+        assert not ask(ws, {'a': 'select_fixtures', 'ids': [12]})['ok']
+        assert (path.read_bytes(), candidate.read_bytes()) == initial
+        assert list(candidate.parent.iterdir()) == [candidate]
+        assert ask(ws, {'a': 'link_connect'})['ok']
+        until(ws, lambda m: m.get('config', {}).get('show') == 'Concert B')
+        assert candidate.read_bytes() == initial[1]
+
+
+def test_poll_opens_compatible_legacy_plan(bridge_cfg):
+    with bridge_cfg(settings={**SETTINGS, 'poll_seconds': 0.05}) as (ws, mock, path):
+        canonical = saved_auto_plan(path)
+        legacy = canonical.parent / 'Concert B.json'
+        canonical.rename(legacy)
+        original = legacy.read_bytes()
+        mock.show_name = 'Concert B'
+        until(ws, lambda m: m.get('config', {}).get('show') == 'Concert B')
+        assert json.loads(path.read_text())['show'] == 'Concert B'
+        assert legacy.read_bytes() == original and not canonical.exists()
+
+
+def test_create_only_does_not_open_existing_plan(bridge_cfg):
+    with bridge_cfg(settings=SETTINGS) as (ws, mock, path):
+        candidate = saved_auto_plan(path)
+        before = path.read_bytes(), candidate.read_bytes()
+        result = ask(ws, {'a': 'show_open_plan', 'name': 'Concert B', 'create_only': True})
+        assert not result['ok'] and 'существует' in result['err']
+        assert result['code'] == 'plan_exists' and result['params'] == {}
+        assert (path.read_bytes(), candidate.read_bytes()) == before
+
+
+
+def test_plan_selection_waits_for_active_http_operation(tmp_path):
+    with tabs(tmp_path, SETTINGS, n=1) as ((ws,), mock, client, path):
+        candidate = saved_auto_plan(path)
+        before = path.read_bytes(), candidate.read_bytes()
+        def set_busy(active):
+            client.app.state.active_http = active
+
+        client.portal.call(set_busy, 1)
+        mock.show_name = 'Concert B'
+        assert identify_plan(ws)['plan_selection']['code'] == 'plan_busy'
+        assert (path.read_bytes(), candidate.read_bytes()) == before
+        client.portal.call(set_busy, 0)
+        assert identify_plan(ws)['plan_selection']['state'] == 'loaded'

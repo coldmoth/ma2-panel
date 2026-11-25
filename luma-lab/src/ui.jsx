@@ -1,0 +1,168 @@
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "./Icons.jsx";
+import { useLanguage } from "./Language.jsx";
+import { errorDetails } from "./errors.mjs";
+export function useStored(key, initial) {
+  const [value, set] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`luma.${key}`)) ?? initial;
+    } catch {
+      return initial;
+    }
+  });
+  function update(next) {
+    set((v) => {
+      const n = typeof next === "function" ? next(v) : next;
+      try {
+        localStorage.setItem(`luma.${key}`, JSON.stringify(n));
+      } catch {}
+      return n;
+    });
+  }
+  return [value, update];
+}
+export function Action({
+  children,
+  onClick,
+  disabled,
+  variant = "secondary",
+  className = "",
+  ...props
+}) {
+  return (
+    <Button
+      className={`ax-btn ${className}`}
+      variant={variant}
+      size="sm"
+      isDisabled={disabled}
+      onClick={onClick}
+      {...props}
+    >
+      <span className="button-content">{children}</span>
+    </Button>
+  );
+}
+export function Range({
+  label,
+  value,
+  min = 0,
+  max = 100,
+  step = 1,
+  suffix = "%",
+  disabled,
+  onCommit,
+  evidence,
+  title,
+  inputRef,
+  showCaption = true,
+}) {
+  const { t } = useLanguage();
+  const [draft, setDraft] = useState(null);
+  useEffect(() => setDraft(null), [value, min, max, disabled]);
+  const known = typeof value === "number",
+    n = draft ?? (known ? value : min === 0 ? 0 : (min + max) / 2);
+  const text =
+    draft !== null || known
+      ? `${t("shell.number", { value: Math.round(n * 10) / 10 })}${suffix}`
+      : value === "mixed"
+        ? t("common.mixed")
+        : "—";
+  const commit = () => {
+    if (draft !== null && !disabled) {
+      onCommit(draft);
+      setDraft(null);
+    }
+  };
+  return (
+    <label className={`range-field ${disabled ? "disabled" : ""}`} title={title}>
+      {showCaption && <span className="field-top">
+        <span>{label}</span>
+        <output>{text}</output>
+        {evidence && <small className={`evidence ${evidence}`}>{t(`evidence.${evidence}`)}</small>}
+      </span>}
+      <input
+        ref={inputRef}
+        aria-label={label}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={n}
+        aria-valuetext={known || draft !== null || value === "mixed" ? text : t("common.unknownValue")}
+        data-unknown={!known && draft === null}
+        disabled={disabled}
+        style={{ "--progress": `${((n - min) / (max - min)) * 100}%` }}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={(e) => {
+          if (
+            [
+              "ArrowLeft",
+              "ArrowRight",
+              "ArrowUp",
+              "ArrowDown",
+              "Home",
+              "End",
+              "PageUp",
+              "PageDown",
+            ].includes(e.key)
+          )
+            commit();
+        }}
+        onPointerCancel={() => setDraft(null)}
+        onBlur={() => setDraft(null)}
+      />
+    </label>
+  );
+}
+export function Modal({ title, onClose, children }) {
+  const { t } = useLanguage();
+  const titleId = useId();
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="modal"
+      aria-labelledby={titleId}
+      onCancel={(e) => { e.preventDefault(); onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="modal-head">
+        <h2 id={titleId}>{title}</h2>
+        <button aria-label={t("common.close")} onClick={onClose}>
+          <Icon name="close" />
+        </button>
+      </div>
+      {children}
+    </dialog>
+  );
+}
+export function Empty({ title, children }) {
+  return (
+    <div className="empty">
+      <Icon name="layers" size={32} />
+      <h3>{title}</h3>
+      <p>{children}</p>
+    </div>
+  );
+}
+
+export function ErrorDetails({ error }) {
+  const { t } = useLanguage();
+  const details = errorDetails(error);
+  if (!details) return null;
+  return (
+    <details>
+      <summary>{t("common.technicalDetails")}</summary>
+      <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(details, null, 2)}</pre>
+    </details>
+  );
+}

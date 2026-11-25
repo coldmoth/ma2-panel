@@ -1,5 +1,6 @@
 """Stable panel scene order, independent of the console's pages."""
 import re
+from uuid import uuid4
 
 from .commands import ActionError
 
@@ -22,24 +23,36 @@ def ordered_scenes(scenes, migrated):
     return result if migrated else sorted(result, key=lambda s: exec_key(s['exec']))
 
 
+def identify_scenes(scenes):
+    """Give legacy rows a persistent identity without changing their IDs."""
+    seen = set()
+    result = []
+    for row in scenes:
+        identity = row.get("identity")
+        if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{32}", identity) or identity in seen:
+            identity = uuid4().hex
+        seen.add(identity)
+        result.append({**row, "identity": identity})
+    return result
+
+
+def new_scene(ex, label):
+    identity = uuid4().hex
+    return {"id": f"s-{identity}", "identity": identity, "exec": ex, "label": label}
+
+
 def merge_scenes(existing, incoming):
     result = ordered_scenes(existing, True)
     index = {s['exec']: i for i, s in enumerate(result)}
     incoming = {canonical_exec(ex): label for ex, label in incoming}
     added = 0
-    ids = {s['id'] for s in result}
     for ex, label in sorted(incoming.items(), key=lambda item: exec_key(item[0])):
         if ex in index:
             i = index[ex]
             result[i] = {**result[i], 'label': label}
         else:
-            n = 1
-            while f's{n}' in ids:
-                n += 1
-            sid = f's{n}'
-            ids.add(sid)
             index[ex] = len(result)
-            result.append({'id': sid, 'exec': ex, 'label': label})
+            result.append(new_scene(ex, label))
             added += 1
     return result, added
 

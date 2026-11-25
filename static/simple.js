@@ -62,12 +62,14 @@
     blackout.textContent = status.blackout && status.blackout.phase === 'unknown' ? 'Проверьте Grand Master' : status.blackout && status.blackout.phase === 'active' ? 'Восстановить свет' : 'Blackout MA2';
     scenes.replaceChildren();
     const list = Array.isArray(config.scenes) ? config.scenes : [];
+    const revision = config.revision;
     if (!list.length) {
       const empty = document.createElement('p'); empty.className='muted'; empty.textContent='Сцен пока нет'; scenes.append(empty);
     }
     const section = document.createElement('section');
       const tiles = document.createElement('div'); tiles.className = 'simple-tiles';
       list.forEach((scene,index) => {
+        const context = {id: scene.id, scene_identity: scene.identity, config_revision: revision};
         const current = evidence(scene.id);
         const tile = document.createElement('div');
         tile.className = 'simple-scene' + (current.value === true ? ' running' : '');
@@ -77,13 +79,13 @@
         go.textContent = (index + 1) + ' · ' + (scene.label || 'Без названия') + (scene.write_error ? ' · Запись не подтверждена' : ' · ' + current.label);
         const waiting = pending.some(action => action.id === scene.id);
         if (waiting) { go.setAttribute('aria-busy', 'true'); go.classList.add('waiting'); }
-        go.onclick = () => send({a: 'scene_go', id: scene.id, swap: config.scenes.filter(o => o.id !== scene.id && sceneAllowed(o) && evidence(o.id).value !== false).map(o => o.id)});  // replace configured scenes unless a fresh read proves they are stopped
+        go.onclick = () => send({...context, a: 'scene_go', swap: list.filter(o => o.id !== scene.id && sceneAllowed(o) && evidence(o.id).value !== false).map(o => o.id)});  // replace configured scenes unless a fresh read proves they are stopped
         tile.append(go);
         if (current.value !== false) {
           const off = document.createElement('button'); off.type = 'button'; off.textContent = 'Выключить';
           off.disabled = !enabled() || !allowed || !!pending.length;
           off.setAttribute('aria-label', 'Выключить сцену «' + (scene.label || scene.exec) + '»');
-          off.onclick = () => send({a: 'scene_off', id: scene.id}); tile.append(off);
+          off.onclick = () => send({...context, a: 'scene_off'}); tile.append(off);
         }
         tiles.append(tile);
       });

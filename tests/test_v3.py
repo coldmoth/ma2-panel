@@ -101,9 +101,13 @@ def test_unknown_mismatch_and_binding(bridge_cfg):
         assert ask(ws, {'a': 'show_bind', 'name': 'Other', 'confirm': True})['ok']
         mock.list_garbage = False
         ask(ws, {'a': 'show_identify'})
-        # The desk shows another show: fetching moves to its plan (the old one is kept in shows/) and imports there.
+        # Fetching cannot implicitly create a plan for a different show.
+        before = path.read_bytes()
+        assert not ask(ws, {'a': 'fixtures_fetch'})['ok']
+        assert path.read_bytes() == before
+        assert ask(ws, {'a': 'show_open_plan', 'name': mock.show_name})['ok']
         result = confirm_fixture_import(ws, ask(ws, {'a': 'fixtures_fetch'}))
-        assert result['ok'] and result['switched'] == mock.show_name
+        assert result['ok'] and result['switched'] is None
         assert json.loads(path.read_text())['show'] == mock.show_name
         assert json.loads(plan_path(path.parent / 'shows', 'Other').read_text())['show'] == 'Other'
 
@@ -280,7 +284,7 @@ def test_fixture_flag_rot(bridge_cfg):
     with bridge_cfg() as (ws, mock, path):
         assert ask(ws, {'a': 'fixture_flag', 'id': 12, 'rot': 90})['ok']
         assert [f for f in json.loads(path.read_text())['fixtures'] if f['id'] == 12][0]['rot'] == 90
-        assert not ask(ws, {'a': 'fixture_flag', 'id': 12, 'rot': 45})['ok']
+        assert ask(ws, {'a': 'fixture_flag', 'id': 12, 'rot': 45.1})['ok']
         assert not ask(ws, {'a': 'fixture_flag', 'id': 12, 'rot': True})['ok']
 
 

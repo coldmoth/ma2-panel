@@ -1,6 +1,8 @@
 """Evidence expires independently of whether another read succeeds."""
 import pytest
 
+from test_bridge import scene_frame
+
 
 def book(clock):
     from ma2panel.status_evidence import Evidence
@@ -79,6 +81,14 @@ def context(tmp_path, monkeypatch):
     bridge.log.removeHandler(c.diag_handler)
 
 
+@pytest.fixture
+def authenticated_context(context):
+    from types import SimpleNamespace
+    context.cfg["show"] = "Mock show"
+    context.link._writer = SimpleNamespace(is_closing=lambda: False)
+    return context
+
+
 def test_dmx_reply_cannot_cross_connection_generation(context):
     import asyncio
     c = context
@@ -95,9 +105,9 @@ def test_dmx_reply_cannot_cross_connection_generation(context):
     asyncio.run(scenario())
 
 
-def test_partial_scene_read_does_not_make_missing_scene_off(context):
+def test_partial_scene_read_does_not_make_missing_scene_off(authenticated_context):
     import asyncio
-    c = context
+    c = authenticated_context
     c.cfg['scenes'].append({'id': 'missing', 'exec': '1.199', 'label': 'Missing'})
     async def scenario():
         calls = []
@@ -198,9 +208,9 @@ def test_slow_client_cannot_publish_old_scene_after_invalidation(context):
     asyncio.run(scenario())
 
 
-def test_poll_does_not_hold_action_lock_for_slow_client(context):
+def test_poll_does_not_hold_action_lock_for_slow_client(authenticated_context):
     import asyncio
-    c = context
+    c = authenticated_context
     async def scenario():
         entered, release = asyncio.Event(), asyncio.Event()
         class Slow:
@@ -263,12 +273,12 @@ def test_client_swap_cannot_release_unowned_catalogue_entries(context):
         ws = object()
         c.sessions[ws] = {'selection': [], 'base': None}
         swap = [f's{i}' for i in range(17)]
-        result = await c.handle(ws, json.dumps({'a': 'scene_go', 'id': 'pianist', 'swap': swap}))
+        result = await c.handle(ws, json.dumps(scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': 'pianist', 'swap': swap})))
         try:
             assert result['ok'], result
             await asyncio.gather(*list(c.bg))
             assert not any(line.startswith(('Off Executor', 'Masterfade')) for line in sent)
-            result = await c.handle(ws, json.dumps({'a': 'scene_go', 'id': 'pianist', 'swap': ['s0', 's0']}))
+            result = await c.handle(ws, json.dumps(scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': 'pianist', 'swap': ['s0', 's0']})))
             assert not result['ok']
         finally:
             await asyncio.gather(*list(c.bg), return_exceptions=True)

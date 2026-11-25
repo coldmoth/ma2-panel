@@ -175,7 +175,9 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
             f"Искали в: {', '.join(str(f) for f in folders)}"
             + (f". Нет такой папки: {', '.join(missing)}" if missing else "")
             + (f". Новые файлы там: {', '.join(Path(x).name for x in fresh[:5])}" if fresh else ". Новых файлов там нет")
-            + ". Скачайте диагностику и запустите «Проверить экспорт» на странице диагностики")
+            + ". Скачайте диагностику и запустите «Проверить экспорт» на странице диагностики",
+            code="timeout",
+        )
 
     def snapshot(roots, depth=4, cap=30000):
         """{path: (size, mtime)} of the files under roots, bounded. No disk-wide scan: only the console's own folders."""

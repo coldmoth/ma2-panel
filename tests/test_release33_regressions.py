@@ -2,11 +2,14 @@
 import asyncio
 import copy
 import json
+from test_bridge import scene_frame
+
 from pathlib import Path
 
 import pytest
 
 from ma2panel.fixtures import merge_fixtures
+from ma2panel.scenes import identify_scenes
 from ma2panel import bridge
 from test_stage4_integration import client, desk_link
 
@@ -162,7 +165,7 @@ def test_group_read_cannot_outlive_its_client_ticket(context, change):
 def test_scene_launch_cost_does_not_grow_with_catalogue(context):
     c = context
     desk, calls = desk_link(c)
-    c.cfg['scenes'] = [{'id': str(i), 'exec': f'1.{101+i}'} for i in range(100)]
+    c.cfg['scenes'] = identify_scenes([{'id': str(i), 'exec': f'1.{101+i}'} for i in range(100)])
     desk.rows = {s['exec']: s['id'] for s in c.cfg['scenes']}
     desk.cues = {ex: {1: {}} for ex in desk.rows}
     # Executor addresses outside normal range are intentionally not probed:
@@ -170,7 +173,7 @@ def test_scene_launch_cost_does_not_grow_with_catalogue(context):
     async def go():
         ws = client(c)
         for sid in ('0', '1', '2'):
-            result = await c.handle(ws, json.dumps({'a': 'scene_go', 'id': sid}))
+            result = await c.handle(ws, json.dumps(scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': sid})))
             assert result['ok'], result
     asyncio.run(go())
     assert [line for line in calls if line.startswith('Off Executor')] == [
@@ -182,17 +185,20 @@ def test_scene_launch_cost_does_not_grow_with_catalogue(context):
 @pytest.mark.parametrize('change', ['unknown', 'plan', 'fresh_off', 'stale_off'])
 def test_next_transition_respects_ownership_and_readback(context, change):
     c = context
-    c.cfg['scenes'].append({'id': 'rehearsal', 'exec': '1.102', 'label': 'Rehearsal'})
+    c.cfg['scenes'].extend(identify_scenes([{'id': 'rehearsal', 'exec': '1.102', 'label': 'Rehearsal'}]))
     _, calls = desk_link(c)
     original = c.link.send
     async def go():
         ws = client(c)
         async def fail_reply(line, **kw):
             ok, reply = await original(line, **kw)
-            return (False, 'unknown result') if line.startswith('Goto') else (ok, reply)
+            if line.startswith('Goto'):
+                c.link._result(line, 'unknown', 'unknown result')
+                return False, 'unknown result'
+            return ok, reply
         if change == 'unknown':
             c.link.send = fail_reply
-        result = await c.handle(ws, json.dumps({'a': 'scene_go', 'id': 'pianist'}))
+        result = await c.handle(ws, json.dumps(scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': 'pianist'})))
         assert result['ok'] == (change != 'unknown')
         c.link.send = original
         calls.clear()
@@ -203,7 +209,7 @@ def test_next_transition_respects_ownership_and_readback(context, change):
             if change == 'stale_off':
                 value, stamp, wall = c.scene_evidence.records['pianist']
                 c.scene_evidence.records['pianist'] = value, stamp - 7, wall
-        result = await c.handle(ws, json.dumps({'a': 'scene_go', 'id': 'rehearsal'}))
+        result = await c.handle(ws, json.dumps(scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': 'rehearsal'})))
         assert result['ok'], result
         assert ('Off Executor 1.101' in calls) == (change in ('unknown', 'stale_off'))
     asyncio.run(go())
@@ -283,7 +289,7 @@ def test_blackout_cancels_a_value_waiting_in_transport_drain(context):
 
 def test_config_undo_cannot_release_an_unknown_scene_write(context):
     c = context
-    c.cfg['scenes'].append({'id': 'other', 'exec': '1.102', 'label': 'Other'})
+    c.cfg['scenes'].extend(identify_scenes([{'id': 'other', 'exec': '1.102', 'label': 'Other'}]))
     _, calls = desk_link(c)
     original = c.link.send
     async def send(line, **kw):
@@ -292,7 +298,7 @@ def test_config_undo_cannot_release_an_unknown_scene_write(context):
     c.link.send = send
     async def go():
         ws = client(c)
-        c.sessions[ws].update(requests=set(), legacy_revision=c.revision_token())
+        c.sessions[ws].update(requests=set(), legacy_revision=c.config_revision())
         await c.perform_action(ws, json.dumps({'a': 'scene_delete', 'id': 'other', 'request_id': 'delete',
                                                'config_revision': c.revision_token()}))
         history_id = c.history[-1]['n']
@@ -302,7 +308,7 @@ def test_config_undo_cannot_release_an_unknown_scene_write(context):
         assert c.cfg['scenes'][0].get('write_error')
         assert (Path(c.config_path).parent / 'scene-write-1.101.json').exists()
         assert (await c.handle(ws, json.dumps({'a': 'undo', 'n': history_id})))['ok']
-        result = await c.handle(ws, json.dumps({'a': 'scene_go', 'id': 'pianist'}))
+        result = await c.handle(ws, json.dumps(scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': 'pianist'})))
         assert not result['ok'], result
         assert not any(line.startswith('Goto') for line in calls)
     asyncio.run(go())

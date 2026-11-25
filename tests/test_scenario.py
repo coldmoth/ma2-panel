@@ -5,21 +5,11 @@ import json
 from fastapi.testclient import TestClient
 
 from ma2panel.bridge import create_app
+from test_bridge import ask, until
 
 CONFIG = "tests/config.test.json"
 SETTINGS = {"safety": {"mode": "store", "allowed_fixtures": [12, 14], "allowed_scenes": ["1.101"],
                        "store_execs": ["2.150"]}}
-
-
-def until(ws, pred):
-    while not pred(m := ws.receive_json()):
-        pass
-    return m
-
-
-def ask(ws, msg):
-    ws.send_json(msg)
-    return until(ws, lambda m: "ok" in m)
 
 
 def start(tmp_path):
@@ -71,7 +61,8 @@ def test_hall_scenario(tmp_path):
         assert ask(ws, {"a": "scene_go", "id": "pianist"})["ok"]
         assert ask(ws, {"a": "scene_off", "id": "pianist"})["ok"]
         assert "Goto Cue 1 Executor 1.101 Fade 0" in mock.received and mock.received[-1] == "Off Executor 1.101"
-        assert not ask(ws, {"a": "scene_go", "id": "s1"})["ok"]  # 1.102 is not allowed
+        imported = next(sc["id"] for sc in ws.last_config["scenes"] if sc["exec"] == "1.102")
+        assert not ask(ws, {"a": "scene_go", "id": imported})["ok"]  # 1.102 is not allowed
 
         # store a new scene: the destination is checked on fresh console data first, never overwritten
         r = ask(ws, {"a": "scene_create", "label": "Тест", "page": 2, "exec": "2.150", "confirm": "2.150"})

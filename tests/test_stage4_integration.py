@@ -24,6 +24,8 @@ def desk_link(c):
     calls = []
     async def send(line, **kwargs):
         assert c.guard(line) is None, line
+        if before_write := kwargs.get("before_write"):
+            before_write()
         calls.append(line)
         return True, desk._reply(line)
     c.link.send = send

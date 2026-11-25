@@ -14,6 +14,7 @@ def test_request_errors_are_correlated(bridge_cfg):
             r = ask(ws, {**action, "request_id": "error-1" + action["a"]})
             assert r["request_id"] == "error-1" + action["a"]
             assert r["outcome"] == "failed"
+            assert r["code"] == "action_failed" and r["params"] == {} and r["err"]
         r = ask(ws, {"a": "clear", "request_id": []})
         assert not r["ok"] and "request_id" in r["err"]
 
@@ -43,7 +44,16 @@ def test_stale_shared_plan_edits_rejected(tmp_path, clients):
         for i, ws in enumerate(sockets[1:]):
             r = ask(ws, {"a": "group_save", "label": "Устарел", "ids": [12], "request_id": f"stale{i}", "config_revision": token})
             assert not r["ok"] and r["conflict"]
+            assert r["code"] == "plan_revision" and r["params"] == {}
         assert not any(g["label"] == "Устарел" for g in json.loads((tmp_path / "c.json").read_text())["groups"])
+
+
+def test_stale_editor_revision_returns_readiness_error(bridge_cfg):
+    with bridge_cfg() as (ws, _, _):
+        reply = ask(ws, {"a": "plan_editing", "active": True, "config_revision": "stale", "request_id": "editor"})
+        assert not reply["ok"] and reply["request_id"] == "editor"
+        assert reply["code"] == "plan_revision" and reply["params"] == {}
+        assert reply["err"] == "План изменился; откройте редактор заново."
 
 
 @pytest.mark.parametrize("failure,outcome", [("error", "partial"), ("unknown", "unknown")])
@@ -56,13 +66,16 @@ def test_multiline_failure_stops_and_reports_evidence(bridge_cfg, monkeypatch, f
             if cmd.startswith(("Masterfade", "Goto")):
                 calls.append(cmd)
                 if len(calls) == 2:
-                    self._result(cmd, failure, "injected")
-                    return False, "injected"
+                    message = 'injected Login "panel" "test-secret"'
+                    self._result(cmd, failure, message)
+                    return False, message
             return await original(self, cmd, *args, **kwargs)
         monkeypatch.setattr(MA2Link, "send", injected)
         r = ask(ws, {"a": "scene_go", "id":"pianist", "request_id": "transition1"})
         assert not r["ok"] and r["outcome"] == outcome
         assert r["command_evidence"] == ["sent", failure]
+        assert r["code"] == {"partial": "command_partial", "unknown": "command_unknown"}[outcome]
+        assert r["params"] == {} and r["err"] == 'injected Login "panel" "***"'
         assert len(calls) == 2
 
 
@@ -233,3 +246,15 @@ def test_invalid_action_type_keeps_correlated_validation_error(bridge_cfg, inval
         assert r['request_id'] == 'invalid-action'
         assert r['a'] is None
         assert r['err'] == 'нужен объект с полем a'
+
+
+def test_http_import_denial_keeps_status_and_legacy_message(tmp_path):
+    cfg = json.loads(open(CONFIG).read())
+    cfg["ma2"]["export_dir"] = str(tmp_path)
+    app = create_app(cfg, True, str(tmp_path / "c.json"), FULL)
+    with TestClient(app, client=("192.0.2.20", 12345)) as client:
+        response = client.post("/api/fixtures/import_file")
+        assert response.status_code == 403
+        assert response.json() == {
+            "ok": False, "err": "импорт доступен только с самого ПК", "code": "permission_denied", "params": {},
+        }

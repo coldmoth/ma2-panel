@@ -50,14 +50,24 @@ def _names(names):
         parents.update(prefixes)
 
 
-def payload(root):
+def payload(root, *, hall_trial=False):
     root = Path(root)
     if root.is_symlink():
         raise ValueError('symlink')
     result = {}
+    if hall_trial:
+        if not (root / 'static/luma/index.html').is_file():
+            raise ValueError('Missing production LUMA frontend')
+        result['ma2panel/HALL_TRIAL'] = b'Controlled LUMA hall trial\n'
+    trial_exclusions = {
+        'ma2panel/mock.py', 'ma2panel/mock_console.py', 'ma2panel/resources/mock',
+        'scripts/win/start-mock.bat',
+    }
 
     def add(source, dest):
         relative = source.relative_to(root)
+        if hall_trial and relative.as_posix() in trial_exclusions:
+            return
         current = root
         for part in relative.parts:
             current = current / part
@@ -75,7 +85,9 @@ def payload(root):
         for source in sorted(directory.iterdir()):
             if source.is_symlink():
                 raise ValueError('symlink')
-            if source.name == '__pycache__' or source.suffix == '.pyc':
+            if (source.name == '__pycache__' or source.suffix == '.pyc'
+                    or hall_trial and source.relative_to(root).as_posix() in trial_exclusions
+                    or not hall_trial and source == root / 'static/luma'):
                 continue
             if source.is_dir():
                 walk(source)
@@ -179,8 +191,8 @@ def _json(value):
     return (json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(',', ':')) + '\n').encode('utf-8')
 
 
-def build(root, version=None):
-    files = payload(root)
+def build(root, version=None, *, hall_trial=False):
+    files = payload(root, hall_trial=hall_trial)
     version = identity(root) if version is None else version
     if not isinstance(version, str) or not version.strip():
         raise ValueError('empty version')

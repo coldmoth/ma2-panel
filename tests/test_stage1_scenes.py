@@ -2,7 +2,7 @@
 import asyncio
 import pytest
 from ma2panel.commands import build, ActionError
-from test_bridge import bridge_cfg, ask  # noqa: F401
+from test_bridge import scene_frame, bridge_cfg, ask, until  # noqa: F401
 from test_status_evidence import context  # noqa: F401
 
 
@@ -146,8 +146,12 @@ def test_blackout_external_changes_and_native_mask_are_preserved(bridge_cfg):
         assert ask(ws, {'a': 'blackout'})['ok']
         mock.grand_master = 20  # another operator changed the suppression mechanism
         before = len(mock.received)
-        assert not ask(ws, {'a': 'blackout'})['ok']
+        assert not ask(ws, {'a': 'blackout', 'request_id': 'c1-restore'})['ok']
         assert mock.grand_master == 20 and mock.native_blackout
+        status = until(ws, lambda m: m.get('status', {}).get('blackout', {}).get('phase') == 'unknown')['status']
+        denied = status['readiness']['actions']['general']['blackout']
+        assert denied['code'] == 'blackout_unknown'
+        assert ask(ws, {'a': 'blackout'})['reason'] == denied
         assert not any(x.startswith('SpecialMaster ') for x in mock.received[before:])
 
 
@@ -217,8 +221,12 @@ def test_restore_preserves_original_level_across_precision_and_zero(bridge_cfg, 
         assert mock.grand_master == level
 
 
-@pytest.mark.parametrize('phase', ['Store Executor 1.1', 'Copy Cue 1 Executor 1.101', 'Copy Cue 1 Executor 1.1'])
-def test_failed_save_never_deletes_or_retries(bridge_cfg, monkeypatch, phase):
+@pytest.mark.parametrize(('phase', 'potential_overwrite'), [
+    ('Store Executor 1.1 ', False),
+    ('Copy Cue 1 Executor 1.101 ', False),
+    ('Copy Cue 1 Executor 1.1 ', True),
+])
+def test_failed_save_never_deletes_or_retries(bridge_cfg, monkeypatch, phase, potential_overwrite):
     from ma2panel.mock import MockMA2
     original = MockMA2._reply
     def reply(self, line):
@@ -234,7 +242,7 @@ def test_failed_save_never_deletes_or_retries(bridge_cfg, monkeypatch, phase):
         assert mock.cues['1.101'][1] == {12: {'dim': 70}}
         assert not any(x.startswith('Delete') for x in mock.received)
         assert sum(x.startswith(phase) for x in mock.received) == 1
-        assert list(path.parent.glob('scene-write-*.json'))
+        assert bool(list(path.parent.glob('scene-write-*.json'))) == potential_overwrite
 
 
 def test_successful_update_keeps_old_cue_in_spare_and_excludes_outsider(bridge_cfg):
@@ -298,7 +306,7 @@ def test_loss_of_context_stops_native_transition_without_late_commands(tmp_path,
         return True, 'OK'
     c.link.send = send
     async def run():
-        assert await c.execute('scene_go', {'id': 'pianist', 'fade': 5}, {}, [])
+        assert await c.execute('scene_go', scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': 'pianist'}), {}, [])
         assert not any(x.startswith('Off Executor') for x in calls)
         assert not c.bg or all(t.get_coro().__name__ != 'swap_off' for t in c.bg)
         for t in list(c.bg): t.cancel()

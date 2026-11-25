@@ -1,0 +1,87 @@
+/* Scoped to the plan editor; the performance hall keeps its existing layout. */
+.page-layout {display:flex;flex-direction:column;min-height:0;overflow:hidden;padding:16px 18px 12px;}
+.page-layout .page-heading {margin-bottom:12px;}
+.page-layout .page-heading h1 {font-size:22px;}
+.page-layout .page-heading .eyebrow {display:none;}
+.layout-workspace {flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 282px;grid-template-rows:auto minmax(0,1fr);gap:10px 14px;}
+.layout-toolbar {grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;}
+.layout-history {display:flex;gap:6px;}
+.layout-workspace button {min-height:36px;cursor:pointer;}
+.layout-workspace button:disabled {cursor:default;opacity:.45;}
+.layout-status {font-size:12px;color:#c6b7e0;}
+.layout-status.error,.layout-error {color:#ffb4b4;}
+.layout-error {grid-column:1/-1;font-size:12px;}
+.layout-workspace:has(.layout-error) {grid-template-rows:auto auto minmax(0,1fr);}
+.layout-canvas {min-width:0;min-height:0;display:flex;}
+.layout-canvas .stage-card {flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;margin:0;}
+.layout-canvas .stage-heading {padding:12px;flex-wrap:wrap;gap:8px;}
+.layout-canvas .stage-label {gap:6px;}
+.layout-canvas .stage-label b {font-size:12px;}
+.layout-canvas .stage-label span {font-size:11px;}
+.layout-canvas .stage-tools {margin-left:auto;}
+.layout-canvas .stage-tools button {padding:6px 9px;}
+.layout-canvas .stage-viewport {flex:1;min-height:0;height:auto;max-height:none;aspect-ratio:auto;}
+.layout-canvas .stage-viewport > svg {position:absolute;inset:0;}
+.layout-canvas .stage-footer {padding:8px 10px;gap:6px;flex-wrap:wrap;font-size:10px;}
+.layout-canvas .stage-fixture:hover > g {filter:none;}
+.layout-canvas .stage-fixture.selected > rect {stroke:#e1c9ff;stroke-width:2;}
+.layout-canvas .stage-fixture:focus-visible > rect,.rotation-control [role=slider]:focus-visible circle:last-of-type {stroke:#fff;stroke-width:2;}
+.rotation-control [role=slider] {cursor:grab;outline:none;touch-action:none;}
+.rotation-control [role=slider]:active {cursor:grabbing;}
+.layout-canvas .local-detail {max-width:calc(100% - 24px);bottom:80px;}
+.layout-canvas .detail-fixtures {flex-wrap:wrap;}
+.layout-inspector {min-height:0;overflow:auto;overscroll-behavior:contain;border:1px solid #43384e;background:#18151f;border-radius:12px;padding:14px;scrollbar-width:thin;}
+.layout-inspector-title {display:flex;justify-content:space-between;gap:8px;font-size:12px;align-items:center;margin-bottom:14px;}
+.layout-inspector-title span {font-size:10px;color:#ad9fbe;}
+.layout-inspector .layout-fields {display:flex;flex-direction:column;align-items:stretch;gap:12px;}
+.layout-inspector .layout-fields > div {margin:0;align-self:stretch;}
+.layout-fixture-name b {font-size:15px;}
+.layout-inspector .layout-fields small,.layout-inspector small,.layout-hint {font-size:10px;line-height:1.55;color:#b7a9c9;}
+.layout-inspector fieldset {border:0;border-top:1px solid #3d3349;margin:0;padding:10px 0 0;min-width:0;display:flex;flex-direction:column;gap:9px;}
+.layout-inspector legend {font-size:11px;color:#d8c9eb;padding:0 6px 0 0;}
+.layout-inspector label {display:flex;flex-direction:column;gap:5px;font-size:11px;color:#cbbbdc;}
+.layout-inspector input,.layout-inspector select {width:100%;max-width:none;min-width:0;min-height:36px;margin:0;box-sizing:border-box;}
+.layout-xy {display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.layout-presets {display:grid;grid-template-columns:repeat(4,1fr);gap:5px;}
+.layout-presets button {padding:5px;}
+.layout-align {font-size:11px;}
+.layout-form-actions {display:flex;gap:6px;}
+.layout-form-actions button {flex:1;padding:7px;font-size:11px;}
+.layout-form-actions button:first-child {background:#705291;color:#fff;border-color:#a88ac6;}
+.layout-geometry,.layout-fixture-list {border-top:1px solid #43384e;margin-top:16px;padding-top:12px;}
+.layout-inspector summary {cursor:pointer;font-size:12px;min-height:32px;}
+.layout-inspector summary span {display:block;margin:5px 0 0 15px;font-size:10px;color:#a598b7;}
+.layout-geometry-form {display:flex;flex-direction:column;gap:12px;margin-top:10px;}
+.layout-fixture-list > div {max-height:220px;overflow:auto;display:grid;gap:4px;margin-top:8px;}
+.layout-fixture-list button {display:flex;gap:8px;text-align:left;padding:6px 8px;font-size:11px;}
+.layout-fixture-list button[aria-pressed=true] {border-color:#d4b7ff;background:#614377;}
+.layout-fixture-list button span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.layout-workspace :is(button,input,select,summary):focus-visible {outline:2px solid #e3c7ff;outline-offset:2px;}
+@media (max-width:1100px) {
+ .page-layout {padding:12px;}
+ .layout-workspace {grid-template-columns:minmax(0,1fr) 252px;gap:8px;}
+ .layout-inspector {padding:12px;}
+ .layout-canvas .stage-tools {margin-left:0;}
+ .layout-canvas .stage-footer>span {max-width:210px;}
+}
+@media (pointer:coarse) {
+ .layout-workspace button,.layout-inspector input,.layout-inspector select,.layout-inspector summary {min-height:44px;}
+}
+@media (max-width:760px) {
+ .page-layout {overflow:auto;}
+ .layout-workspace {grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(360px,60vh) auto;overflow:visible;}
+ .layout-inspector {overflow:visible;}
+}
+.workspace:has(> .page-layout) {height:100dvh;display:flex;flex-direction:column;}
+.workspace:has(> .page-layout) > .global-bar {flex-shrink:0;}
+.workspace > .page-layout {flex:1;}
+.layout-canvas .local-detail {top:12px;bottom:auto;left:12px;max-height:calc(100% - 100px);overflow:auto;}
+@media (max-width:760px) {.workspace:has(> .page-layout) {height:auto;min-height:100dvh;}}
+.layout-fields > .layout-form-actions {position:sticky;bottom:0;background:#18151f;padding:6px 0;margin-bottom:-6px;z-index:1;}
+.layout-inspector .layout-fields {gap:10px;}
+.layout-inspector fieldset {gap:7px;}
+.layout-inspector .layout-geometry {margin:0 0 12px;padding:8px 0;border-bottom:1px solid #43384e;}
+.layout-inspector .layout-geometry summary {display:flex;align-items:center;gap:9px;min-height:28px;list-style-position:inside;}
+.layout-inspector .layout-geometry summary::before {content:'▸';font-size:11px;}
+.layout-inspector .layout-geometry[open] summary::before {content:'▾';}
+.layout-inspector .layout-geometry summary span {margin:0;font-size:10px;}

@@ -223,3 +223,13 @@ def test_nudge_explicit_one_degree_ignores_legacy_step(legacy):
 def test_nudge_rejects_bad_explicit_step(step):
     with pytest.raises(ActionError):
         build({'a': 'nudge', 'attr': 'pan', 'dir': 1, 'step': step}, {'attrs': {'pan': {'step': 2}}})
+
+
+def test_hall_local_stage_geometry():
+    from ma2panel.commands import validate_hall
+    hall = {"w": 18, "d": 24, "stage": "top", "stageDepth": 4,
+            "stageWidth": 10, "stageOffset": .25}
+    assert validate_hall(hall) == hall
+    for patch in ({"stageWidth": 19}, {"stageOffset": 1.1}, {"stageWidth": True}):
+        with pytest.raises(ActionError):
+            validate_hall({**hall, **patch})

@@ -5,6 +5,7 @@ receipts). Synthetic fixtures are NEVER published. This is not hardware acceptan
 or evidence that a stable release currently exists on GitHub.
 """
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -70,8 +71,8 @@ runpy.run_path(str(entry),run_name='__main__')
 '''
 
 
-def free_ports():
-    sockets = [socket.socket() for _ in range(2)]
+def free_ports(count=2):
+    sockets = [socket.socket() for _ in range(count)]
     try:
         for s in sockets: s.bind(('127.0.0.1', 0))
         return [s.getsockname()[1] for s in sockets]
@@ -95,8 +96,10 @@ def main():
     assert hashlib.sha256(cache.read_bytes()).hexdigest() == OLD_SHA
     candidate = args.candidate.resolve(); manifest = release.check(candidate)
     stable_candidate = browser_update.version_key(manifest['version'])[3]
-    sha = zipfile.ZipFile(candidate).read('source_identity.py').decode().removeprefix('# source-sha: ').strip()
-    with tempfile.TemporaryDirectory(prefix='ma2 online зал ') as folder:
+    with zipfile.ZipFile(candidate) as packed:
+        sha = packed.read('source_identity.py').decode().removeprefix('# source-sha: ').strip()
+        hall_trial = 'ma2panel/HALL_TRIAL' in packed.namelist()
+    with tempfile.TemporaryDirectory(prefix='ma2 online зал ') as folder, ExitStack() as peers:
         temp = Path(folder)
         with zipfile.ZipFile(cache) as archive: archive.extractall(temp)
         root = temp / 'ma2-panel/program'
@@ -142,12 +145,30 @@ def main():
         routes[f'{API}/releases?per_page=100&page=1'] = {'json': records}
         transport = temp / 'transport.json'; transport.write_text(json.dumps(routes), encoding='utf-8')
         Path(str(transport) + '.hook').write_text(HOOK, encoding='utf-8')
-        ports = free_ports()
+        ports = free_ports(3 if hall_trial else 2)
+        trace = temp / "luma-peer.json"
         cfg = json.loads((ROOT / 'ma2panel/resources/config.example.json').read_text())
-        cfg.update(version=5, show='Mock show', fixtures=[{'id': 1, 'type': 'Dimmer', 'label': 'QA', 'x': .25, 'y': .75}],
+        cfg.update(version=5, show='Mock show', fixtures=[{'id': 1, 'type': 'Dimmer', 'label': 'QA', 'x': .25, 'y': .75,
+                                                               'params': ['Dimmer']}],
                    groups=[{'id': 'local', 'label': 'QA group', 'fixtures': [1]}], ma2groups=[], scenes=[])
         settings = json.loads((ROOT / 'ma2panel/resources/settings.example.json').read_text())
-        settings.update(port=ports[0], simple_port=ports[1], poll_seconds=0, dmx_seconds=0)
+        settings.update(bind='127.0.0.1', port=ports[0], simple_port=ports[1], poll_seconds=0, dmx_seconds=0)
+        if hall_trial:
+            settings['ma2'].update(host='127.0.0.1', port=ports[2], user='luma-ci',
+                                   export_dir=str(temp / 'isolated-export'))
+            settings['safety']['allowed_fixtures'] = [1]
+            peer = subprocess.Popen([sys.executable, '-m', 'scripts.luma_ci_peer', str(ports[2]), str(trace)],
+                                    cwd=ROOT, env=clean_environment())
+            def stop_peer():
+                if peer.poll() is None:
+                    peer.terminate()
+                    peer.wait(timeout=10)
+            peers.callback(stop_peer)
+            deadline = time.monotonic() + 10
+            while not trace.is_file():
+                if peer.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError('External loopback peer startup failed')
+                time.sleep(.05)
         protected = {'config.json': json.dumps(cfg).encode(), 'settings.json': json.dumps(settings).encode(),
                      'secret.env': b'MA2_PASSWORD=synthetic-ci-only\n', 'shows/QA.json': json.dumps(cfg).encode(),
                      'backups/keep.txt': b'backup sentinel', 'diag/keep.txt': b'diagnostic sentinel',
@@ -156,7 +177,9 @@ def main():
             path = root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
         pids = temp / 'pids.txt'
         command = [str(executable), '-c', HOOK, str(root), str(transport), str(pids), str(root / 'bridge.py'),
-                   '--mock', '--config', str(root / 'config.json'), '--settings', str(root / 'settings.json')]
+                   '--config', str(root / 'config.json'), '--settings', str(root / 'settings.json')]
+        if not hall_trial:
+            command.append('--mock')
         with (output / 'bridge.log').open('wb') as log:
             process = subprocess.Popen(command, cwd=root, env=clean_environment(), stdout=log, stderr=subprocess.STDOUT)
             try:
@@ -174,7 +197,8 @@ def main():
                 # Snapshot startup migrations before testing the update itself.
                 before = {name: (root / name).read_bytes() for name in protected}
                 browser = subprocess.Popen(['node', str(ROOT / 'scripts/update_channels_browser.cjs'), base, str(output),
-                                            old_version, stable_version, rc_version], cwd=ROOT)
+                                            old_version, stable_version, rc_version,
+                                            str(trace) if hall_trial else ''], cwd=ROOT)
                 until = time.monotonic() + 130
                 try:
                     while browser.poll() is None:
@@ -191,13 +215,36 @@ def main():
                     elif name == 'bridge.log': assert actual.startswith(data)
                     else: assert actual == data, name
                 assert (root / 'previous').is_dir() and (root / '.updates').is_dir()
+                if hall_trial:
+                    stop = urllib.request.Request(base + '/api/stop', data=b'', headers={'X-Stop': '1'})
+                    with urllib.request.urlopen(stop, timeout=3) as response:
+                        assert json.load(response)['ok']
+                    deadline = time.monotonic() + 15
+                    while (root / 'bridge.pid').exists():
+                        if time.monotonic() > deadline:
+                            raise TimeoutError('LUMA did not stop for rollback')
+                        time.sleep(.1)
+                    code = "from pathlib import Path; import update; raise SystemExit(update.rollback(Path.cwd(), confirm=lambda _: 'y'))"
+                    subprocess.run([str(executable), '-c', code], cwd=root, env=clean_environment(),
+                                   check=True, timeout=90)
+                    assert (root / 'VERSION').read_text().strip() == stable_version
+                    assert not (root / 'static/luma').exists()
+                    for name, data in before.items():
+                        actual = (root / name).read_bytes()
+                        if name == 'settings.json':
+                            assert json.loads(actual) == {**json.loads(data), 'test_updates': True}
+                        elif name == 'bridge.log':
+                            assert actual.startswith(data)
+                        else:
+                            assert actual == data, name
                 result = {'published_old': old_version, 'published_old_sha256': OLD_SHA,
                           'stable_target': stable_version, 'rc_target': rc_version, 'candidate': manifest['version'],
                           'stable_is_fixture': not stable_candidate, 'rc_is_fixture': stable_candidate,
                           'runtime': 'host-smoke' if args.host_runtime else 'published-v3.3.0-embedded-windows-x64',
                           'transport': 'fixture GitHub; synthetic CI evidence; no public stable asserted',
                           'old_button_upgrade': 'success', 'rc_button_upgrade': 'success',
-                          'preference_after_restart': True, 'private_data': 'preserved', 'rollback_snapshot': 'present'}
+                          'preference_after_restart': True, 'private_data': 'preserved', 'rollback_snapshot': 'present',
+                          'hall_trial_rollback': 'success' if hall_trial else None}
                 (output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
                 print(json.dumps(result))
             finally:

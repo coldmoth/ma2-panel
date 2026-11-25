@@ -653,14 +653,16 @@ SECTIONS.scenes = function (el) {
   else add(side, h('div', {class:'card master-card'}, sceneUI.masterOpen ? null : master));
   add(workspace, list, side); add(el, workspace);
   var tiles = h('div', {class:'tiles scene-list', 'data-scroll':'scenes'});
+  var sceneConfigRevision = state.config && state.config.revision;
   scenes.forEach(function (scene, index) {
+    var sceneContext = {id: scene.id, scene_identity: scene.identity, config_revision: sceneConfigRevision};
     var current = sceneEvidence(scene.id), run = current.value === true;
     var allowed = sceneAllowed(scene);
     var label = scene.label || 'Без названия';
     var tile = h('button', {class:'tile' + (run ? ' run' : '') + (scene.write_error ? ' write-error' : ''), type:'button', 'data-scene':scene.id,
       'aria-label': (index + 1) + '. ' + label + ', ' + current.label.toLowerCase(),
       disabled: !ready || !allowed || !!featureReason('scenes') || !!scene.write_error, onclick:function() {
-        var action = {a:'scene_go',id:scene.id,swap:scenes.filter(function(o){return o.id !== scene.id && sceneAllowed(o) && sceneEvidence(o.id).value !== false;}).map(function(o){return o.id;})};
+        var action = {...sceneContext,a:'scene_go',swap:scenes.filter(function(o){return o.id !== scene.id && sceneAllowed(o) && sceneEvidence(o.id).value !== false;}).map(function(o){return o.id;})};
         if (sceneFade) action.fade = sceneFade;
         send(action,tile);
       }}, h('span',{class:'scene-number'},index + 1), h('span',{class:'scene-name'},label),
@@ -668,7 +670,7 @@ SECTIONS.scenes = function (el) {
     var controls = h('div',{class:'tile-controls'},sceneUI.editing ? h('button',{class:'btn small ghost',type:'button',disabled:!ready,
       onclick:function(){openSceneEdit(scene);}},'Изменить') : null);
     var off = h('button',{class:'btn small off',type:'button','data-scene':scene.id,
-      'aria-label':'Выключить сцену «' + label + '»',onclick:function(e){send({a:'scene_off',id:scene.id},e.currentTarget);}},'Выключить');
+      'aria-label':'Выключить сцену «' + label + '»',onclick:function(e){send({...sceneContext,a:'scene_off'},e.currentTarget);}},'Выключить');
     add(controls,off);
     updaters.push(function () {
       var evidence = sceneEvidence(scene.id);

@@ -10,6 +10,10 @@ on:
         description: 'Optional NEW test tag for a draft prerelease (empty = tests only)'
         type: string
         default: ''
+      luma_hall_trial:
+        description: 'Build the supervised LUMA Windows delivery after the standard Windows checks'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -229,6 +233,25 @@ jobs:
       - name: Real user scenarios from the delivered Windows runtime
         timeout-minutes: 6
         run: uv run --no-sync python scripts/run_quality_browser.py --bundle dist/ma2-panel-win/ma2-panel/program --output test-results/delivered-browser
+      - name: Build and verify the delivered LUMA beta ZIP
+        if: inputs.luma_hall_trial
+        run: |
+          npm ci --prefix luma-lab
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm test --prefix luma-lab
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $version = (Get-Content ma2panel/VERSION -Raw).Trim()
+          $commit = git rev-parse --short HEAD
+          $env:LUMA_HALL_VERSION = "$version+$commit"
+          npm run build --prefix luma-lab -- --outDir ../static/luma --emptyOutDir
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync python -m scripts.build_windows --hall-trial --verify-reproducible
+      - name: Verify the exact LUMA ZIP first run and opt-in upgrade with an external peer
+        if: inputs.luma_hall_trial
+        run: |
+          uv run --no-sync python scripts/first_run_zip.py --output test-results/luma-first-run
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync python scripts/update_channels_windows.py --output test-results/luma-update-channels
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-release-candidate

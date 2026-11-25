@@ -276,12 +276,14 @@ def merge_fixtures(old: list[dict], found: list[dict], *, choices=None) -> list[
     return [merged[fid] for fid in sorted(merged)]
 
 
-def save_config(path: str, cfg: dict) -> None:
+def save_config(path: str, cfg: dict, *, before_replace=None) -> None:
     folder = os.path.dirname(os.path.abspath(path))
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=folder, suffix=".tmp", delete=False) as f:
         try:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
             f.close()
+            if before_replace is not None:
+                before_replace()
             os.replace(f.name, path)
         finally:
             if os.path.exists(f.name):

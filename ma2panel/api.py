@@ -22,7 +22,7 @@ from . import diagnostic_upload
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from .commands import ActionError
+from .commands import ActionError, failure
 from .fixtures import save_config
 from .link import HALTED, NO_LINK, clean
 from .safety import DEFAULT_MA2, DEFAULT_SAFETY, load_secret, read_settings_pair, save_settings_pair, validate_settings, without_passwords
@@ -58,23 +58,26 @@ def register(app, c, is_loopback):
     @app.post("/api/fixtures/import_file")
     async def import_file(request: Request):
         if not is_loopback(request):
-            return JSONResponse({"ok": False, "err": "импорт доступен только с самого ПК"}, status_code=403)
+            return JSONResponse(failure("импорт доступен только с самого ПК", "permission_denied"), status_code=403)
         try:
             async with action_lock:
                 if state["loading"]:
-                    raise ActionError("идёт загрузка шоу")
+                    raise ActionError("идёт загрузка шоу", code="show_loading")
                 check_show()
                 result = import_xml((await request.body()).decode("utf-8-sig"), "file")
+                if not result.get("ok"):
+                    result = {**result, **failure(mask(result["err"]))}
             await broadcast(config_msg())
         except (ActionError, ValueError, OSError) as e:
-            result = {"ok": False, "err": str(e)}
+            code = e.code if isinstance(e, ActionError) else "plan_io" if isinstance(e, OSError) else None
+            result = failure(mask(str(e)), code or "action_failed", getattr(e, "params", None))
         record(request, json.dumps({"a": "fixtures_import_file"}), result)
         return result
 
     @app.post("/api/fixtures/import_confirm")
     async def import_confirm(request: Request):
         if not is_loopback(request):
-            return JSONResponse({"ok": False, "err": "импорт доступен только с самого ПК"}, status_code=403)
+            return JSONResponse(failure("импорт доступен только с самого ПК", "permission_denied"), status_code=403)
         try:
             action = await request.json()
             if not isinstance(action, dict):
@@ -84,7 +87,8 @@ def register(app, c, is_loopback):
             await broadcast(c.status_msg())
             await broadcast(config_msg())
         except (ActionError, ValueError, OSError) as e:
-            result = {"ok": False, "err": str(e)}
+            code = e.code if isinstance(e, ActionError) else "plan_io" if isinstance(e, OSError) else None
+            result = failure(mask(str(e)), code or "action_failed", getattr(e, "params", None))
         record(request, json.dumps({"a": "fixtures_import_confirm"}), result)
         return result
 
@@ -220,7 +224,7 @@ def register(app, c, is_loopback):
     @app.get("/api/diag/upload")
     def upload_status(request: Request):
         if not is_loopback(request):
-            return JSONResponse({"ok": False, "err": "Отправка доступна только с самого ПК моста"}, status_code=403)
+            return JSONResponse(failure("Отправка доступна только с самого ПК моста", "permission_denied"), status_code=403)
         return uploader.status()
 
     @app.post("/api/diag/send")
@@ -238,7 +242,7 @@ def register(app, c, is_loopback):
             local_host = valid_origin = False
         if (not is_loopback(request) or not local_host or not valid_origin
                 or request.headers.get("x-diag-upload") != "1"):
-            return JSONResponse({"ok": False, "err": "Откройте диагностику через localhost на самом ПК моста"}, status_code=403)
+            return JSONResponse(failure("Откройте диагностику через localhost на самом ПК моста", "permission_denied"), status_code=403)
         try:
             raw = bytearray()
             async for chunk in request.stream():
@@ -292,7 +296,7 @@ def register(app, c, is_loopback):
     async def link_test(request: Request):
         """Read-only: the connection attempts so far, who holds port 30000 on this PC, and one bare TCP connect with no login."""
         if not is_loopback(request):
-            return JSONResponse({"ok": False, "err": "доступно только с самого ПК"}, status_code=403)
+            return JSONResponse(failure("доступно только с самого ПК", "permission_denied"), status_code=403)
         report = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "state": link.state, "attempts": list(link.attempts)[-10:], "target": f"{link.host}:{link.port}"}
         if os.name == "nt":
             for key, cmd in (("netstat", ["netstat", "-ano"]), ("python_processes", ["tasklist", "/fi", "imagename eq python.exe", "/fo", "csv"]),
@@ -333,28 +337,28 @@ def register(app, c, is_loopback):
     async def export_probe(request: Request):
         # Active: creates a few diagnostic export files in the console's importexport folder; the show, patch and output stay untouched.
         if not is_loopback(request):
-            return JSONResponse({"ok": False, "err": "доступно только с самого ПК"}, status_code=403)
+            return JSONResponse(failure("доступно только с самого ПК", "permission_denied"), status_code=403)
         if safety["allow_fixture_read"] is not True:
-            return {"ok": False, "err": "экспорт не разрешён: включите «Разрешить получение приборов из MA2» в настройках"}
+            return failure("экспорт не разрешён: включите «Разрешить получение приборов из MA2» в настройках", "permission_denied")
         async with action_lock:
             if link.halted:
-                return {"ok": False, "err": HALTED}
+                return failure(HALTED, "halted")
             if not link.ready:
-                return {"ok": False, "err": NO_LINK}
+                return failure(NO_LINK, link.connection_phase)
             if state["loading"]:
-                return {"ok": False, "err": "идёт загрузка шоу"}
+                return failure("идёт загрузка шоу", "show_loading")
             try:
                 return {"ok": True, **await run_export_probe()}
             except OSError as e:
-                return {"ok": False, "err": f"проверка экспорта прервана: {e}"}
+                return failure(mask(f"проверка экспорта прервана: {e}"))
 
     @app.post("/api/probe")
     async def probe_console():
         async with action_lock:
             if link.halted:
-                return {"ok": False, "err": HALTED}
+                return failure(HALTED, "halted")
             if not link.ready:
-                return {"ok": False, "err": NO_LINK}
+                return failure(NO_LINK, link.connection_phase)
             results = []
             out = [f"ma2 state: {link.state}"]
             for cmd in PROBE_COMMANDS:

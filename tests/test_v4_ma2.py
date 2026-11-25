@@ -1,4 +1,6 @@
 """Task 3: MA2 catalogues and guarded, empty-slot-only group storage."""
+from test_bridge import scene_frame
+
 import asyncio
 import json
 import threading
@@ -151,7 +153,7 @@ def test_import_waits_for_lock(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge.MA2Link, 'send', delayed)
     with tabs(tmp_path, {**FULL, "safety": {**FULL["safety"], "allow_fixture_read": True}}) as ((a, b), _, client, path):
         before = path.read_bytes()
-        a.send_json({'a': 'scene_go', 'id': 'pianist'})
+        a.send_json(scene_frame(a.last_config, {'a': 'scene_go', 'id': 'pianist'}))
         assert entered.wait(3)
         b.send_json(IMPORT)
         try:

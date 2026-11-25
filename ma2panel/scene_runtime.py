@@ -68,7 +68,7 @@ def transition_lines(action, cfg, allowed, owned=()):
             + [f'Off Executor {ex}' for ex in others])
 
 
-async def store_scene(send, target, label, ids, *, spare=None, prepared=None):
+async def store_scene(send, target, label, ids, *, spare=None, send_overwrite=None):
     """Prepare away from the live target. Keep the spare, including the old Cue 1.
 
     No recovery command is sent after any failure: in particular an unknown Copy
@@ -82,9 +82,7 @@ async def store_scene(send, target, label, ids, *, spare=None, prepared=None):
     await confirm_manual_scene(send, dest)
     if spare:
         await send(f'Copy Cue 1 Executor {target} At Cue 2 Executor {spare} /CueOnly')
-        if prepared:
-            prepared()
-        await send(f'Copy Cue 1 Executor {spare} At Cue 1 Executor {target} /CueOnly /Overwrite')
+        await (send_overwrite or send)(f'Copy Cue 1 Executor {spare} At Cue 1 Executor {target} /CueOnly /Overwrite')
     # A successful reply is not content verification; caller additionally lists the target.
 
 

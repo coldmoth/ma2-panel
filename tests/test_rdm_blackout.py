@@ -22,6 +22,7 @@ def test_blackout_is_refused_before_waiting_for_rdm_lock(context, phase):
         try:
             reply = await asyncio.wait_for(c.handle(ws, json.dumps({'a': 'blackout'})), .1)
             assert not reply['ok'] and 'RDM' in reply['err']
+            assert reply['reason']['code'] == 'rdm_active'
             assert not sent
             assert c.rdm._active and c.rdm._state['off_state'] == 'unknown'
         finally:

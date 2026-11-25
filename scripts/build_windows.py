@@ -36,7 +36,7 @@ def write_bundle(tree, archive):
     Path(str(archive) + '.sha256').write_text(f'{digest}  {Path(archive).name}\n', encoding='ascii')
 
 
-def build(output):
+def build(output, *, hall_trial=False):
     cache = output / 'cache'
     cache.mkdir(parents=True, exist_ok=True)
     embedded = cache / f'python-{PYTHON}-embed-amd64.zip'
@@ -62,8 +62,11 @@ def build(output):
                     '--python-version', '3.12', '--only-binary', ':all:', '--no-deps', '--require-hashes',
                     '--requirement', str(requirements)], cwd=ROOT, check=True)
     shutil.rmtree(program / 'lib/bin', ignore_errors=True)
-    subprocess.run([sys.executable, '-m', 'scripts.package_release', '--tree', str(program),
-                    '--archive', str(output / 'update/ma2-panel-update.zip')], cwd=ROOT, check=True)
+    package = [sys.executable, '-m', 'scripts.package_release', '--tree', str(program),
+               '--archive', str(output / 'update/ma2-panel-update.zip')]
+    if hall_trial:
+        package.append('--hall-trial')
+    subprocess.run(package, cwd=ROOT, check=True)
     shutil.copy2(ROOT / 'ma2panel/resources/secret.env.example', program)
     for name in ('config', 'settings'):
         shutil.copy2(ROOT / 'ma2panel/resources' / f'{name}.example.json', program / f'{name}.json')
@@ -92,14 +95,15 @@ def build(output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--verify-reproducible', action='store_true')
+    parser.add_argument('--hall-trial', action='store_true')
     args = parser.parse_args()
     output = ROOT / 'dist'
-    build(output)
+    build(output, hall_trial=args.hall_trial)
     if args.verify_reproducible:
         names = ('ma2-panel-win.zip', 'ma2-panel-update-usb.zip', 'update/ma2-panel-update.zip')
         with tempfile.TemporaryDirectory(prefix='ma2-independent-build-') as temp:
             independent = Path(temp)
-            build(independent)
+            build(independent, hall_trial=args.hall_trial)
             for name in names:
                 if hashlib.sha256((output / name).read_bytes()).digest() != hashlib.sha256((independent / name).read_bytes()).digest():
                     raise ValueError('independent builds differ: ' + name)

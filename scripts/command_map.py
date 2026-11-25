@@ -76,15 +76,25 @@ def run(mode, actions, flags_on=False):
         # Keep the highlight zone identical in all modes, including full.
         settings["highlight"] = {"exclude": [f["id"] for f in cfg["fixtures"] if f["id"] not in (12, 14)]}
         with TestClient(create_app(cfg, True, str(path), settings)) as client, client.websocket_connect("/ws") as ws:
+            config = {}
             def recv():
-                while "status" not in (m := ws.receive_json()) or m["status"]["ma2"] != "logged_in":
-                    pass
-            recv()
+                nonlocal config
+                frame = ws.receive_json()
+                if "config" in frame:
+                    config = frame["config"]
+                return frame
+
+            status = {}
+            while not config or status.get("ma2") != "logged_in" or status.get("recovering"):
+                status = recv().get("status", status)
             mock = client.app.state.mock
             reply = {}
             for i, action in enumerate(actions):
                 last = i == len(actions) - 1
                 before = len(mock.received)
+                if action["a"] in ("scene_go", "scene_off"):
+                    scene = next(row for row in config["scenes"] if row["id"] == action["id"])
+                    action = {**action, "config_revision": config["revision"], "scene_identity": scene["identity"]}
                 ws.send_json(action)
                 if action["a"] in ("dim", "color", "strobe", "move", "zoom", "focus", "master"):
                     time.sleep(0.4)
@@ -95,7 +105,7 @@ def run(mode, actions, flags_on=False):
                         except Exception:
                             break
                 else:
-                    while "ok" not in (m := ws.receive_json()):
+                    while "ok" not in (m := recv()):
                         pass
                     reply = m
                 # A refused prerequisite must remain visible (not an idle highlight_off).

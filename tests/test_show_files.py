@@ -272,7 +272,8 @@ def test_busy_file_save_blocks_second_client_and_halt_leaves_unknown(tmp_path, m
                 break
             time.sleep(.005)
         assert 'SaveShow' in mock.received
-        assert not ask(ws, {'a': 'select_fixtures', 'ids': [12]})['ok']
+        blocked = ask(ws, {'a': 'select_fixtures', 'ids': [12]})
+        assert not blocked['ok'] and blocked['reason']['code'] == 'show_file_busy'
         result = ask(ws, {'a': 'show_save'})
         assert not result['ok'], result
         assert ask(ws, {'a': 'halt'})['ok']

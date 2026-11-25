@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from test_status_evidence import context  # noqa: F401
+from test_status_evidence import authenticated_context, context  # noqa: F401
 
 
 @pytest.mark.parametrize("action", ["scenes_import", "ma2_import"])
 @pytest.mark.parametrize("phase", ["pages", "first_page", "fallback", "last_page", "final_identity"])
 @pytest.mark.parametrize("change", ["gen", "epoch"])
-def test_import_discards_all_pages_when_context_changes(context, action, phase, change):
-    c = context
+def test_import_discards_all_pages_when_context_changes(authenticated_context, action, phase, change):
+    c = authenticated_context
     c.cfg["show"] = "Old"
     c.state["show"] = {"name": "Old", "source": "ma2"}
     path = Path(c.config_path)
@@ -65,8 +65,8 @@ def test_import_discards_all_pages_when_context_changes(context, action, phase, 
 
 
 @pytest.mark.parametrize("action", ["scenes_import", "ma2_import"])
-def test_import_verifies_show_identity_again_before_save(context, action):
-    c = context
+def test_import_verifies_show_identity_again_before_save(authenticated_context, action):
+    c = authenticated_context
     c.cfg["show"] = "Old"
     c.state["show"] = {"name": "Old", "source": "ma2"}
     path = Path(c.config_path)

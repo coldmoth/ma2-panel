@@ -127,10 +127,11 @@ def panel(tmp_path):
 
 
 def open_plan(ws, mock, name):
-    mock.show_name = name
-    assert ask(ws, {"a": "show_identify"})["ok"]
+    # Exercise explicit open separately from the identification-triggered selection.
     reply = ask(ws, {"a": "show_open_plan", "name": name})
     assert reply["ok"], reply
+    mock.show_name = name
+    assert ask(ws, {"a": "show_identify"})["ok"]
 
 
 def test_panel_legacy_plan_keeps_edits_after_switching_show(tmp_path):

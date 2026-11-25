@@ -45,3 +45,6 @@ diagnostic-upload.json
 runtime.json
 program-manifest.json
 runtime-files.json
+
+# Generated Windows trial frontend
+/static/luma/

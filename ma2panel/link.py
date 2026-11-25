@@ -92,9 +92,11 @@ class MA2Link:
     def __init__(self, host: str, port: int, user: str, password: str, on_state: Callable[[str], None],
                  guard: Callable[[str], str | None] | None = None, require_prompt: bool = True,
                  prompt: re.Pattern = PROMPT, login_ok: re.Pattern = LOGIN_OK, timeout: float | None = None,
-                 on_result: Callable[[dict], None] | None = None):
+                 on_result: Callable[[dict], None] | None = None, on_phase: Callable[[], None] | None = None,
+                 *, manual_only: bool = False):
         self.host, self.port, self.user, self.password = host, port, user, password
         self.on_state = on_state
+        self.on_phase = on_phase or (lambda: None)
         self.on_result = on_result or (lambda entry: None)
         self.guard = guard
         self.require_prompt = require_prompt
@@ -112,7 +114,8 @@ class MA2Link:
         self._targeted = False  # a Fixture line went out in this action: value lines are refused without one
         self._halted = False  # "Остановить передачу": no line leaves the bridge until resume
         self._stop_epoch = 0  # a stop/resume cycle cannot revive an already admitted line
-        self.manual = False  # "Разорвать связь с MA2": only this bridge's Telnet session, no reconnect until link_connect
+        self.manual_only = manual_only
+        self.manual = manual_only
         self._wake = asyncio.Event()
         self._lock = asyncio.Lock()
         self._writer: asyncio.StreamWriter | None = None
@@ -125,6 +128,25 @@ class MA2Link:
     @property
     def ready(self) -> bool:
         return self.state in READY
+
+    @property
+    def authenticated_socket(self) -> bool:
+        """The authenticated transport is still open, including before the drop callback."""
+        return (self.ready and not self.manual and not self._closed.is_set()
+                and self._writer is not None and not self._writer.is_closing())
+
+    @property
+    def connection_phase(self) -> str:
+        """Operator-facing phase; the legacy transport state and send gate stay unchanged."""
+        if self.ready:
+            return "authenticated"
+        if self.state == "manual_off":
+            return "disconnected"
+        if self.state == "login_unknown":
+            return "login_unconfirmed"
+        if self.state == "login_failed" or (self.state == "down" and self.attempts and self.attempts[-1].get("error")):
+            return "connection_error"
+        return "connecting"
 
     @property
     def halted(self) -> bool:
@@ -154,6 +176,7 @@ class MA2Link:
                     await self._wake.wait()
                     self._wake.clear()
                 continue
+            phase = self.connection_phase
             loop = asyncio.get_running_loop()
             attempt = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "stage": "connect", "target": f"{self.host}:{self.port}"}
             self.attempts.append(attempt)
@@ -172,7 +195,7 @@ class MA2Link:
                     self.vars = {}
                     self._stage = "greeting"
                     greeting, _ = await self._collect(2)  # ends at the greeting's prompt, so it is not read as the login reply
-                    if self._closed.is_set():  # nothing to log in to: do not write the login line into a dead socket
+                    if self.manual or self._closed.is_set():  # Do not log in after a manual stop or on a dead socket.
                         raise ConnectionError("пульт закрыл соединение до приветствия")
                     if greeting.strip():
                         self._raw("(приветствие пульта)", "late", greeting)
@@ -181,7 +204,10 @@ class MA2Link:
                     self._set(state)
                     if state != "logged_in":
                         self._gen += 1
-                        await self._sleep(30)  # password fixed on the console: no bridge restart needed
+                        if self.manual_only:
+                            self.manual = True
+                        else:
+                            await self._sleep(30)  # A corrected desk password needs no bridge restart.
                         continue
                     self._stage = "logged_in"
                     await self._closed.wait()
@@ -197,8 +223,13 @@ class MA2Link:
                 log.warning("ma2 link: этап «%s»: %s: %s; получено %s байт, через %s мс после подключения; конец соединения: %s",
                             self._stage, type(e).__name__, e, self._rx, attempt["ms_since_connect"], attempt["connection_end"])
             self._gen += 1
+            if self.manual_only:
+                self.manual = True
             if not self.manual:
+                already_down = self.state == "down"
                 self._set("down")
+                if already_down and self.connection_phase != phase:
+                    self.on_phase()
                 await self._sleep(RECONNECT_S)
 
     async def _login(self) -> str:
@@ -275,10 +306,10 @@ class MA2Link:
         self.last = {"t": time.strftime("%H:%M:%S"), "cmd": cmd, "status": status, "text": self.mask(text)}
         self.on_result(self.last)
 
-    async def send(self, cmd: str, quiet: bool = False, gen: int | None = None, valid=None) -> tuple[bool, str]:
+    async def send(self, cmd: str, quiet: bool = False, gen: int | None = None, valid=None, *, before_write=None) -> tuple[bool, str]:
         """(ok, reply or reason). ok means status "sent". gen: the link generation the caller started under; a drop
         and reconnect in between refuses the line. valid is rechecked after
-        waiting/draining, immediately before writing the command."""
+        waiting/draining. before_write runs synchronously after the final admission check."""
         if self.halted:
             return False, HALTED
         if self.guard and (why := self.guard(cmd)):
@@ -316,6 +347,12 @@ class MA2Link:
                 if valid is not None and not valid():
                     self._result(cmd, 'not_sent', 'контекст действия изменился; строка не отправлена')
                     return False, 'контекст действия изменился; строка не отправлена'
+            except OSError:
+                self._result(cmd, "unknown", "связь оборвалась во время команды: выполнилась ли она, неизвестно")
+                return False, NO_LINK
+            if before_write is not None:
+                before_write()
+            try:
                 reply, seen = await self._exchange(cmd, self.timeout)
                 # Semantic errors do not complete a frame: its tail must be consumed
                 # before another line can leave this connection.

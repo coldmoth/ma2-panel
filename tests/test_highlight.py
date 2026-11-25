@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from ma2panel import bridge
 from ma2panel.commands import select_line
-from test_bridge import ask, until, bridge_cfg  # noqa: F401
+from test_bridge import scene_frame, ask, until, bridge_cfg  # noqa: F401
 from test_safety import tabs
 from test_v3 import until_status
 
@@ -120,18 +120,29 @@ def test_lease_and_ping(bridge_cfg):
 @pytest.mark.parametrize('reason', ['link_drop', 'halt'])
 def test_stuck_and_recovery(bridge_cfg, reason):
     with bridge_cfg(edit, SETTINGS) as (ws, mock, path):
+        statuses = []
+        receive_json = ws.receive_json
+
+        def observe():
+            frame = receive_json()
+            if "status" in frame:
+                statuses.append(frame["status"])
+            return frame
+
+        ws.receive_json = observe
         start(ws)
         assert ask(ws, {'a': reason})['ok']
         before = list(mock.received)
         assert not ask(ws, {'a': 'highlight_off'})['ok']
         assert (path.parent / 'highlight.json').exists()
         if reason != 'halt':
-            assert until_status(ws, {'a': 'show_identify'})['highlight']['state'] == 'stuck'
+            assert statuses[-1]['highlight']['state'] == 'stuck'
         assert mock.received == before
         assert ask(ws, {'a': 'link_connect' if reason == 'link_drop' else 'resume'})['ok']
-        # Reconnect and resume send nothing by themselves: Off would wipe what the operator set on the desk.
-        wait_for(lambda: until_status(ws, {'a': 'show_identify'})['ma2'] == 'logged_in')
-        assert until_status(ws, {'a': 'show_identify'})['highlight']['state'] == 'stuck'
+        # Wait for the unsolicited status, without attempting ListVar while the socket reconnects.
+        if statuses[-1]['ma2'] != 'logged_in' or statuses[-1]['manual']:
+            until(ws, lambda m: m.get('status', {}).get('ma2') == 'logged_in' and not m['status']['manual'])
+        assert statuses[-1]['highlight']['state'] == 'stuck'
         assert not any(line.startswith('Off Fixture') for line in mock.received[len(before):])
         before = len(mock.received)
         assert not ask(ws, {'a': 'highlight_off'})['ok']
@@ -340,7 +351,7 @@ def test_newer_light_blocks_automatic_highlight_release(bridge_cfg, newer):
         ask(ws, {'a': 'select_fixtures', 'ids': [12]})
         action = {'a': newer, **({'id': 'pianist'} if newer == 'scene_go' else
                   {'v': 10} if newer == 'dim' else {'r': 10, 'g': 20, 'b': 30} if newer == 'color' else {})}
-        ws.send_json(action)
+        ws.send_json(scene_frame(ws.last_config, action))
         if newer in ('dim', 'color'):
             ws.send_json({'a': 'select_fixtures', 'ids': [12]})
             result = until(ws, lambda m: m.get('a') == 'select_fixtures' and 'ok' in m)
