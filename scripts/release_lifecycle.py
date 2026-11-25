@@ -5,6 +5,7 @@ All writes and mock connections belong to temporary installations.
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -135,7 +136,23 @@ def exercise(previous, candidate, output, runtime=None, previous_version="3.3.0"
             for n,body in protected.items(): assert (root/n).read_bytes()==body,n
         # Use the REAL previous updater, including its manifest parser.
         invoke(root,executable,'import update;from pathlib import Path;update.backup_user_data(Path(sys.argv[1]));update.install(sys.argv[2],sys.argv[1])',candidate)
-        preserved();boot(root,executable,output/'candidate.log');preserved()
+        preserved()
+        boot(root, executable, output/'candidate.log')
+        # Startup migrates legacy scene rows. Permit only a valid persistent identity,
+        # and require rollback to keep the now-current on-disk site data.
+        original_plan = json.loads(protected['config.json'])
+        migrated_bytes = (root/'config.json').read_bytes()
+        migrated_plan = json.loads(migrated_bytes)
+        assert len(original_plan['scenes']) == len(migrated_plan['scenes'])
+        identities = set()
+        for before_scene, after_scene in zip(original_plan['scenes'], migrated_plan['scenes']):
+            identity = after_scene['identity']
+            assert re.fullmatch(r'[0-9a-f]{32}', identity) and identity not in identities
+            identities.add(identity)
+            before_scene.setdefault('identity', identity)
+        assert original_plan == migrated_plan
+        protected['config.json'] = migrated_bytes
+        preserved()
         assert (root/target).read_bytes()!=zipfile.ZipFile(previous).read(module)
         invoke(root,executable,"import update;update.prepare_bridge=lambda *a,**k:None;update.rollback(sys.argv[1],confirm=lambda _: 'y')")
         preserved();boot(root,executable,output/'rollback.log')
