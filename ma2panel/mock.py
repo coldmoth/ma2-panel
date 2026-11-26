@@ -91,6 +91,7 @@ class MockMA2:
             ratio = min(1, max(0, (self.clock() - start) / duration)) if duration else 1
             if releasing and ratio == 1:
                 self.running.discard(ex)
+                self.transitions.pop(ex, None)
                 continue
             # Newer incoming playbacks win; outgoing dimmers retain their own fade.
             for fid, attrs in target.items():
@@ -454,6 +455,7 @@ class MockMA2:
             m = re.fullmatch(r"List Executor (\d+\.\d+)(?: Thru (\d+\.\d+))?", text)
             rows = []
             if m:
+                self.output(suppressed=False)
                 key = lambda ex: tuple(map(int, ex.split(".")))
                 rows = [(e, n) for e, n in self.rows.items() if key(m[1]) <= key(e) <= key(m[2] or m[1])]
             def profile(e):
