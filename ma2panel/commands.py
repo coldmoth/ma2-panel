@@ -92,14 +92,45 @@ def store_lines(ex: str, label: str) -> list[str]:
 
 
 ECHO = re.compile(r"(?i)\s*executing\s*:")  # MA2 3.9.60 starts every reply with "Executing : <the command>"
+PROMPT_PREFIX = re.compile(r"^(?:\s*(?:\[[^\]\r\n]+\]|[A-Za-z][A-Za-z0-9_.:/-]*)>/?\s*)+")
+PROMPT_ONLY = re.compile(r"^\s*(?:\[[^\]\r\n]+\]|[A-Za-z][A-Za-z0-9_.:/-]*)>/?\s*$")
+DASH_SEP = re.compile(r"^\s*-{2,}(?:\s+-{2,})*\s*$")
+
+
+def _strip_prompt_prefix(line: str) -> str:
+    """Remove leading console prompts such as '[Group]>' or 'Fixture>' from a single line."""
+    if PROMPT_ONLY.fullmatch(line):
+        return ""
+    return PROMPT_PREFIX.sub("", line).strip()
 
 
 def _reply_lines(reply: str):
-    """Ignore standalone prompts and List command echoes (possibly prefixed by a prompt)."""
-    for line in reply.splitlines():
-        line = re.sub(r"^(?:\s*\[[^\]]*\]>\s*)+", "", line).strip()
-        if line and not ECHO.match(line) and not re.fullmatch(r"List Executor \d+\.\d+(?: Thru \d+\.\d+)?", line, re.I):
+    """Ignore standalone prompts, dashed table separators, and bare List command echoes."""
+    for raw_line in reply.splitlines():
+        line = _strip_prompt_prefix(raw_line)
+        if (line and not ECHO.match(line) and not DASH_SEP.fullmatch(line)
+                and not re.fullmatch(
+                    r"List\s+(?:Executor\s+\d+\.\d+(?:\s+Thru\s+\d+\.\d+)?|Group\s+\d+(?:\s+Thru\s+\d+)?|Preset\s+\d+\.\d+(?:\s+Thru\s+\d+\.\d+)?|FixtureType|Page|Layout|Sequence)",
+                    line,
+                    re.I,
+                )):
             yield line
+
+
+def _find_table_columns(header_line: str) -> list[tuple[str, int, int]]:
+    """Find (column_name, start, end) slices in a fixed-width MA2 List header line."""
+    spans = [(m.group(), m.start()) for m in re.finditer(r"\S+", header_line)]
+    return [
+        (name, start, spans[i + 1][1] if i + 1 < len(spans) else -1)
+        for i, (name, start) in enumerate(spans)
+    ]
+
+
+def _extract_table_col(line: str, columns: list[tuple[str, int, int]], name: str) -> str:
+    for col_name, start, end in columns:
+        if col_name.casefold() == name.casefold():
+            return (line[start:] if end == -1 else line[start:end]).strip()
+    return ""
 
 
 def exec_verdict(reply: str, ex: str, empty_re: re.Pattern) -> tuple[str, str]:
@@ -124,13 +155,15 @@ def unrecognised_lines(reply: str) -> int:
 # An executor row: an optional leading word ("Executor", or "Exec" as the desk's other List replies use a short one),
 # an optional pool number, the page.number, the same page.number once more if repeated, then the name.
 # ponytail: real List Executor rows were never captured; widen here when the hall shows them.
-EXEC_ROW = re.compile(r"\s*(?:[A-Za-z]+\s+)?(?:\d+\s+)?(\d+\.\d+)\s+(?:\1\s+)?(.+?)\s*$")
+EXEC_ROW = re.compile(r"\s*(?:(?:Executor|Exec)\s+)?(?:\d+\s+)?(\d+\.\d+)\s+(?:\1\s+)?(.+?)\s*$", re.I)
 
 
 def parse_executors(reply: str) -> list[tuple[str, str]]:
-    """(exec, label) from a `List Executor` reply. ponytail: reply format guessed, check in the hall."""
+    """(exec, label) from a `List Executor` reply."""
     found = []
-    for line in reply.splitlines():
+    for line in _reply_lines(reply):
+        if is_error_reply(line) or re.match(r"(?i)^(?:warning|no\.?\s+name)\b", line):
+            continue
         m = EXEC_ROW.match(line)
         label = re.split(r"\s{2,}", m[2])[0].replace('"', "").strip() if m else ""
         if label:
@@ -147,8 +180,14 @@ def can_move(fixture: dict, cfg: dict | None = None) -> bool:
 
 def parse_ma2_objects(reply: str, pattern: str, preset_type: int | None = None) -> list[dict]:
     """Catalogue rows from the site's assumed List format; never infer fixture membership."""
+    cleaned_lines = []
+    for raw_line in reply.splitlines():
+        line = _strip_prompt_prefix(raw_line)
+        if line and not ECHO.match(line) and not DASH_SEP.fullmatch(line):
+            cleaned_lines.append(line)
+    cleaned = "\n".join(cleaned_lines)
     found = {}
-    for match in re.finditer(pattern, reply):
+    for match in re.finditer(pattern, cleaned):
         row = match.groupdict()
         if preset_type is not None and row.get("type") and int(row["type"]) != preset_type:
             continue
@@ -158,6 +197,32 @@ def parse_ma2_objects(reply: str, pattern: str, preset_type: int | None = None) 
             if row.get("ids") and re.fullmatch(r"\d+(?:[ ,+]+\d+)*", row["ids"]):
                 entry["ids"] = list(dict.fromkeys(map(int, re.findall(r"\d+", row["ids"]))))
             found[n] = entry
+    if not found:
+        # Fallback for fixed-width MA2 tables with header + dashed separator ("No.  Name ... / ---").
+        raw_lines = [_strip_prompt_prefix(ln) for ln in reply.splitlines()]
+        for idx in range(len(raw_lines) - 1):
+            if DASH_SEP.fullmatch(raw_lines[idx + 1]) and "name" in raw_lines[idx].lower() and re.search(r"\bno\.?\b", raw_lines[idx], re.I):
+                cols = _find_table_columns(raw_lines[idx])
+                no_col = next((c[0] for c in cols if c[0].rstrip(".").lower() == "no"), None)
+                name_col = next((c[0] for c in cols if c[0].lower() == "name"), None)
+                if no_col and name_col:
+                    for data_ln in raw_lines[idx + 2:]:
+                        if not data_ln or ECHO.match(data_ln) or is_error_reply(data_ln):
+                            continue
+                        no_val = _extract_table_col(data_ln, cols, no_col)
+                        name_val = _extract_table_col(data_ln, cols, name_col).strip('"')
+                        if preset_type is not None:
+                            m_no = re.fullmatch(r"(\d+)\.(\d+)", no_val)
+                            if not m_no or int(m_no[1]) != preset_type:
+                                continue
+                            n = int(m_no[2])
+                        else:
+                            if not no_val.isdigit():
+                                continue
+                            n = int(no_val)
+                        if 1 <= n <= 999 and name_val:
+                            found[n] = {"n": n, "name": name_val}
+                break
     return list(found.values())
 
 
@@ -166,9 +231,9 @@ def group_slot_empty(reply: str, n: int, pattern: str, empty_pattern: str) -> bo
     if is_error_reply(reply) or any(row["n"] == n for row in parse_ma2_objects(reply, pattern)):
         return False
     lines = []
-    for line in reply.splitlines():
-        line = re.sub(r"^(?:\s*\[[^\]]*\]>\s*)+", "", line).strip()
-        if line and not ECHO.match(line) and line.lower() != f"List Group {n}".lower():
+    for raw_line in reply.splitlines():
+        line = _strip_prompt_prefix(raw_line)
+        if line and not ECHO.match(line) and not DASH_SEP.fullmatch(line) and line.lower() != f"List Group {n}".lower():
             if re.search(rf"(?i)\bgroup\b\D*\b{n}\b", line):  # any row naming this group: occupied, whatever the regexes say
                 return False
             lines.append(line)
@@ -176,10 +241,12 @@ def group_slot_empty(reply: str, n: int, pattern: str, empty_pattern: str) -> bo
 
 
 def parse_running(reply: str) -> dict[str, bool]:
-    """exec -> running, only for lines that carry a status word. ponytail: status word guessed, check in the hall."""
+    """exec -> running, only for lines that carry a status word."""
     state = {}
     ambiguous = set()
-    for line in reply.splitlines():
+    for line in _reply_lines(reply):
+        if is_error_reply(line) or re.match(r"(?i)^(?:warning|no\.?\s+name)\b", line):
+            continue
         m = EXEC_ROW.match(line)
         if not m:
             continue
@@ -419,14 +486,34 @@ def parse_positions(action: dict, cfg: dict) -> dict[int, tuple[float, float] | 
     return result
 
 
-# MA2 3.9: "Error #43: LOGIN NEEDED", "Error : ...", "Login incorrect". Only at a line start, and the bare phrases only in
-# MA2's upper case: a group, show or fixture named "Terror" or "error test" in a List/ListVar reply is not an error.
-ERROR_LINE = re.compile(r"(?im)^\s*(?:error\b|login incorrect)")
-ERROR_PHRASES = re.compile(r"UNKNOWN COMMAND|ILLEGAL COMMAND|ILLEGAL CHARACTER|COMMAND NOT EXECUTED")
+# MA2 3.9: "Error #43: LOGIN NEEDED", "Error : ...", "Login incorrect", "no login".
+# Checked per line after stripping leading console prompts, and bare phrases only in MA2's upper case:
+# a group, show or fixture named "Terror" or "error test" in a List/ListVar reply is not an error.
+ERROR_NUMBERED = re.compile(r"(?i)^error\s+#(\d+)\s*:\s*(.*)$")
+ERROR_BARE = re.compile(r"(?i)^(?:error\s*:\s*(.*)|error\b(.*)$|login\s+incorrect\b(.*)$|no\s+login\s*!?\s*$)")
+ERROR_PHRASES = re.compile(r"UNKNOWN COMMAND|ILLEGAL COMMAND|ILLEGAL CHARACTER|COMMAND NOT EXECUTED|OBJECT DOES NOT EXIST|LOGIN NEEDED|NUMBER TOO LARGE")
+
+
+def parse_error(text: str) -> dict | None:
+    """Return {'code': int | None, 'text': str} when a grandMA2 Telnet reply reports an error, else None."""
+    if not text:
+        return None
+    for raw_line in text.splitlines():
+        line = _strip_prompt_prefix(raw_line)
+        if not line or ECHO.match(line) or line.upper().startswith("WARNING"):
+            continue
+        if m := ERROR_NUMBERED.match(line):
+            return {"code": int(m[1]), "text": m[2].strip()}
+        if m := ERROR_BARE.match(line):
+            detail = next((g.strip() for g in m.groups() if g and g.strip()), line.strip())
+            return {"code": None, "text": detail}
+        if m := ERROR_PHRASES.search(line):
+            return {"code": None, "text": m[0]}
+    return None
 
 
 def is_error_reply(text: str) -> bool:
-    return bool(ERROR_LINE.search(text) or ERROR_PHRASES.search(text))
+    return parse_error(text) is not None
 
 
 def load_config(path: str) -> dict:
@@ -656,21 +743,36 @@ def patch_plan(fixtures: list[dict], fid: int, start: int, patch: bool, physical
     return plan
 
 
+def _strip_fixturetype_prompt(line: str) -> str:
+    """Strip only a leading console prompt, preserving column indentation for fixed-width tables."""
+    if PROMPT_ONLY.fullmatch(line):
+        return ""
+    return re.sub(r"^(?:[ \t]*\[[^\]\r\n]+\]>/?)+", "", line)
+
+
 def parse_type_footprints(text: str) -> dict[str, int]:
     """{type number: DMX footprint} from List FixtureType. Hall 2026-10-21 (3.9.60.68): fixed-width columns under a header
     "No.  LongName ... DMXFootprint  Instances ...", rows "FixtureType 4 4    Mini-B ... 17            1 ...". The export
     counts fewer channels than the profile takes (Mini-B: 14 in the export, 17 here and in the patch spacing)."""
-    lines = text.splitlines()
+    lines = [_strip_fixturetype_prompt(ln) for ln in text.splitlines()]
     head = next((ln for ln in lines if "DMXFootprint" in ln and "Instances" in ln), None)
     if head is None:
         return {}
     a, b = head.index("DMXFootprint"), head.index("Instances")
     out = {}
     for ln in lines:
-        m = re.match(r"FixtureType (\d+) ", ln)
-        instances = ln[b:].split(maxsplit=1)[0] if ln[b:].strip() else ""
-        if m and ln[a:b].strip().isdigit() and instances == "1":
-            out[m[1]] = int(ln[a:b].strip())
+        if DASH_SEP.fullmatch(ln):
+            continue
+        row = ln.lstrip()
+        shift = len(ln) - len(row)
+        m = re.match(r"FixtureType\s+(\d+)\s+", row)
+        if not m:
+            continue
+        fp_cell = ln[a + shift:b + shift].strip()
+        inst_tail = ln[b + shift:].strip()
+        instances = inst_tail.split(maxsplit=1)[0] if inst_tail else ""
+        if fp_cell.isdigit() and instances == "1":
+            out[m[1]] = int(fp_cell)
     return out
 
 
@@ -679,14 +781,19 @@ def parse_type_names(text: str) -> dict[str, str]:
 
     Do not guess from a short name, substring, or an ambiguous library name.
     """
-    head = next((ln for ln in text.splitlines() if "LongName" in ln and "ShortName" in ln), None)
+    lines = [_strip_fixturetype_prompt(ln) for ln in text.splitlines()]
+    head = next((ln for ln in lines if "LongName" in ln and "ShortName" in ln), None)
     if head is None:
         return {}
     a, b = head.index("LongName"), head.index("ShortName")
     names = {}
-    for ln in text.splitlines():
-        m = re.match(r"FixtureType (\d+) ", ln)
-        name = ln[a:b].strip()
+    for ln in lines:
+        if DASH_SEP.fullmatch(ln):
+            continue
+        row = ln.lstrip()
+        shift = len(ln) - len(row)
+        m = re.match(r"FixtureType\s+(\d+)\s+", row)
+        name = ln[a + shift:b + shift].strip()
         if m and name:
             names.setdefault(name, set()).add(m[1])
     return {name: next(iter(numbers)) for name, numbers in names.items() if len(numbers) == 1}

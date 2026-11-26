@@ -17,12 +17,28 @@ UNKNOWN = ("результат неизвестен: пульт не ответ�
            "Повторно не отправлена: проверьте на пульте")
 STALE = "не отправлена: предыдущая команда осталась без ответа, соединение с пультом переоткрыто. Повторите действие"
 LOGIN_OK = re.compile(r"(?i)logged\s*in")  # MA2 3.9: "Logged in as User 'Remote'"; ma2.login_ok_regex in settings.json
+LOGIN_GUEST = re.compile(r"(?i)logged\s*in\s+as\s+user\s+'?guest'?\b")
 VALUE_LINE = re.compile(r"(At |Attribute )")
-PROMPT = re.compile(rb"\]>\s*$")  # matched on clean() text: MA2 3.9 wraps it as \x1b[32m[Group]>\x1b[37m\x1b[K
-# ANSI CSI/escape sequences and Telnet IAC negotiation: removed before any reply is matched, logged or shown
-CONTROL = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]|\xff[\xfb-\xfe][\x00-\xff]|\xff[\xf0-\xfa\xff]")
-USER_VAR = re.compile(r'(?im)^\s*(?:\w+\s*:\s*)?\$USER\s*[=:]\s*"?([^"\r\n]*?)"?\s*$')
-VAR = re.compile(r'(?im)^\s*(?:\w+\s*:\s*)?\$(USER|USERRIGHTS|USERPROFILE|VERSION|SHOWFILE|PATH)\s*[=:]\s*"?([^"\r\n]*?)"?\s*$')
+# Matched on clean() text: MA2 3.9 wraps prompts like \x1b[32m[Group]>\x1b[37m\x1b[K,
+# and also uses bare/destination prompts like "Fixture>", "[Channel]>/", or "Root/LiveSetup>".
+PROMPT = re.compile(rb"(?m)^[ \t]*(?:\[[^\]\r\n]+\]|[A-Za-z][A-Za-z0-9_.:/-]*)>/?[ \t]*\Z")
+# Menu contexts in which grandMA2 blocks remote commands (e.g. Patch & Fixture Schedule).
+MENU_PROMPT = re.compile(r"(?im)^[ \t]*\[(Setup|Patch|EditSetup)\]>/?[ \t]*$")
+# ANSI CSI/OSC/charset escape sequences and Telnet IAC negotiation (including IAC SB ... IAC SE subnegotiations):
+# removed before any reply is matched, logged or shown.
+CONTROL = re.compile(
+    rb"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC sequences
+    rb"|\x1b\[[0-9;?]*[ -/]*[@-~]"         # CSI sequences (color, erase line, cursor)
+    rb"|\x1b[()*+][ -~]"                   # G0-G3 charset designations
+    rb"|\x1b[@-_]"                         # 2-byte ESC sequences
+    rb"|\xff\xfa.*?\xff\xf0"               # Telnet IAC SB ... IAC SE subnegotiation
+    rb"|\xff[\xfb-\xfe][\x00-\xff]"        # Telnet IAC WILL/WONT/DO/DONT + option
+    rb"|\xff[\xf0-\xf9\xff]",              # 2-byte Telnet IAC commands
+    re.S,
+)
+USER_VAR = re.compile(r'(?im)^\s*(?:\$?\w+\s*:\s*)?\$USER\s*[=:]\s*"?([^"\r\n]*?)"?\s*$')
+VAR = re.compile(r'(?im)^\s*(?:\$?\w+\s*:\s*)?\$(USER|USERRIGHTS|USERPROFILE|VERSION|SHOWFILE|PATH)\s*[=:]\s*"?([^"\r\n]*?)"?\s*$')
+_ECHO_MARKER = re.compile(r"(?im)^[ \t]*(?:\[[^\]\r\n]+\]>[ \t]*)?Executing[ \t]*:[ \t]*(\S+)")
 
 
 class Throttle:
@@ -74,7 +90,34 @@ READY = ("logged_in",)  # the only state in which commands may go out: login con
 
 
 def clean(data: bytes) -> bytes:
-    return CONTROL.sub(b"", data).replace(b"\r", b"")
+    return CONTROL.sub(b"", data).replace(b"\r", b"").replace(b"\x00", b"")
+
+
+def detect_console_menu(text: str) -> str | None:
+    """Return the active blocking MA2 menu name (Setup/Patch/EditSetup) if present in a reply prompt."""
+    m = MENU_PROMPT.search(text or "")
+    return m[1] if m else None
+
+
+def frame_reply(reply: str, cmd: str) -> str:
+    """Trim unrelated cross-session chatter printed before MA2's `Executing : <keyword>` echo of *cmd*.
+
+    Never discards an error line or alters replies that do not contain a later echo for *cmd*.
+    """
+    tokens = (cmd or "").split()
+    if not tokens or not reply:
+        return reply
+    wanted = tokens[0].casefold()
+    aliases = {wanted}
+    if wanted == "cd":
+        aliases.add("changedest")
+    for m in _ECHO_MARKER.finditer(reply):
+        if m[1].casefold() in aliases:
+            prefix = reply[:m.start()]
+            if prefix.strip() and not is_error_reply(prefix):
+                return reply[m.start():]
+            return reply
+    return reply
 
 
 class MA2Link:
@@ -249,8 +292,9 @@ class MA2Link:
             reply += "\n" + part
         self.login_reply = self.mask(reply)
         flat = " ".join(self.login_reply.split())
-        self._raw("login (пароль скрыт)", "error" if is_error_reply(reply) else "sent" if seen else "unknown", reply)
-        if is_error_reply(reply):
+        guest_login = bool(LOGIN_GUEST.search(reply)) and self.user.casefold() != "guest"
+        self._raw("login (пароль скрыт)", "error" if is_error_reply(reply) or guest_login else "sent" if seen else "unknown", reply)
+        if is_error_reply(reply) or guest_login:
             log.error("ma2 login failed: %s", flat)
             return "login_failed"
         if not seen:  # the late rest of the login reply must not be read as the ListVar answer
@@ -354,6 +398,7 @@ class MA2Link:
                 before_write()
             try:
                 reply, seen = await self._exchange(cmd, self.timeout)
+                reply = frame_reply(reply, cmd)
                 # Semantic errors do not complete a frame: its tail must be consumed
                 # before another line can leave this connection.
                 self._stale = not seen
@@ -370,6 +415,8 @@ class MA2Link:
             self._result(cmd, status, UNKNOWN)
             return False, UNKNOWN
         if not quiet or error:  # a background poll is neither the operator's last command nor activity for /api/idle
+            if error and (menu := detect_console_menu(reply)):
+                log.warning("ma2 console menu [%s] may block remote command: %s", menu, cmd)
             log.info("-> %s | %s%s", cmd, "ERROR " if error else "", " ".join(self.mask(reply).split()))
             self._result(cmd, status, reply)
         return not error, reply

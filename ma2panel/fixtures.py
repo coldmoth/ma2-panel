@@ -95,6 +95,20 @@ def parse_export(xml_text: str, skipped: list | None = None) -> list[dict]:
         entry = {"id": fid, "name": elem.get("name", ""),
                  "type": elem.get("type", elem.get("fixture_type", kind.get("name", "") if kind is not None else "")),
                  "params": params, "address": dmx_address(texts[0]) if texts else None}
+        # Physical 3D mounting coordinates (<AbsolutePosition>) are stored separately from 2D plan icon coords (x, y).
+        abs_pos = next((e for e in elem.iter() if local(e.tag) == "AbsolutePosition"), None)
+        if abs_pos is not None:
+            loc = next((e for e in abs_pos if local(e.tag) == "Location"), None)
+            rot = next((e for e in abs_pos if local(e.tag) == "Rotation"), None)
+            def _num(node, key):
+                try:
+                    return float(node.get(key)) if node is not None and node.get(key) is not None else 0.0
+                except ValueError:
+                    return 0.0
+            px, py, pz = _num(loc, "x"), _num(loc, "y"), _num(loc, "z")
+            rx, ry, rz = _num(rot, "x"), _num(rot, "y"), _num(rot, "z")
+            if any(v != 0.0 for v in (px, py, pz, rx, ry, rz)):
+                entry["physical_pos"] = {"x": px, "y": py, "z": pz, "rot_x": rx, "rot_y": ry, "rot_z": rz}
         if len(texts) > 1 or sum(local(e.tag) == "SubFixture" for e in elem.iter()) > 1:
             entry["patch_unsupported"] = True
         if channels and not params:
@@ -262,6 +276,8 @@ def merge_fixtures(old: list[dict], found: list[dict], *, choices=None) -> list[
         if f.get("patch_unsupported"):
             entry["patch_unsupported"] = True
         entry.update(type=f["type"], name=f["name"], params=f.get("params", []), address=f["address"])
+        if "physical_pos" in f:
+            entry["physical_pos"] = dict(f["physical_pos"])
         if "channels" in f:
             entry["channels"] = f["channels"]
         entry.pop("missing", None)
