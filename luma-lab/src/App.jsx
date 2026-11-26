@@ -7,7 +7,7 @@ import Stage from "./Stage.jsx";
 import LayoutWorkspace from "./LayoutWorkspace.jsx";
 import Inspector from "./Inspector.jsx";
 import InspectorDock, { useInspectorSize } from "./InspectorDock.jsx";
-import Scenes, { SceneCards } from "./Scenes.jsx";
+import Scenes, { LiveSceneBar, SceneCards } from "./Scenes.jsx";
 import Settings, { LegacyFrame } from "./Settings.jsx";
 import useHotkeys from "./useHotkeys.jsx";
 import { FIXTURE_KINDS, fixtureKind } from "./model.mjs";
@@ -551,9 +551,15 @@ export default function App() {
                   return true;
                 }}
               />
+              <LiveSceneBar state={state} slots={slotIds} />
               <div inert={!!draft} className={`quick-scenes ${quickScenes ? "open" : ""}`} data-shortcut-layer={quickScenes ? "" : undefined}>
                 {quickScenes && <div className="quick-scenes-content" id="quick-scenes-content">
-                  <button className="text-button" onClick={()=>setPage("scenes")}>{t("scenes.all")} <Icon name="arrow" size={14}/></button>
+                  <div className="quick-scenes-head">
+                    <button type="button" className="text-button" onClick={() => setModal("shortcuts")}>
+                      <Icon name="keyboard" size={14} /> {t("scenes.assignKeys")}
+                    </button>
+                    <button type="button" className="text-button" onClick={()=>setPage("scenes")}>{t("scenes.all")} <Icon name="arrow" size={14}/></button>
+                  </div>
                   <SceneCards state={state} slots={slotIds} />
                 </div>}
                 <button className="quick-scenes-toggle" data-shortcut-dismiss aria-expanded={quickScenes} aria-controls="quick-scenes-content" onClick={()=>setQuickScenes(v=>!v)}>

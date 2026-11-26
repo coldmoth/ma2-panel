@@ -840,6 +840,14 @@ h1 {
   padding: 10px 12px 12px;
   border-top: 1px solid #3e2b461c;
 }
+.scene-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+.scene-title-row > b,
 .scene-info > b {
   display: block;
   font-size: 11px;
@@ -848,6 +856,17 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   color: #d6c6df;
+  min-width: 0;
+}
+.scene-inline-key {
+  flex: none;
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid #594472;
+  background: #241b31;
+  color: #dbc5f0;
 }
 .scene-info > span {
   display: flex;
@@ -858,31 +877,169 @@ h1 {
   margin-top: 6px;
 }
 .scene-info i {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   background: #826e8d;
   border-radius: 50%;
 }
 .scene-info i.active-dot {
-  background: #caabdf;
-  box-shadow: 0 0 7px #caabdf44;
+  background: #6ee7b7;
+  box-shadow: 0 0 8px #6ee7b788;
+}
+.scene-info i.unknown-dot {
+  background: transparent;
+  border: 1px solid #8c7b9d;
 }
 .scene-detail {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   padding: 7px 12px;
   border-top: 1px solid #392a3e;
   color: #9d82a8;
   font-size: 9px;
 }
+.scene-detail.compact {
+  padding: 6px 8px;
+  background: #1b1625;
+}
 .scene-detail button {
-  background: #2b1d31;
-  border: 1px solid #57345d;
-  color: #bf9bce;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #351d2a;
+  border: 1px solid #743a51;
+  color: #f0b5c7;
   font-size: 9px;
+  font-weight: 500;
   border-radius: 5px;
   padding: 4px 9px;
+  white-space: nowrap;
+}
+.scene-detail button:hover:not(:disabled) {
+  background: #4e2336;
+  border-color: #a64f6f;
+  color: #ffffff;
+}
+.scene-detail button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.live-scenes-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 7px 11px;
+  margin: 0 0 8px;
+  border-radius: 9px;
+  border: 1px solid #3c5d55;
+  background: linear-gradient(90deg, #152522, #181726 65%);
+  min-width: 0;
+}
+.live-scenes-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8eecc4;
+  white-space: nowrap;
+}
+.live-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #52e0a5;
+  box-shadow: 0 0 0 3px #52e0a529;
+}
+.live-scenes-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.live-scene-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px 3px 8px;
+  border-radius: 7px;
+  border: 1px solid #3b4e4c;
+  background: #141922;
+  max-width: 100%;
+  min-width: 0;
+}
+.live-scene-pill kbd {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid #53466c;
+  background: #221b31;
+  color: #dcc8f2;
+  flex: none;
+}
+.live-scene-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.live-scene-name b {
+  font-size: 11px;
+  font-weight: 500;
+  color: #e8e2f4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+}
+.live-scene-name small {
+  font-size: 9px;
+  color: #8b9a9c;
+  white-space: nowrap;
+}
+.live-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid #7c3c52;
+  background: #351c27;
+  color: #f4bacb;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex: none;
+}
+.live-stop-btn:hover:not(:disabled) {
+  background: #532336;
+  border-color: #b85778;
+  color: #ffffff;
+}
+.live-stop-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.quick-scenes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.quick-scenes-head .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
 }
 .scene-grid.full {
   grid-template-columns: repeat(3, minmax(0, 1fr));

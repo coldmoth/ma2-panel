@@ -14,6 +14,63 @@ const colors = [
   ["#ff5e77", "#a8558e"],
   ["#31a3a6", "#707ac4"],
 ];
+export function LiveSceneBar({ state, slots = [] }) {
+  const { t } = useLanguage();
+  const [pending, setPending] = useState(null);
+  const offBlock = bridge.blockReason("scene_off");
+  const scenes = state.config?.scenes || [];
+  const activeScenes = scenes.filter((scene) => sceneActive(state, scene.id) === true);
+  if (!activeScenes.length) return null;
+  async function stopScene(scene) {
+    setPending(scene.id);
+    try {
+      await bridge.action({
+        a: "scene_off",
+        id: scene.id,
+        scene_identity: scene.identity,
+        config_revision: state.config.revision,
+      });
+    } catch (e) {
+      bridge.report(e);
+    } finally {
+      setPending(null);
+    }
+  }
+  return (
+    <div className="live-scenes-bar" role="region" aria-label={t("scenes.onAir")}>
+      <span className="live-scenes-badge">
+        <i className="live-pulse" aria-hidden="true" />
+        <span>{t("scenes.onAir")}</span>
+      </span>
+      <div className="live-scenes-list">
+        {activeScenes.map((scene) => {
+          const index = scenes.indexOf(scene);
+          const label = scene.label || t("scenes.unnamed", { index: index + 1 });
+          const slot = slots.indexOf(scene.id) + 1;
+          return (
+            <div className="live-scene-pill" key={scene.id}>
+              {slot > 0 && <kbd title={t("shortcuts.sceneSlot", { slot })}>{slot}</kbd>}
+              <span className="live-scene-name" title={`Executor ${scene.exec}`}>
+                <b>{label}</b>
+                <small>{scene.exec}</small>
+              </span>
+              <button
+                type="button"
+                className="live-stop-btn"
+                disabled={!!offBlock || pending !== null}
+                title={errorMessage(offBlock, t) ?? t("scenes.stopName", { name: label })}
+                aria-label={t("scenes.stopName", { name: label })}
+                onClick={() => stopScene(scene)}
+              >
+                <span aria-hidden="true">■</span> {t("scenes.stop")}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 export function SceneCards({ state, slots, full = false }) {
   const { t } = useLanguage();
   const [pending, setPending] = useState(null),
@@ -41,7 +98,8 @@ export function SceneCards({ state, slots, full = false }) {
       {scenes.map((scene, i) => {
         const active = sceneActive(state, scene.id),
           palette = colors[i % colors.length],
-          slot = slots.indexOf(scene.id) + 1;
+          slot = slots.indexOf(scene.id) + 1,
+          label = scene.label || t("scenes.unnamed", { index: i + 1 });
         return (
           <Card
             key={scene.id}
@@ -51,7 +109,7 @@ export function SceneCards({ state, slots, full = false }) {
             <button
               className="scene-launch"
               disabled={!!goBlock || pending !== null}
-              aria-label={t("scenes.play", { name: scene.label || t("scenes.unnamed", { index: i + 1 }) })}
+              aria-label={t("scenes.play", { name: label })}
               onClick={() => run("scene_go", scene)}
               title={errorMessage(goBlock, t) ?? t("scenes.executorHint", { executor: scene.exec })}
             >
@@ -93,15 +151,22 @@ export function SceneCards({ state, slots, full = false }) {
                     />
                   ))}
                 </svg>
-                {slot > 0 && <kbd>{slot}</kbd>}
+                {slot > 0 && <kbd className="scene-hotkey" title={t("shortcuts.sceneSlot", { slot })}>{slot}</kbd>}
                 <span className="scene-play">
                   <Icon name="scenes" size={15} />
                 </span>
               </div>
               <div className="scene-info">
-                <b>{scene.label || t("scenes.unnamed", { index: i + 1 })}</b>
+                <div className="scene-title-row">
+                  <b>{label}</b>
+                  {slot > 0 && !full && (
+                    <kbd className="scene-inline-key" title={t("shortcuts.sceneSlot", { slot })}>
+                      {slot}
+                    </kbd>
+                  )}
+                </div>
                 <span>
-                  <i className={active === true ? "active-dot" : ""} />
+                  <i className={active === true ? "active-dot" : active === false ? "inactive-dot" : "unknown-dot"} />
                   {pending === scene.id
                     ? t("scenes.pending")
                     : active === true
@@ -112,15 +177,17 @@ export function SceneCards({ state, slots, full = false }) {
                 </span>
               </div>
             </button>
-            {full && (
-              <div className="scene-detail">
-                <span>Executor {scene.exec}</span>
+            {(full || active === true) && (
+              <div className={`scene-detail ${!full ? "compact" : ""}`}>
+                <span>{full ? `Executor ${scene.exec}` : t("scenes.onAir")}</span>
                 <button
+                  type="button"
                   disabled={!!offBlock || pending !== null}
-                  title={errorMessage(offBlock, t)}
+                  title={errorMessage(offBlock, t) ?? t("scenes.stopName", { name: label })}
+                  aria-label={t("scenes.stopName", { name: label })}
                   onClick={() => run("scene_off", scene)}
                 >
-                  {t("scenes.stop")}
+                  <span aria-hidden="true">■</span> {t("scenes.stop")}
                 </button>
               </div>
             )}
@@ -152,6 +219,7 @@ export default function Scenes({ state, slots, onManage, onShortcuts }) {
           </Action>
         </div>
       </div>
+      <LiveSceneBar state={state} slots={slots} />
       <div className="scene-fade">
         <Range
           label={t("scenes.fade")}
