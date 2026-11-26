@@ -24,8 +24,8 @@ function statusFor({ma2 = "logged_in", mock = true, name = "Mock show", showStat
       show: {state: showState, name},
       actions: {
         view: {show_status: null}, plan: {group_save: null},
-        light: {select_fixtures: blocked, dim: blocked, jog: blocked, aim: blocked, scene_go: blocked, scene_off: blocked},
-        general: {clear: null, master, blackout}, recovery: {halt: null, undo: null},
+        light: {select_fixtures: blocked, dim: blocked, jog: blocked, aim: blocked, scene_go: blocked, scene_off: blocked, scene_slot_find: blocked, scene_create: blocked},
+        general: {clear: null, master, blackout}, recovery: {halt: null, undo: null, scene_slot_cancel: null},
       },
     },
   };
@@ -415,4 +415,16 @@ test("server actionHistory updates independently of fixture observations and sen
   await undoPromise;
   c.disconnected();
   assert.deepEqual(c.state.actionHistory, []);
+});
+
+test("sceneSlot updates from server messages and clears on show switch or disconnect", () => {
+  const c = connected();
+  c.receive({ scene_slot: { request: "r1", state: "ready", exec: "2.1", token: "tok-1", checked: 1, total: 250 } });
+  assert.deepEqual(c.state.sceneSlot, { request: "r1", state: "ready", exec: "2.1", token: "tok-1", checked: 1, total: 250 });
+  c.receive({ config: { revision: "rev-B", show: "Other Show", fixtures: [{ id: 1 }] } });
+  assert.equal(c.state.sceneSlot, null);
+  c.receive({ scene_slot: { request: "r2", state: "searching", checked: 0, total: 10 } });
+  assert.equal(c.state.sceneSlot.state, "searching");
+  c.disconnected();
+  assert.equal(c.state.sceneSlot, null);
 });

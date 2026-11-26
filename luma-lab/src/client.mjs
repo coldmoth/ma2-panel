@@ -19,6 +19,7 @@ export class BridgeClient {
       config: null,
       history: {},
       actionHistory: [],
+      sceneSlot: null,
       dimSent: null,
       masterEvidence: {quality:"unknown"},
       shown: {},
@@ -156,6 +157,7 @@ export class BridgeClient {
       values_meta: {},
       history: this.staleHistory(),
       actionHistory: [],
+      sceneSlot: null,
       dimSent: null,
       masterEvidence: {...this.state.masterEvidence, quality: this.state.masterEvidence.value == null ? "unknown" : "last"},
       master: this.state.master,
@@ -184,12 +186,14 @@ export class BridgeClient {
       this.receipts = { values_meta: new Map(), running_meta: new Map() };
     }
     const patch = localPlanChanged
-      ? { running: {}, running_meta: {}, feedback: null, error: null, simulation: {} }
+      ? { running: {}, running_meta: {}, feedback: null, error: null, simulation: {}, sceneSlot: null }
       : {};
     if (message.simulation && this.state.status?.mock === true)
       patch.simulation = message.simulation;
     if (Array.isArray(message.history))
       patch.actionHistory = message.history;
+    if (message.scene_slot && typeof message.scene_slot === "object")
+      patch.sceneSlot = message.scene_slot;
     if (message.status) {
       const prev = this.state.status,
         s = message.status;
@@ -215,6 +219,7 @@ export class BridgeClient {
           running_meta: {},
           values_meta: {},
           master: null,
+          sceneSlot: null,
         });
       }
     }

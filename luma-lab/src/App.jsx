@@ -7,7 +7,7 @@ import Stage from "./Stage.jsx";
 import LayoutWorkspace from "./LayoutWorkspace.jsx";
 import Inspector from "./Inspector.jsx";
 import InspectorDock, { useInspectorSize } from "./InspectorDock.jsx";
-import Scenes, { LiveSceneBar, SceneCards } from "./Scenes.jsx";
+import Scenes, { LiveSceneBar, RecordSceneModal, SceneCards } from "./Scenes.jsx";
 import Settings, { LegacyFrame } from "./Settings.jsx";
 import useHotkeys from "./useHotkeys.jsx";
 import { FIXTURE_KINDS, fixtureKind } from "./model.mjs";
@@ -74,7 +74,7 @@ export default function App() {
     setGroupEditor(null);
     setEditorPlan(null);
     setQuickScenes(false);
-    setModal(value => ["sceneEditor", "preparation"].includes(value) ? null : value);
+    setModal(value => ["recordScene", "sceneEditor", "preparation"].includes(value) ? null : value);
   }, [show]);
 
   const protectPlan = page === "layout" || !!groupEditor;
@@ -576,7 +576,8 @@ export default function App() {
               key={show}
               state={state}
               slots={slotIds}
-              onManage={() => setModal("sceneEditor")}
+              onRecord={() => setModal("recordScene")}
+              onClassicEditor={state.status?.mock === true ? () => setModal("sceneEditor") : undefined}
               onShortcuts={() => setModal("shortcuts")}
             />
           )}
@@ -675,6 +676,9 @@ export default function App() {
             {t("shortcuts.disabledHelp")}
           </p>
         </Modal>
+      )}
+      {modal === "recordScene" && (
+        <RecordSceneModal key={show} state={state} onClose={() => setModal(null)} />
       )}
       {groupEditor && editorReady && <GroupEditor key={show} {...{state,visuals}} initial={groupEditor} onClose={()=>setGroupEditor(null)}/>}
       {(modal === "diagnostics" ||

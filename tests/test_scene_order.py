@@ -32,3 +32,6 @@ def test_slot_candidates_respect_scope_and_existing_plan():
     full = slot_candidates('full', set(), {'1.1'})
     assert len(full) == 249 and full[0] == '1.2' and full[-1] == '1.250'
     assert slot_candidates('store', {'2.110','1.102','1.101'}, {'1.102'}) == ['1.101','2.110']
+    assert slot_candidates('store', {'2.110','1.102','1.101'}, {'1.102'}, page=2) == ['2.110']
+    full_p2 = slot_candidates('full', set(), {'2.1'}, page=2)
+    assert len(full_p2) == 249 and full_p2[0] == '2.2' and full_p2[-1] == '2.250'

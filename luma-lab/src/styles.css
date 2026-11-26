@@ -1047,6 +1047,132 @@ h1 {
 .scene-grid.full .scene-art {
   height: 125px;
 }
+.classic-fallback-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 6px 10px;
+}
+.record-scene-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.record-scene-alert {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid #6b3847;
+  background: #2b1822;
+  color: #f3bcc9;
+  font-size: 11px;
+}
+.record-scene-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid #3c2e4a;
+  background: #14111c;
+  font-size: 11px;
+}
+.record-scene-selection > span {
+  font-size: 10px;
+  color: #a58eb7;
+}
+.record-scene-selection strong {
+  color: #e6d7f4;
+  font-weight: 500;
+}
+.record-scene-selection strong.warn {
+  color: #f4b78a;
+}
+.record-scene-selection small {
+  color: #a792bc;
+  font-weight: 400;
+}
+.record-scene-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(130px, 0.8fr);
+  gap: 12px;
+}
+.record-scene-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  color: #cab6db;
+}
+.record-scene-grid input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid #49385a;
+  background: #14111c;
+  color: #f2e8fb;
+  box-sizing: border-box;
+}
+.record-scene-grid .field-err {
+  color: #f4a4b4;
+  font-size: 10px;
+}
+.record-slot-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #453357;
+  background: #14121d;
+}
+.record-slot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.record-slot-label {
+  display: block;
+  font-size: 10px;
+  color: #9e87b2;
+  margin-bottom: 3px;
+}
+.record-slot-exec {
+  font-size: 15px;
+  color: #9af0c8;
+  font-weight: 600;
+}
+.record-slot-status {
+  font-size: 12px;
+  color: #c5b3d6;
+}
+.record-slot-safe {
+  font-size: 10px;
+  color: #8fd2b5;
+}
+.record-scene-err {
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid #753949;
+  background: #2f1923;
+  color: #f7b8c6;
+  font-size: 11px;
+  margin: 0;
+}
+.record-scene-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+@media (max-width: 600px) {
+  .record-scene-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .scene-fade {
   max-width: 400px;
   display: flex;

@@ -2062,7 +2062,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
 
     async def find_scene_slot(ws, job):
         session = sessions.get(ws)
-        candidates = slot_candidates(mode, store_execs, {sc["exec"] for sc in cfg["scenes"]})[:250]
+        candidates = slot_candidates(mode, store_execs, {sc["exec"] for sc in cfg["scenes"]}, page=job.get("page"))[:250]
         context = offer_context()
         deadline = time.monotonic() + 30
         async def emit(kind, **values):
@@ -3041,12 +3041,13 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 request = action.get("request")
                 if not isinstance(request, str) or not 1 <= len(request) <= 100:
                     raise ActionError("поиск: нужен идентификатор запроса")
+                page = page_number(action, "page") if "page" in action and action["page"] is not None else None
                 if why := link_block():
                     return refusal(a, why)
                 if job := s.get("scene_search"):
                     job["cancelled"] = True
                 s.pop("scene_offer", None)
-                job = {"request": request, "checked": 0, "cancelled": False}
+                job = {"request": request, "checked": 0, "cancelled": False, "page": page}
                 s["scene_search"] = job
                 task = asyncio.create_task(find_scene_slot(ws, job))
                 bg.add(task); task.add_done_callback(bg.discard)

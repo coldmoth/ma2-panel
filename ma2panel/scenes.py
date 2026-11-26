@@ -57,8 +57,15 @@ def merge_scenes(existing, incoming):
     return result, added
 
 
-def slot_candidates(mode, allowed, occupied):
+def slot_candidates(mode, allowed, occupied, page=None):
     occupied = {canonical_exec(ex) for ex in occupied}
-    pool = {f'1.{n}' for n in range(1, 251)} if mode == 'full' else (
-        {canonical_exec(ex) for ex in allowed} if mode == 'store' else set())
+    if mode == 'full':
+        target_page = page if page is not None else 1
+        pool = {f'{target_page}.{n}' for n in range(1, 251)}
+    elif mode == 'store':
+        pool = {canonical_exec(ex) for ex in allowed}
+        if page is not None:
+            pool = {ex for ex in pool if int(ex.split('.')[0]) == page}
+    else:
+        pool = set()
     return sorted(pool - occupied, key=exec_key)
