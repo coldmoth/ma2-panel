@@ -77,6 +77,20 @@ function DimmerControl({ state, values, selectionSerial, send }) {
       )}
       <Range label={t("tool.dim")} value={sliderValue} disabled={disabled}
         showCaption={false} onCommit={(value) => apply(value)} />
+      <div className="dimmer-presets" role="group" aria-label={t("inspector.dimPresets")}>
+        {[0, 25, 50, 75, 100].map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            className={current === preset ? "active" : ""}
+            aria-pressed={current === preset}
+            disabled={disabled}
+            onClick={() => apply(preset)}
+          >
+            {preset}%
+          </button>
+        ))}
+      </div>
       <form onSubmit={(event) => {
         event.preventDefault();
         if (valid && !disabled) apply(value);

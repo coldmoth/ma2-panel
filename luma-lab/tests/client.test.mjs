@@ -25,7 +25,7 @@ function statusFor({ma2 = "logged_in", mock = true, name = "Mock show", showStat
       actions: {
         view: {show_status: null}, plan: {group_save: null},
         light: {select_fixtures: blocked, dim: blocked, jog: blocked, aim: blocked, scene_go: blocked, scene_off: blocked},
-        general: {clear: null, master, blackout}, recovery: {halt: null},
+        general: {clear: null, master, blackout}, recovery: {halt: null, undo: null},
       },
     },
   };
@@ -393,3 +393,26 @@ for (const a of ["scene_go", "scene_off"]) {
     assert.equal(original.sent.length, 2);
   });
 }
+
+test("server actionHistory updates independently of fixture observations and sends undo with entry n", async () => {
+  const c = connected();
+  c.receive({
+    live: { 1: { dim: 50 } },
+    values_meta: { live: { source: "ma2", freshness: "fresh", updated_at: 10 } },
+    values_revision: 1,
+    history: [
+      { n: 1, t: "12:00:00", a: "dim", what: "Яркость 50 % · приборов: 1", undo: true, done: false, reason: "" },
+    ],
+  });
+  assert.equal(c.state.history[1]?.dim?.value, 50);
+  assert.equal(c.state.actionHistory.length, 1);
+  assert.equal(c.state.actionHistory[0].n, 1);
+  const undoPromise = c.action({ a: "undo", n: 1 });
+  const sent = c.socket.sent.at(-1);
+  assert.equal(sent.a, "undo");
+  assert.equal(sent.n, 1);
+  c.receive({ request_id: sent.request_id, ok: true, a: "undo" });
+  await undoPromise;
+  c.disconnected();
+  assert.deepEqual(c.state.actionHistory, []);
+});

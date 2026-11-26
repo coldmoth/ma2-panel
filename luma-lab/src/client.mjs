@@ -18,6 +18,7 @@ export class BridgeClient {
       status: null,
       config: null,
       history: {},
+      actionHistory: [],
       dimSent: null,
       masterEvidence: {quality:"unknown"},
       shown: {},
@@ -154,6 +155,7 @@ export class BridgeClient {
       running_meta: {},
       values_meta: {},
       history: this.staleHistory(),
+      actionHistory: [],
       dimSent: null,
       masterEvidence: {...this.state.masterEvidence, quality: this.state.masterEvidence.value == null ? "unknown" : "last"},
       master: this.state.master,
@@ -186,6 +188,8 @@ export class BridgeClient {
       : {};
     if (message.simulation && this.state.status?.mock === true)
       patch.simulation = message.simulation;
+    if (Array.isArray(message.history))
+      patch.actionHistory = message.history;
     if (message.status) {
       const prev = this.state.status,
         s = message.status;

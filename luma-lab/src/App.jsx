@@ -41,7 +41,8 @@ export default function App() {
     [editorPlan, setEditorPlan] = useState(null),
     [planNotice, setPlanNotice] = useState(null),
     [quickScenes, setQuickScenes] = useState(false),
-    [hallDraft, setHallDraft] = useState(null);
+    [hallDraft, setHallDraft] = useState(null),
+    [undoing, setUndoing] = useState(false);
   const selectedGroup = useRef(null), announcedPlan = useRef(null);
   useEffect(() => {
     bridge.connect();
@@ -187,7 +188,30 @@ export default function App() {
     blackoutUnknown = phase && !["idle", "active"].includes(phase),
     blackoutActive = phase === "active",
     blackoutBlock = bridge.blockReason("blackout"),
-    masterBlock = bridge.blockReason("master");
+    masterBlock = bridge.blockReason("master"),
+    undoBlock = bridge.blockReason("undo");
+  const actionHistory = Array.isArray(state.actionHistory) ? state.actionHistory : [];
+  const latestUndo = [...actionHistory].reverse().find((entry) => entry && entry.undo && !entry.done && entry.undo_state !== "in_progress") || null;
+  const lastHistoryEntry = actionHistory.length ? actionHistory[actionHistory.length - 1] : null;
+  const undoDisabled = undoing || !!undoBlock || !latestUndo || !!draft;
+  const undoTitle = undoBlock
+    ? errorMessage(undoBlock, t)
+    : latestUndo
+      ? t("shell.undoAction", { action: latestUndo.what || latestUndo.a })
+      : lastHistoryEntry?.reason
+        ? t("shell.undoUnavailableReason", { reason: lastHistoryEntry.reason })
+        : t("shell.undoEmpty");
+  async function runUndo() {
+    if (undoDisabled || !latestUndo) return;
+    setUndoing(true);
+    try {
+      await bridge.action({ a: "undo", n: latestUndo.n });
+    } catch (e) {
+      bridge.report(e);
+    } finally {
+      setUndoing(false);
+    }
+  }
   const planIssue = ["show_mismatch", "show_unbound"].includes(selectionBlock?.code);
   const deskShow = state.status?.readiness?.show?.name;
   const showLabel = t(deskShow ? "shell.show" : "shell.showPending", { deskShow, planShow: config?.show || "—" });
@@ -370,6 +394,17 @@ export default function App() {
             <Action onClick={() => action({ a: "link_connect" })}>{t("shell.connectMa2")}</Action>
           )}
           {hallTrial && <a className="help-button" href="/index.html">{t("shell.classic")}</a>}
+          <button
+            type="button"
+            className="undo-btn"
+            disabled={undoDisabled}
+            title={undoTitle}
+            aria-label={latestUndo ? t("shell.undoAction", { action: latestUndo.what || latestUndo.a }) : t("shell.undo")}
+            onClick={runUndo}
+          >
+            <Icon name="reset" size={14} />
+            <span>{undoing ? t("shell.undoing") : t("shell.undo")}</span>
+          </button>
           <div className="grandmaster" title={errorMessage(masterBlock, t)}>
             <Icon name="sun" size={16} />
             <Range
