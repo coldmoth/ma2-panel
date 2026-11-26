@@ -176,7 +176,7 @@ export default function Stage({
     return positioned.filter(g => Math.hypot(...p(g.x, g.y).map((v, i) => v - anchor[i])) < radius);
   }
   const pickingMany = draftIds !== undefined;
-  const selectable = !groupOptions || selectionReady;
+  const selectable = positioned.length > 0;
   const busy = state.selecting;
   const candidates = detail && fixtures.filter(f => detail.includes(f.id) && (editing || !f.missing));
   useEffect(() => {
@@ -415,7 +415,7 @@ export default function Stage({
       <output aria-live="polite">{t("hall.draftCount", { count: draftIds.length })}</output>
       <div className="hall-draft-actions">
         <button className="hall-tool" data-shortcut-dismiss disabled={busy} onClick={onCancelDraft}>{t("common.cancel")}</button>
-        <button className="hall-tool hall-apply" disabled={busy || !(draftIds.length ? selectable : clearReady)} onClick={async () => {
+        <button className="hall-tool hall-apply" disabled={busy} onClick={async () => {
           if (!await onApplyDraft()) draftControls.current?.focus();
         }}>{t(busy ? "inspector.confirmingSelection" : "hall.applySelection")}</button>
       </div>

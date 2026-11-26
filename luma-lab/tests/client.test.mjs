@@ -71,7 +71,7 @@ test("every request carries revision, blackout epoch and unique identity; no opt
   });
   await p;
 });
-test("disconnect rejects inflight work and clears selection, evidence and active status", async () => {
+test("disconnect rejects inflight work, preserves UI selection, and marks selection for resync", async () => {
   const c = connected();
   c.state.selected = [1];
   c.state.live = { 1: { dim: 90 } };
@@ -79,7 +79,8 @@ test("disconnect rejects inflight work and clears selection, evidence and active
   const p = c.action({ a: "dim", v: 10 });
   c.disconnected();
   await assert.rejects(p, { code: "command_unknown" });
-  assert.deepEqual(c.state.selected, []);
+  assert.deepEqual(c.state.selected, [1]);
+  assert.equal(c.needsSelectionSync, true);
   assert.deepEqual(c.state.live, {});
   assert.deepEqual(c.state.running, {});
   assert.equal(c.socket.sent.length, 1);
@@ -99,11 +100,12 @@ test("unknown blackout cannot restore; stale revisions surface server rejection"
   });
   await assert.rejects(p, { code: "plan_revision" });
 });
-test("selection changes locally only after a matching acknowledgement", async () => {
+test("selection updates UI immediately and syncs with bridge when ready", async () => {
   const c = connected();
   const p = c.select([1]);
-  assert.deepEqual(c.state.selected, []);
-  assert(c.state.selecting);
+  assert.deepEqual(c.state.selected, [1]);
+  assert.equal(c.state.selecting, false);
+  assert.equal(c.socket.sent[0].a, "select_fixtures");
   c.receive({
     request_id: c.socket.sent[0].request_id,
     a: "select_fixtures",
@@ -111,6 +113,7 @@ test("selection changes locally only after a matching acknowledgement", async ()
   });
   await p;
   assert.deepEqual(c.state.selected, [1]);
+  assert.equal(c.needsSelectionSync, false);
 });
 test("clearing selection uses the existing clear operation, never empty fixture selection", async () => {
   const c = connected();
@@ -254,17 +257,31 @@ test('panel echo is not confirmation and cannot hide an uncertain command outcom
  assert.equal(c.state.history[1].pan.quality,'unconfirmed');
 });
 
-test("TCP without confirmed login cannot select fixtures or send light", async () => {
+test("TCP without confirmed login still allows local UI selection, sends nothing, and blocks light commands", async () => {
   const c = connected();
   c.receive({status: statusFor({ma2: "login_unknown", name: null, showState: "pending",
     blocked: denial("login_unconfirmed", "нет связи с пультом")})});
   assert.equal(c.ready(), false);
-  await assert.rejects(c.select([1]), { code: "login_unconfirmed" });
+  await c.select([1]);
+  assert.deepEqual(c.state.selected, [1]);
+  assert.equal(c.needsSelectionSync, true);
+  assert.deepEqual(c.socket.sent, []);
   await assert.rejects(c.control({ a: "dim", v: 50 }), { code: "login_unconfirmed" });
   await assert.rejects(c.action({ a: "scene_go", id: "pianist" }), { code: "login_unconfirmed" });
   assert.equal(c.ready("show_status"), true);
   assert.equal(c.ready("halt"), true);
   assert.deepEqual(c.socket.sent, []);
+  // Once MA2 becomes ready, the first light control automatically syncs selection first.
+  c.receive({status: statusFor()});
+  const dim = c.control({ a: "dim", v: 50 });
+  assert.equal(c.socket.sent[0].a, "select_fixtures");
+  assert.deepEqual(c.socket.sent[0].ids, [1]);
+  c.receive({request_id: c.socket.sent[0].request_id, a: "select_fixtures", ok: true});
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(c.socket.sent[1].a, "dim");
+  c.receive({request_id: c.socket.sent[1].request_id, a: "dim", ok: true});
+  await dim;
+  assert.equal(c.needsSelectionSync, false);
 });
 
 test("connecting, login failure, authenticated with pending show, and mismatch are distinct", async () => {

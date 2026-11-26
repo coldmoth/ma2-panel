@@ -117,7 +117,7 @@ export default function App() {
         String(availableGroupIds(group, fixtures)) !== String(chosen.ids)) {
       selectedGroup.current = null;
       setGroupLabel("");
-      if (bridge.state.selected === chosen.ids && !bridge.state.selecting) bridge.forgetSelection();
+      if (String(bridge.state.selected) === String(chosen.ids) && !bridge.state.selecting) bridge.forgetSelection();
     } else setGroupLabel(group.label);
   }, [config]);
   useHotkeys({
@@ -151,7 +151,7 @@ export default function App() {
     const context = bridge.context;
     try {
       await bridge.select(ids);
-      if (bridge.context !== context || bridge.state.selected !== ids) return false;
+      if (bridge.context !== context || String(bridge.state.selected) !== String(ids)) return false;
       const current = group && selectionGroups(bridge.state.config, t).find(g => g.id === group.id);
       const members = JSON.stringify(group?.fixtures || []);
       if (group && (!current || JSON.stringify(current.fixtures || []) !== members ||
@@ -276,7 +276,7 @@ export default function App() {
                   .select(fixtures.filter((f) => !f.missing).map((f) => f.id))
                   .catch((e) => bridge.report(e));
               }}
-              disabled={!ready || !fixtures.length}
+              disabled={!fixtures.length}
             >
               <span className="group-square" style={{ "--group": "#b09be8" }} />
               {t("shell.allFixtures")}<small aria-label={t("shell.fixtureCount", { count: fixtures.length })}>{t("shell.number", { value: fixtures.length })}</small>
@@ -284,7 +284,7 @@ export default function App() {
             {groups.map((group, i) => (
               <button
                 key={group.id}
-                disabled={!ready || !group.fixtures?.length}
+                disabled={!group.fixtures?.length}
                 className={
                   groupLabel === group.label && state.selected.length
                     ? "selected"
@@ -303,7 +303,6 @@ export default function App() {
               .map(([kind, n]) => (
                 <button
                   key={kind}
-                  disabled={!ready}
                   onClick={() => {
                     selectedGroup.current = null;
                     setGroupLabel({ kind });

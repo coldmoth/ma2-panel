@@ -182,7 +182,7 @@ export function stageViewBox(hall, top, fixtures = []) {
   return [Math.min(...xs)-pad,Math.min(...ys)-pad,Math.max(...xs)-Math.min(...xs)+pad*2,Math.max(...ys)-Math.min(...ys)+pad*2].join(' ');
 }
 export function inspectorLimits(viewport, sidebar) {
-  const max = Math.max(120, Math.min(640, viewport * .48, viewport-sidebar-560));
+  const max = Math.max(120, Math.min(640, viewport * .48, viewport-sidebar-500));
   return {min:Math.min(280,max),max};
 }
 export function unproject(x, y, top, hall) {

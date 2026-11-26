@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./Icons.jsx";
 import { useLanguage } from "./Language.jsx";
 import { clamp, inspectorLimits } from "./model.mjs";
-import { useStored } from "./ui.jsx";
+import { Empty, useStored } from "./ui.jsx";
 
 export function useInspectorSize() {
   const shell = useRef(null);
@@ -11,19 +11,16 @@ export function useInspectorSize() {
   useLayoutEffect(() => {
     const element = shell.current;
     const sidebar = element.querySelector(".sidebar");
-    const finePointer = matchMedia("(pointer: fine) and (hover: hover)");
     const update = () => {
       const limits = inspectorLimits(element.clientWidth, sidebar.getBoundingClientRect().width);
-      setGeometry({ side: finePointer.matches && limits.max >= 280, limits });
+      setGeometry({ side: limits.max >= 280, limits });
     };
     const observer = new ResizeObserver(update);
     observer.observe(element);
     observer.observe(sidebar);
-    finePointer.addEventListener("change", update);
     update();
     return () => {
       observer.disconnect();
-      finePointer.removeEventListener("change", update);
     };
   }, []);
   const { side, limits } = geometry;
@@ -80,13 +77,12 @@ export default function InspectorDock({ size, selected, show, groupLabel, select
   const launcher = useRef(null);
   const count = selected.length;
   const hasSelection = count > 0;
-  const [session, setSession] = useState(() => ({ show, hasSelection, expanded: hasSelection && size.side }));
+  const [session, setSession] = useState(() => ({ show, hasSelection, expanded: hasSelection }));
   if (session.show !== show || session.hasSelection !== hasSelection) {
-    setSession({ show, hasSelection, expanded: hasSelection && size.side });
+    setSession({ show, hasSelection, expanded: hasSelection });
   }
 
-  const open = hasSelection && session.expanded;
-  const emptyHint = !hasSelection && session.expanded;
+  const open = session.expanded;
   const label = t(open ? "inspector.collapse" : "inspector.open");
   const name = count === 1 ? selected[0].label : groupLabel || selected[0]?.label;
   return (
@@ -97,12 +93,12 @@ export default function InspectorDock({ size, selected, show, groupLabel, select
           {hasSelection ? <>
             <b title={name}>{name}</b>
             <span>{t("shell.fixtureCount", { count })}</span>
-          </> : (emptyHint || selecting) && <span role="status">
-            {t(selecting ? "inspector.confirmingSelection" : "inspector.selectFixtures")}
+          </> : selecting && <span role="status">
+            {t("inspector.confirmingSelection")}
           </span>}
         </div>}
-        <button ref={launcher} className="inspector-toggle" type="button" aria-expanded={hasSelection ? open : emptyHint}
-          aria-controls={hasSelection ? "fixture-inspector" : undefined} onClick={() => {
+        <button ref={launcher} className="inspector-toggle" type="button" aria-expanded={open}
+          aria-controls="fixture-inspector" onClick={() => {
             setSession(current => ({ ...current, expanded: !current.expanded }));
           }}>
           <Icon name={open ? "minus" : "plus"} size={15} />
@@ -117,7 +113,13 @@ export default function InspectorDock({ size, selected, show, groupLabel, select
         </button>}
       </div>
       <div className="inspector-body" id="fixture-inspector" hidden={!open} inert={selectionEditing}>
-        {open && children}
+        {open && (hasSelection ? children : (
+          <aside className="inspector">
+            <Empty title={t(selecting ? "inspector.confirmingSelection" : "inspector.selectFixtures")}>
+              {t("inspector.selectionHelp")}
+            </Empty>
+          </aside>
+        ))}
       </div>
     </div>
   );

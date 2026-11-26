@@ -39,6 +39,8 @@ export class BridgeClient {
     this.serial = 0;
     this.context = 0;
     this.selectionSerial = 0;
+    this.needsSelectionSync = false;
+    this.selectionSyncPromise = null;
     this.dimReadbackFloor = -Infinity;
     this.lastReadbackAt = -Infinity;
     this.prefix = globalThis.crypto?.randomUUID?.() || String(Date.now());
@@ -130,6 +132,8 @@ export class BridgeClient {
     this.receipts = { values_meta: new Map(), running_meta: new Map() };
     this.context++;
     this.selectionSerial++;
+    this.needsSelectionSync = this.state.selected.length > 0;
+    this.selectionSyncPromise = null;
     this.valuesRevision = -1;
     this.dimReadbackFloor = this.lastReadbackAt;
     for (const p of this.pending.values()) {
@@ -143,7 +147,6 @@ export class BridgeClient {
       bridgePhase,
       blackoutPending: false,
       simulation: {},
-      selected: [],
       selecting: false,
       shown: {},
       live: {},
@@ -195,9 +198,12 @@ export class BridgeClient {
       ) {
         this.context++;
         this.selectionSerial++;
+        const switchedShow = Boolean(deskName(prev) && deskName(s) && deskName(prev) !== deskName(s));
+        this.needsSelectionSync = !switchedShow && this.state.selected.length > 0;
+        this.selectionSyncPromise = null;
         Object.assign(patch, {
           simulation: {},
-          selected: [],
+          ...(switchedShow ? { selected: [] } : {}),
           selecting: false,
           live: {},
           shown: {},
@@ -210,9 +216,9 @@ export class BridgeClient {
     }
     if (message.config) {
       const old = this.state.config;
-      if (
+      const showSwitched = Boolean(old && old.show !== message.config.show);
+      const fixturesChanged = Boolean(
         old &&
-        (old.show !== message.config.show ||
           JSON.stringify(
             old.fixtures?.map((f) => [f.id, f.type, f.address, f.missing]),
           ) !==
@@ -223,12 +229,22 @@ export class BridgeClient {
                 f.address,
                 f.missing,
               ]),
-            ))
-      ) {
+            ),
+      );
+      if (showSwitched || fixturesChanged) {
         this.context++;
         this.selectionSerial++;
+        const validIds = new Set(
+          (message.config.fixtures || []).filter((f) => !f.missing).map((f) => f.id),
+        );
+        const currentSelected = patch.selected ?? this.state.selected;
+        const nextSelected = showSwitched
+          ? []
+          : currentSelected.filter((id) => validIds.has(id));
+        this.needsSelectionSync = nextSelected.length > 0;
+        this.selectionSyncPromise = null;
         Object.assign(patch, {
-          selected: [],
+          selected: nextSelected,
           selecting: false,
           shown: {},
           live: {},
@@ -267,6 +283,12 @@ export class BridgeClient {
       this.observations.clear();
       patch.history = {};
       patch.masterEvidence = {quality:"unknown"};
+      if (showChanged) {
+        this.needsSelectionSync = false;
+        this.selectionSyncPromise = null;
+        patch.selected = [];
+        patch.selecting = false;
+      }
     } else patch.history = this.staleHistory(false);
     const merged = {...this.state,...patch};
     const online = deskOnline(merged.status);
@@ -423,30 +445,49 @@ export class BridgeClient {
   }
   forgetSelection() {
     ++this.selectionSerial;
+    this.needsSelectionSync = false;
+    this.selectionSyncPromise = null;
     this.publish({ selected: [], selecting: false });
   }
-  async select(ids) {
+  async syncSelection(ids = this.state.selected, serial = this.selectionSerial) {
     const a = ids.length ? "select_fixtures" : "clear";
-    const blocked = this.blockReason(a);
-    if (blocked) throw new BridgeError(blocked);
-    const serial = ++this.selectionSerial,
-      context = this.context;
-    this.publish({ selecting: true });
+    const request = this.action(ids.length ? { a, ids } : { a });
+    this.selectionSyncPromise = request;
     try {
-      await this.action(ids.length ? { a, ids } : { a });
-      if (serial === this.selectionSerial && context === this.context)
-        this.publish({ selected: ids, selecting: false });
+      await request;
+      if (serial === this.selectionSerial) this.needsSelectionSync = false;
     } catch (e) {
-      if (serial === this.selectionSerial)
-        this.publish({ selected: [], selecting: false, error: e });
+      if (serial === this.selectionSerial) this.needsSelectionSync = true;
       throw e;
+    } finally {
+      if (this.selectionSyncPromise === request) this.selectionSyncPromise = null;
     }
+  }
+  async select(ids) {
+    const fixtures = this.state.config?.fixtures;
+    const next = [...new Set(ids)].filter(
+      (id) => !fixtures || fixtures.some((f) => f.id === id && !f.missing),
+    );
+    const serial = ++this.selectionSerial;
+    this.selectionSyncPromise = null;
+    const a = next.length ? "select_fixtures" : "clear";
+    const blocked = this.blockReason(a);
+    this.needsSelectionSync = blocked !== null;
+    this.publish({ selected: next, selecting: false });
+    if (blocked) return;
+    await this.syncSelection(next, serial);
   }
   async control(action) {
     const blocked = this.blockReason(action.a);
     if (blocked) throw new BridgeError(blocked);
-    if (this.state.selecting || !this.state.selected.length)
+    if (!this.state.selected.length)
       throw new BridgeError(issue("selection_pending"));
+    if (this.selectionSyncPromise) {
+      await this.selectionSyncPromise;
+    }
+    if (this.needsSelectionSync) {
+      await this.syncSelection(this.state.selected, this.selectionSerial);
+    }
     return this.action(action);
   }
   expireEvidence(now = Date.now()) {

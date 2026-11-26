@@ -93,3 +93,12 @@ test('auto bars use nearest wall in metres and preserve manual precision', async
  assert.equal(fixtureAngle({x:.1,y:.2},'bar',{w:40,d:4}),0);
  assert.equal(fixtureAngle({x:.2,y:.1,rot:45.1},'bar',{w:4,d:40}),45.1);
 });
+
+test('inspectorLimits allows side dock on laptop and tablet landscape, bottom dock on portrait', async () => {
+ const {inspectorLimits}=await import('../src/model.mjs');
+ assert(inspectorLimits(1280, 190).max >= 280);
+ assert(inspectorLimits(1366, 190).max >= 280);
+ assert(inspectorLimits(1024, 68).max >= 280);
+ assert(inspectorLimits(1024, 190).max >= 280);
+ assert(inspectorLimits(820, 68).max < 280);
+});

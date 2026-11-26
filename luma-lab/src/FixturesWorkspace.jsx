@@ -148,7 +148,7 @@ export default function FixturesWorkspace({state, visuals, onSelect, onSelectGro
           <button className="danger" disabled={!deleteReady} onClick={e=>{closeGroupActions(e.currentTarget);setConfirm(active);setDeleteRevision(state.config.revision);setError("");}}><Icon name="close"/>{t("fixtures.deleteGroup")}</button>
         </div></details>}
       </header>
-      {active && <div className="group-primary-actions">{isLocal(active) && <><Action variant="primary" disabled={!groupReady} onClick={()=>onEditor({group:active})}><Icon name="plus"/>{t("fixtures.addFixtures")}</Action><Action disabled={!groupReady} onClick={()=>onEditor({group:active})}>{t("fixtures.editMembers")}</Action></>}<Action disabled={!ready || !availableGroupIds(active, fixtures).length} onClick={()=>onSelectGroup(active)}>{t("fixtures.selectGroup")}</Action></div>}
+      {active && <div className="group-primary-actions">{isLocal(active) && <><Action variant="primary" disabled={!groupReady} onClick={()=>onEditor({group:active})}><Icon name="plus"/>{t("fixtures.addFixtures")}</Action><Action disabled={!groupReady} onClick={()=>onEditor({group:active})}>{t("fixtures.editMembers")}</Action></>}<Action disabled={!availableGroupIds(active, fixtures).length} onClick={()=>onSelectGroup(active)}>{t("fixtures.selectGroup")}</Action></div>}
       <div className="catalog-toolbar">
         <div className="catalog-search">
           <Theme theme={lumaTheme} mode="dark">
@@ -174,10 +174,10 @@ export default function FixturesWorkspace({state, visuals, onSelect, onSelectGro
             </InternationalizationProvider>
           </Theme>
         </div>
-        <Action disabled={!ready || !filtered.some(f=>!f.missing)} onClick={()=>onSelectAll(filtered.filter(f=>!f.missing).map(f=>f.id))}>{t("fixtures.selectAll")}</Action>
+        <Action disabled={!filtered.some(f=>!f.missing)} onClick={()=>onSelectAll(filtered.filter(f=>!f.missing).map(f=>f.id))}>{t("fixtures.selectAll")}</Action>
       </div>
       <div className="catalog-caption"><span>{t("fixtures.results", { found: filtered.length, selected: state.selected.length })}<small>{t("fixtures.multiSelect")}</small></span><Action disabled={!groupReady || !state.selected.length || state.selecting} onClick={()=>onEditor({mode:"choose",ids:[...state.selected]})}>{t("fixtures.addToGroup")}<Icon name="plus" size={15}/></Action></div>
-      <div className="fixture-grid">{filtered.map(f=><button key={f.id} data-catalog-fixture={f.id} disabled={!ready || f.missing} aria-pressed={state.selected.includes(f.id)} className={`fixture-card ${state.selected.includes(f.id) ? "selected" : ""}`} onClick={e=>onSelect(f.id,e.shiftKey)}>
+      <div className="fixture-grid">{filtered.map(f=><button key={f.id} data-catalog-fixture={f.id} disabled={f.missing} aria-pressed={state.selected.includes(f.id)} className={`fixture-card ${state.selected.includes(f.id) ? "selected" : ""}`} onClick={e=>onSelect(f.id,e.shiftKey)}>
         <span className="fixture-card-glyph"><FixtureGlyph kind={kind(f,visuals)} size={32}/></span><div><b>{f.label || f.id}</b><span>ID {String(f.id).padStart(2,"0")} · {t(`kind.${kind(f,visuals)}`)}</span><small>{[f.type, f.missing && t("fixtures.missing")].filter(Boolean).join(" · ")}</small><span className="fixture-memberships">{local.filter(g=>g.fixtures?.includes(f.id)).map(g=><span key={g.id} style={{"--group":groupColor(g)}}><Icon name={groupIcon(g)} size={10}/>{g.label}</span>)}</span></div><span className="selection-check">{state.selected.includes(f.id) && <Icon name="check" size={13}/>}</span>
       </button>)}</div>
       {!filtered.length && <Empty title={active && !active.fixtures?.length ? t("fixtures.emptyGroup") : t("fixtures.emptyCatalog")}>{active && !active.fixtures?.length ? t("fixtures.emptyGroupHint") : t("fixtures.emptyCatalogHint")}</Empty>}

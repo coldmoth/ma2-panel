@@ -59,7 +59,10 @@ export function Range({
 }) {
   const { t } = useLanguage();
   const [draft, setDraft] = useState(null);
-  useEffect(() => setDraft(null), [value, min, max, disabled]);
+  const dragging = useRef(false);
+  useEffect(() => {
+    if (!dragging.current) setDraft(null);
+  }, [value, min, max, disabled]);
   const known = typeof value === "number",
     n = draft ?? (known ? value : min === 0 ? 0 : (min + max) / 2);
   const text =
@@ -69,6 +72,7 @@ export function Range({
         ? t("common.mixed")
         : "—";
   const commit = () => {
+    dragging.current = false;
     if (draft !== null && !disabled) {
       onCommit(draft);
       setDraft(null);
@@ -93,6 +97,7 @@ export function Range({
         data-unknown={!known && draft === null}
         disabled={disabled}
         style={{ "--progress": `${((n - min) / (max - min)) * 100}%` }}
+        onPointerDown={() => { dragging.current = true; }}
         onChange={(e) => setDraft(Number(e.target.value))}
         onPointerUp={commit}
         onKeyUp={(e) => {
@@ -110,8 +115,8 @@ export function Range({
           )
             commit();
         }}
-        onPointerCancel={() => setDraft(null)}
-        onBlur={() => setDraft(null)}
+        onPointerCancel={() => { dragging.current = false; setDraft(null); }}
+        onBlur={() => { dragging.current = false; setDraft(null); }}
       />
     </label>
   );

@@ -26,7 +26,7 @@ const SWATCHES = [
   "#39d8b5",
   "#ffffff",
 ];
-function DimmerControl({ state, selectionSerial, send }) {
+function DimmerControl({ state, values, selectionSerial, send }) {
   const { t } = useLanguage();
   const [draft, setDraft] = useState("");
   const target = useRef(null);
@@ -36,18 +36,26 @@ function DimmerControl({ state, selectionSerial, send }) {
   const total = state.selected.length;
   const disabled = state.selecting || count !== total || !bridge.ready("dim");
   const last = state.dimSent?.selectionSerial === selectionSerial ? state.dimSent.value : null;
+  const historyDim = commonValue(values, "dim");
+  const sliderValue = current ?? historyDim ?? last ?? null;
+  const evidence = typeof current === "number" || current === "mixed"
+    ? "confirmed"
+    : values.some((v) => v.quality.dim === "pending")
+      ? "pending"
+      : values.some((v) => v.quality.dim === "unconfirmed")
+        ? "unconfirmed"
+        : sliderValue !== null
+          ? "last"
+          : "unknown";
   const number = draft.trim().replace(",", ".");
   const value = /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(number) ? Number(number) : NaN;
   const valid = Number.isFinite(value) && value >= 0 && value <= 100;
-  const sliderRef = useCallback((node) => () => {
-    if (document.activeElement === node && !target.current?.disabled) target.current?.focus();
-  }, []);
 
-  function apply(value, basis = null) {
+  function apply(value) {
     const latest = bridge.state;
     if (bridge.selectionSerial !== selectionSerial || latest.selecting ||
         !latest.selected.length || dimmerSupportCount(latest) !== latest.selected.length ||
-        !bridge.ready("dim") || (basis !== null && currentDimmer(latest) !== basis)) return;
+        !bridge.ready("dim")) return;
     setDraft("");
     send({ a: "dim", v: value });
   }
@@ -61,15 +69,14 @@ function DimmerControl({ state, selectionSerial, send }) {
           {t("inspector.dimCurrent", { value: current === "mixed" ? t("common.mixed")
             : current === null ? t("evidence.unknown") : `${current}%` })}
         </output>
+        <small className={`evidence ${evidence}`}>{t(`evidence.${evidence}`)}</small>
       </div>
       {last !== null && <p className="dimmer-sent">{t("inspector.dimSent", { value: last })}</p>}
       {count !== total && (
         <p className="capability-note">{t("inspector.dimUnavailable", { count, total })}</p>
       )}
-      {typeof current === "number" && !disabled && (
-        <Range label={t("tool.dim")} value={current} inputRef={sliderRef}
-          showCaption={false} onCommit={(value) => apply(value, current)} />
-      )}
+      <Range label={t("tool.dim")} value={sliderValue} disabled={disabled}
+        showCaption={false} onCommit={(value) => apply(value)} />
       <form onSubmit={(event) => {
         event.preventDefault();
         if (valid && !disabled) apply(value);
@@ -420,10 +427,13 @@ export default function Inspector({
         <i className={fresh ? "fresh" : ""} />
         {source}
       </div>
+      {bridge.blockReason("dim") && (
+        <p className="capability-note" role="status">{errorMessage(bridge.blockReason("dim"), t)}</p>
+      )}
       <div className="inspect-controls">
         {tools.dim !== false && (
           <DimmerControl key={bridge.selectionSerial} selectionSerial={bridge.selectionSerial}
-            state={state} send={send} />
+            state={state} values={values} send={send} />
         )}
         {tools.color !== false &&
           (common("color") ? (
@@ -559,10 +569,12 @@ export default function Inspector({
           <p>{t("inspector.colorFadeHelp")}</p>
         </details>
       </div>
-      <div className="inspect-bottom">
-        <kbd>↑ ↓ ← →</kbd>
-        <span>{t("inspector.preciseMovement")}</span>
-      </div>
+      {tools.pos !== false && common("pos") && (
+        <div className="inspect-bottom">
+          <kbd>↑ ↓ ← →</kbd>
+          <span>{t("inspector.preciseMovement")}</span>
+        </div>
+      )}
     </aside>
   );
 }
