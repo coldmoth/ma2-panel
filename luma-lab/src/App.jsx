@@ -42,7 +42,8 @@ export default function App() {
     [planNotice, setPlanNotice] = useState(null),
     [quickScenes, setQuickScenes] = useState(false),
     [hallDraft, setHallDraft] = useState(null),
-    [undoing, setUndoing] = useState(false);
+    [undoing, setUndoing] = useState(false),
+    [releasingHighlight, setReleasingHighlight] = useState(false);
   const selectedGroup = useRef(null), announcedPlan = useRef(null);
   useEffect(() => {
     bridge.connect();
@@ -189,7 +190,24 @@ export default function App() {
     blackoutActive = phase === "active",
     blackoutBlock = bridge.blockReason("blackout"),
     masterBlock = bridge.blockReason("master"),
-    undoBlock = bridge.blockReason("undo");
+    undoBlock = bridge.blockReason("undo"),
+    highlightOffBlock = bridge.blockReason("highlight_off");
+  const hl = state.status?.highlight || { state: "idle", target: null, reason: "", zone: [], release_token: null };
+  const hlState = hl.state || "idle";
+  const hlFixture = hl.target != null ? fixtures.find((f) => f.id === hl.target) : null;
+  async function turnOffHighlight(releaseToken = undefined) {
+    if (releasingHighlight || highlightOffBlock) return;
+    setReleasingHighlight(true);
+    try {
+      const payload = releaseToken ? { a: "highlight_off", release_token: releaseToken } : { a: "highlight_off" };
+      await bridge.action(payload);
+      if (releaseToken) setModal((m) => (m === "releaseHighlight" ? null : m));
+    } catch (e) {
+      bridge.report(e);
+    } finally {
+      setReleasingHighlight(false);
+    }
+  }
   const actionHistory = Array.isArray(state.actionHistory) ? state.actionHistory : [];
   const latestUndo = [...actionHistory].reverse().find((entry) => entry && entry.undo && !entry.done && entry.undo_state !== "in_progress") || null;
   const lastHistoryEntry = actionHistory.length ? actionHistory[actionHistory.length - 1] : null;
@@ -394,6 +412,28 @@ export default function App() {
             <Action onClick={() => action({ a: "link_connect" })}>{t("shell.connectMa2")}</Action>
           )}
           {hallTrial && <a className="help-button" href="/index.html">{t("shell.classic")}</a>}
+          {hlState !== "idle" && (
+            <div
+              className={`highlight-pill ${hlState}`}
+              role="status"
+              title={hlState === "stuck" ? (hl.reason || t("layout.highlightStuckDefault")) : t("shell.highlightActiveTitle", { target: hlFixture ? `#${hlFixture.id} ${hlFixture.label}` : `#${hl.target ?? "?"}` })}
+            >
+              <Icon name="sun" size={14} />
+              <span>
+                {hlState === "stuck"
+                  ? t("shell.highlightStuckBadge")
+                  : t("shell.highlightActiveBadge", { id: hl.target ?? "?" })}
+              </span>
+              <button
+                type="button"
+                disabled={releasingHighlight || !!highlightOffBlock}
+                title={errorMessage(highlightOffBlock, t)}
+                onClick={() => (hlState === "stuck" ? setModal("releaseHighlight") : turnOffHighlight())}
+              >
+                {hlState === "stuck" ? t("shell.highlightRelease") : t("shell.highlightOff")}
+              </button>
+            </div>
+          )}
           <button
             type="button"
             className="undo-btn"
@@ -475,6 +515,21 @@ export default function App() {
           </div>}
           {planNotice && planNotice.name === config?.show && (
             <div className="inline-notice" role="status">{t("shell.planLoaded", { deskShow: planNotice.name })}</div>
+          )}
+          {hlState === "stuck" && (
+            <div className="error-banner highlight-stuck-banner" role="alert">
+              <Icon name="sun" />
+              <span>
+                {t("shell.highlightStuckBanner", { reason: hl.reason || t("layout.highlightStuckDefault") })}
+              </span>
+              <button
+                type="button"
+                disabled={releasingHighlight || !!highlightOffBlock}
+                onClick={() => setModal("releaseHighlight")}
+              >
+                {t("shell.highlightRelease")}
+              </button>
+            </div>
           )}
           {state.skippedOff?.length > 0 && (
             <div className="error-banner" role="alert">
@@ -675,6 +730,23 @@ export default function App() {
           <p className="muted">
             {t("shortcuts.disabledHelp")}
           </p>
+        </Modal>
+      )}
+      {modal === "releaseHighlight" && (
+        <Modal title={t("shell.highlightReleaseTitle")} onClose={() => setModal(null)}>
+          <p className="muted">{t("shell.highlightReleaseWarn", { count: hl.zone?.length || 0 })}</p>
+          {hl.reason && <p className="record-scene-alert" role="status">{hl.reason}</p>}
+          <div className="record-scene-actions">
+            <Action type="button" onClick={() => setModal(null)}>{t("common.cancel")}</Action>
+            <Action
+              type="button"
+              variant="primary"
+              disabled={releasingHighlight || !!highlightOffBlock || hlState !== "stuck" || !hl.release_token}
+              onClick={() => turnOffHighlight(hl.release_token)}
+            >
+              {releasingHighlight ? t("common.saving") : t("shell.highlightReleaseConfirm")}
+            </Action>
+          </div>
         </Modal>
       )}
       {modal === "recordScene" && (

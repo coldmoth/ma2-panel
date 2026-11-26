@@ -824,12 +824,24 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         binding = show_block()
 
         def admission(a):
-            if update or a in {"halt", "resume", "link_connect", "link_drop", "show_status", "scene_slot_cancel", "plan_editing"}:
+            if update or a in {"halt", "resume", "link_connect", "link_drop", "show_status", "scene_slot_cancel", "plan_editing", "edit_begin", "edit_end"}:
                 return update
             if show_file:
                 return show_file
-            if a in {"highlight_off", "rdm_stop", "rdm_check"}:
+            if a in {"highlight_off", "highlight_ping", "rdm_stop", "rdm_check"}:
                 return recovery_block(a)
+            if a == "highlight":
+                if why := recovery_block(a):
+                    return why
+                if why := standard_block(a):
+                    return why
+                if why := link_block():
+                    return why
+                if binding:
+                    return binding
+                if safety["allow_highlight"] is not True:
+                    return reason("safety_denied", "подсветка заблокирована: allow_highlight")
+                return None
             if why := standard_block(a):
                 return why
             if a in PLAN_WRITES:

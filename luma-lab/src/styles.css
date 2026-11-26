@@ -445,6 +445,49 @@ button svg {
   opacity: 0.42;
   cursor: not-allowed;
 }
+.highlight-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 5px 0 9px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex: none;
+}
+.highlight-pill.active {
+  border: 1px solid #b58d3b;
+  background: #302411;
+  color: #f8d88a;
+}
+.highlight-pill.stuck {
+  border: 1px solid #c9586a;
+  background: #3a1923;
+  color: #ffc2cc;
+}
+.highlight-pill button {
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: #14111a99;
+  color: inherit;
+  font-size: 10px;
+  font-weight: 600;
+}
+.highlight-pill button:hover:not(:disabled) {
+  background: #ffffff22;
+}
+.highlight-pill button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.highlight-stuck-banner {
+  border-color: #b44b5e;
+  background: #311722;
+}
 .grandmaster {
   width: 151px;
   display: flex;

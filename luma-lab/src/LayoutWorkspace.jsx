@@ -19,9 +19,89 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
     [pending,setPending]=useState(null), [status,setStatus]=useState('idle'),
     [error,setError]=useState(''), [geometryDirty,setGeometryDirty]=useState(false), [fixtureDirty,setFixtureDirty]=useState(false), [history,setHistory]=useState({past:[],future:[]});
   const saving=useRef(false), current=useRef(state.config);
+  const hlPing=useRef(null), hlEditing=useRef(false), hlOwned=useRef(false);
+  const [hlBusy,setHlBusy]=useState(false), [hlError,setHlError]=useState('');
   current.current=state.config;
   const fixtures=state.config?.fixtures || [], hall=state.config?.hall ?? DEFAULT_HALL,
     fixture=fixtures.find(f=>f.id===selection.at(-1)), busy=status==='saving';
+  const hl = state.status?.highlight || { state: "idle", available: [], zone: [], target: null, reason: "" };
+  const hlState = hl.state || "idle";
+  const allowHighlight = state.status?.safety?.allow_highlight === true;
+  const highlightBlock = bridge.blockReason("highlight");
+  const highlightOffBlock = bridge.blockReason("highlight_off");
+
+  function clearHighlightTimer() {
+    if (hlPing.current) {
+      clearInterval(hlPing.current);
+      hlPing.current = null;
+    }
+  }
+
+  useEffect(() => {
+    if (hlState !== "active") {
+      clearHighlightTimer();
+      hlOwned.current = false;
+    }
+  }, [hlState]);
+
+  useEffect(() => {
+    return () => {
+      clearHighlightTimer();
+      const wasOwned = hlOwned.current;
+      const wasEditing = hlEditing.current;
+      hlOwned.current = false;
+      hlEditing.current = false;
+      if (bridge.state.connected) {
+        if (wasOwned && !bridge.blockReason("highlight_off")) {
+          bridge.action({ a: "highlight_off" }).catch(() => {});
+        }
+        if (wasEditing && !bridge.blockReason("edit_end")) {
+          bridge.action({ a: "edit_end" }).catch(() => {});
+        }
+      }
+    };
+  }, []);
+
+  async function startHighlight(fid) {
+    if (hlBusy || !fid) return;
+    setHlBusy(true);
+    setHlError('');
+    try {
+      await bridge.action({ a: "edit_begin" });
+      hlEditing.current = true;
+      await bridge.action({ a: "highlight", id: fid });
+      hlOwned.current = true;
+      clearHighlightTimer();
+      hlPing.current = setInterval(() => {
+        if (bridge.state.connected && !bridge.blockReason("highlight_ping")) {
+          bridge.action({ a: "highlight_ping" }).catch(() => {});
+        }
+      }, 3000);
+    } catch (e) {
+      setHlError(e.err || errorMessage(e, t) || e.message || String(e));
+    } finally {
+      setHlBusy(false);
+    }
+  }
+
+  async function stopHighlight() {
+    if (hlBusy) return;
+    setHlBusy(true);
+    setHlError('');
+    try {
+      clearHighlightTimer();
+      await bridge.action({ a: "highlight_off" });
+      hlOwned.current = false;
+      if (hlEditing.current && bridge.state.connected && !bridge.blockReason("edit_end")) {
+        await bridge.action({ a: "edit_end" }).catch(() => {});
+        hlEditing.current = false;
+      }
+    } catch (e) {
+      setHlError(e.err || errorMessage(e, t) || e.message || String(e));
+    } finally {
+      setHlBusy(false);
+    }
+  }
   async function write(change, mode='edit') {
     const action = change.kind === "hall" ? "hall_save" : "layout_save";
     if (saving.current || !bridge.ready(action)) return false;
@@ -84,12 +164,83 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
         <HallGeometry hall={hall} ready={hallReady&&!busy} onDirty={setGeometryDirty} onSave={after=>write({kind:'hall',before:copy(hall),after})}/>
       </details>
       <Ma2LayoutXmlPanel state={state} disabled={busy} />
+      {fixture && (
+        <HighlightPanel
+          fixture={fixture}
+          hl={hl}
+          allowHighlight={allowHighlight}
+          highlightBlock={highlightBlock}
+          highlightOffBlock={highlightOffBlock}
+          hlBusy={hlBusy}
+          hlError={hlError}
+          onStart={() => startHighlight(fixture.id)}
+          onStop={stopHighlight}
+        />
+      )}
       {fixture ? <LayoutFields key={fixture.id} fixture={fixture} hall={hall} ready={ready&&!busy} visual={visuals[fixture.id]} gesture={preview}
         onPreview={setPreview} onDirty={setFixtureDirty} onSave={saveFixture}/> : <p className="layout-hint">{t("layout.selectHint")}</p>}
       <details className="layout-fixture-list"><summary>{t("shell.allFixtures")} · {t("shell.number", { value: fixtures.length })}</summary><div>{fixtures.map(f=><button key={f.id} aria-pressed={selection.includes(f.id)} onClick={e=>select(f.id,e.shiftKey)}>#{f.id} <span>{f.label}</span></button>)}</div></details>
       <p className="layout-hint">{t("layout.rotationHint")}</p>
     </aside>
   </div>;
+}
+
+function HighlightPanel({ fixture, hl, allowHighlight, highlightBlock, highlightOffBlock, hlBusy, hlError, onStart, onStop }) {
+  const { t } = useLanguage();
+  const hlState = hl.state || "idle";
+  const isTarget = hlState === "active" && hl.target === fixture.id;
+  const zoneList = hlState === "active" && Array.isArray(hl.zone) && hl.zone.length ? hl.zone : (hl.available || []);
+  const inZone = zoneList.includes(fixture.id);
+  const blockText = !allowHighlight
+    ? t("layout.highlightBlockedFlag")
+    : hlState === "stuck"
+      ? t("layout.highlightStuckNote", { reason: hl.reason || t("layout.highlightStuckDefault") })
+      : highlightBlock
+        ? errorMessage(highlightBlock, t)
+        : !inZone
+          ? t("layout.highlightOutsideZone")
+          : "";
+  const canHighlight = !hlBusy && !blockText;
+  return (
+    <section className={`layout-highlight ${hlState !== "idle" ? hlState : ""}`} aria-label={t("layout.highlightTitle")}>
+      <div className="layout-highlight-head">
+        <b>{t("layout.highlightTitle")}</b>
+        <span className={`layout-highlight-state ${hlState}`}>
+          {t(hlState === "active" ? "layout.highlightActive" : hlState === "stuck" ? "layout.highlightStuck" : "layout.highlightIdle")}
+        </span>
+      </div>
+      <small>
+        {isTarget
+          ? t("layout.highlightCurrentFixture", { id: fixture.id, count: zoneList.length })
+          : t("layout.highlightZoneInfo", { id: fixture.id, count: zoneList.length })}
+      </small>
+      {blockText && <small className="layout-highlight-note">{blockText}</small>}
+      {hlError && <div className="layout-ma2-err" role="alert">{hlError}</div>}
+      <div className="layout-highlight-actions">
+        {isTarget ? (
+          <button
+            type="button"
+            className="layout-highlight-stop"
+            disabled={hlBusy || !!highlightOffBlock}
+            title={errorMessage(highlightOffBlock, t)}
+            onClick={onStop}
+          >
+            {hlBusy ? t("common.saving") : t("layout.highlightTurnOff")}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="layout-highlight-btn"
+            disabled={!canHighlight}
+            title={blockText || undefined}
+            onClick={onStart}
+          >
+            {hlBusy ? t("common.saving") : t("layout.highlightBtn")}
+          </button>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function LayoutFields({fixture:f,hall,ready,visual,gesture,onPreview,onSave,onDirty}) {

@@ -109,3 +109,18 @@
 .layout-ma2-actions {display:flex;flex-direction:column;gap:6px;}
 .layout-ma2-actions button {font-size:11px;padding:7px 10px;}
 .layout-ma2-primary {background:#705291;color:#fff;border-color:#a88ac6;}
+.layout-highlight {display:flex;flex-direction:column;gap:7px;margin:0 0 12px;padding:10px;border:1px solid #43384e;border-radius:9px;background:#1e1928;}
+.layout-highlight.active {border-color:#b38834;background:#292013;}
+.layout-highlight.stuck {border-color:#b84b5c;background:#2d1620;}
+.layout-highlight-head {display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;}
+.layout-highlight-head b {color:#e7dcf5;}
+.layout-highlight-state {font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid #4c3e5e;color:#bda9d1;}
+.layout-highlight-state.active {border-color:#c99d42;background:#3a2b14;color:#f8d98b;}
+.layout-highlight-state.stuck {border-color:#d05c6f;background:#441c27;color:#ffc4ce;}
+.layout-highlight-note {color:#f0b59c!important;}
+.layout-highlight-actions {display:flex;gap:6px;}
+.layout-highlight-btn,.layout-highlight-stop {flex:1;padding:7px 10px;border-radius:7px;font-size:11px;font-weight:600;}
+.layout-highlight-btn {border:1px solid #9c7936;background:#322512;color:#f5d588;}
+.layout-highlight-btn:hover:not(:disabled) {background:#443218;border-color:#d1a54a;color:#fff2cc;}
+.layout-highlight-stop {border:1px solid #a8485a;background:#3e1b26;color:#ffd0d8;}
+.layout-highlight-stop:hover:not(:disabled) {background:#592434;color:#fff;}

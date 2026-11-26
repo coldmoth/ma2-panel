@@ -23,9 +23,9 @@ function statusFor({ma2 = "logged_in", mock = true, name = "Mock show", showStat
                    login_failed: "connection_error", down: "connection_error"}[ma2],
       show: {state: showState, name},
       actions: {
-        view: {show_status: null}, plan: {group_save: null},
-        light: {select_fixtures: blocked, dim: blocked, jog: blocked, aim: blocked, scene_go: blocked, scene_off: blocked, scene_slot_find: blocked, scene_create: blocked},
-        general: {clear: null, master, blackout}, recovery: {halt: null, undo: null, scene_slot_cancel: null},
+        view: {show_status: null}, plan: {group_save: null, edit_begin: null, edit_end: null},
+        light: {select_fixtures: blocked, dim: blocked, jog: blocked, aim: blocked, scene_go: blocked, scene_off: blocked, scene_slot_find: blocked, scene_create: blocked, highlight: blocked},
+        general: {clear: null, master, blackout}, recovery: {halt: null, undo: null, scene_slot_cancel: null, highlight_off: null, highlight_ping: null},
       },
     },
   };

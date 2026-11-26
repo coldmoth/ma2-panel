@@ -366,7 +366,7 @@ export class BridgeClient {
         this.publish({ error, feedback: null });
         p.reject(error);
       } else {
-        if (p.a === "plan_editing") {
+        if (["plan_editing", "edit_begin", "edit_end", "highlight_ping"].includes(p.a)) {
           p.resolve(message);
           return;
         }
