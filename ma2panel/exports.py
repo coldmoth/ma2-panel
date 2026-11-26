@@ -247,5 +247,106 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
         save_diag_json("export_probe.json", safe_data(probe))
         return probe
 
+    def importexport_folders():
+        """Directories where MA2 reads/writes Layout XML files (importexport only, never fixtures/)."""
+        found = [Path(export_dir)]
+        for pattern in ma2["export_search"]:
+            for directory in sorted(glob.glob(pattern)):
+                found.append(Path(directory))
+        return list(dict.fromkeys(found))
+
+    def layout_xml_files(limit=50):
+        """List .xml files available in known MA2 importexport folders, newest first."""
+        rows = []
+        for idx, folder in enumerate(importexport_folders()):
+            if not folder.is_dir():
+                continue
+            for entry in folder.iterdir():
+                if not entry.is_file() or entry.suffix.lower() != ".xml":
+                    continue
+                try:
+                    st = entry.stat()
+                except OSError:
+                    continue
+                if st.st_size > 10_000_000:
+                    continue
+                rows.append({
+                    "name": entry.name,
+                    "folder_index": idx,
+                    "folder": str(folder),
+                    "size": st.st_size,
+                    "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+                    "_t": st.st_mtime,
+                })
+        rows.sort(key=lambda r: r["_t"], reverse=True)
+        return [{k: v for k, v in r.items() if k != "_t"} for r in rows[:limit]]
+
+    def read_layout_xml_file(filename, folder_index=0):
+        """Safely read a single .xml file from one of the configured importexport folders."""
+        if not isinstance(filename, str) or not filename or Path(filename).name != filename or not filename.lower().endswith(".xml"):
+            raise ActionError("некорректное имя XML-файла Layout")
+        folders = importexport_folders()
+        if type(folder_index) is not int or not 0 <= folder_index < len(folders):
+            raise ActionError("неизвестная папка importexport")
+        root = folders[folder_index].resolve()
+        target = (root / filename).resolve()
+        if target.parent != root or not target.is_file():
+            raise ActionError(f"файл Layout XML не найден: {filename}")
+        if target.stat().st_size > 10_000_000:
+            raise ActionError("файл Layout XML слишком большой (>10 МБ)")
+        return target.read_text(encoding="utf-8-sig"), str(target)
+
+    def sanitize_layout_stem(name):
+        stem = Path(str(name or "")).stem.strip()
+        stem = re.sub(r"[^A-Za-z0-9._ -]+", "_", stem).strip(" .")
+        return stem[:64] or f"luma_layout_{time.strftime('%Y%m%d_%H%M%S')}"
+
+    def write_layout_xml_file(xml_text, filename=None):
+        """Write Layout XML into the primary MA2 importexport directory safely."""
+        stem = sanitize_layout_stem(filename)
+        folder = Path(export_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        target = (folder / f"{stem}.xml").resolve()
+        if target.parent != folder.resolve():
+            raise ActionError("недопустимое имя файла Layout XML")
+        target.write_text(xml_text, encoding="utf-8")
+        return {"path": str(target), "filename": target.name, "stem": stem}
+
+    async def check_layout_slot_empty(slot, *, gen=None, empty_re=None):
+        """Verify that MA2 Layout *slot* is empty so we never silently overwrite an existing Layout."""
+        if type(slot) is not int or not 1 <= slot <= 999:
+            raise ActionError("слот Layout должен быть числом от 1 до 999")
+        ok_list, list_reply = await link.send(f"List Layout {slot}", gen=gen)
+        if not ok_list:
+            raise ActionError(f"не удалось проверить слот Layout {slot}: {' '.join(list_reply.split())[:200]}")
+        empty_pattern = empty_re or re.compile(r"(?i)(?:warning,?\s*)?no objects? found(?: for list)?|nothing found")
+        if not empty_pattern.search(list_reply):
+            raise ActionError(
+                f"слот Layout {slot} в MA2 уже занят (или ответ не подтверждает пустой слот): выберите свободный слот",
+                code="slot_occupied",
+            )
+
+    async def import_layout_to_ma2(stem, slot, *, gen=None, empty_re=None, check_slot=True):
+        """Import an XML file already saved in importexport into a safe MA2 Layout slot."""
+        if type(slot) is not int or not 1 <= slot <= 999:
+            raise ActionError("слот Layout должен быть числом от 1 до 999")
+        if not isinstance(stem, str) or not re.fullmatch(r"[^\"/\\;\x00-\x1f\x7f-\x9f]+", stem):
+            raise ActionError("небезопасное имя файла для команды Import в MA2")
+        if check_slot:
+            await check_layout_slot_empty(slot, gen=gen, empty_re=empty_re)
+        cmd = f'Import "{stem}" At Layout {slot}'
+        export_extra.add(cmd)
+        try:
+            ok, reply = await link.send(cmd, gen=gen)
+        finally:
+            export_extra.discard(cmd)
+        if not ok:
+            raise ActionError(f"MA2 отклонил импорт Layout: {' '.join(reply.split())[:300] or 'ошибка пульта'}")
+        return {"cmd": cmd, "slot": slot, "reply": " ".join(reply.split())[:500]}
+
     return SimpleNamespace(export_folders=export_folders, listing=listing, save_diag_json=save_diag_json, export_type=export_type,
-                           export_once=export_once, run_export_probe=run_export_probe)
+                           export_once=export_once, run_export_probe=run_export_probe,
+                           importexport_folders=importexport_folders, layout_xml_files=layout_xml_files,
+                           read_layout_xml_file=read_layout_xml_file, write_layout_xml_file=write_layout_xml_file,
+                           sanitize_layout_stem=sanitize_layout_stem, check_layout_slot_empty=check_layout_slot_empty,
+                           import_layout_to_ma2=import_layout_to_ma2)

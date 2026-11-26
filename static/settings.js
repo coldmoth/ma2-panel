@@ -37,7 +37,7 @@ function fill(data) {
   ['bind', 'port', 'rate_hz', 'poll_seconds', 'dmx_seconds'].forEach(key => { el(key).value = panel[key]; });
   el('mode').value = safety.mode;
   ['allowed_fixtures', 'allowed_scenes', 'store_execs'].forEach(key => { el(key).value = safety[key].join(', '); });
-  ['allow_master', 'allow_page_change', 'allow_fixture_read', 'allow_highlight', 'allow_show_load', 'allow_show_save', 'allow_group_store', 'allow_patch', 'allow_rdm'].forEach(key => { el(key).checked = safety[key]; });
+  ['allow_master', 'allow_page_change', 'allow_fixture_read', 'allow_highlight', 'allow_show_load', 'allow_show_save', 'allow_group_store', 'allow_layout_import', 'allow_patch', 'allow_rdm'].forEach(key => { el(key).checked = safety[key]; });
   el('features').replaceChildren();
   Object.entries(featureNames).forEach(([key, name]) => {
     const value = (original.features || {})[key] ?? true;
@@ -85,7 +85,7 @@ el('settings-form').addEventListener('submit', async event => {
     if (ids.some(id => !/^\d+$/.test(id))) { el('err-allowed_fixtures').textContent = 'Номера приборов — целые числа через запятую'; el('allowed_fixtures').classList.add('invalid'); throw new Error('Не сохранено: исправьте поле «Разрешённые приборы»'); }
     settings.safety.allowed_fixtures = ids.map(Number);
     ['allowed_scenes', 'store_execs'].forEach(key => { settings.safety[key] = csv(key); });
-    ['allow_master', 'allow_page_change', 'allow_fixture_read', 'allow_highlight', 'allow_show_load', 'allow_show_save', 'allow_group_store', 'allow_patch', 'allow_rdm'].forEach(key => { settings.safety[key] = el(key).checked; });
+    ['allow_master', 'allow_page_change', 'allow_fixture_read', 'allow_highlight', 'allow_show_load', 'allow_show_save', 'allow_group_store', 'allow_layout_import', 'allow_patch', 'allow_rdm'].forEach(key => { settings.safety[key] = el(key).checked; });
     Object.keys(featureNames).forEach(key => { settings.features[key] = el('reason-' + key).value.trim() || el('feature-' + key).checked; });
     try { settings.attrs = JSON.parse(el('attrs').value || '{}'); } catch (error) { el('err-attrs').textContent = 'Неверный JSON — ' + error.message; el('attrs').classList.add('invalid'); throw new Error('Не сохранено: исправьте поле attrs'); }
     const body = {settings, clear_password: el('clear-password').checked};

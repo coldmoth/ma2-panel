@@ -85,3 +85,27 @@
 .layout-inspector .layout-geometry summary::before {content:'▸';font-size:11px;}
 .layout-inspector .layout-geometry[open] summary::before {content:'▾';}
 .layout-inspector .layout-geometry summary span {margin:0;font-size:10px;}
+.layout-inspector .layout-ma2-xml {margin:0 0 12px;padding:8px 0;border-top:1px solid #43384e;border-bottom:1px solid #43384e;}
+.layout-inspector .layout-ma2-xml summary {display:flex;align-items:center;gap:9px;min-height:28px;list-style-position:inside;}
+.layout-inspector .layout-ma2-xml summary::before {content:'▸';font-size:11px;}
+.layout-inspector .layout-ma2-xml[open] summary::before {content:'▾';}
+.layout-inspector .layout-ma2-xml summary span {margin:0;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.layout-ma2-body {display:flex;flex-direction:column;gap:12px;margin-top:10px;}
+.layout-ma2-section {display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid #352d42;}
+.layout-ma2-section:first-child {border-top:0;padding-top:0;}
+.layout-ma2-section h4 {margin:0;font-size:11px;color:#e5d8f7;font-weight:600;}
+.layout-ma2-row {display:flex;gap:6px;align-items:center;}
+.layout-ma2-row select,.layout-ma2-row input {flex:1;min-width:0;}
+.layout-ma2-row button {padding:6px 10px;font-size:11px;white-space:nowrap;}
+.layout-ma2-file-btn {display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:6px 10px;border:1px solid #4e426c;border-radius:8px;background:#2a253d;color:#e3d8fb;font-size:11px;cursor:pointer;text-align:center;}
+.layout-ma2-file-btn input {display:none;}
+.layout-ma2-preview {border:1px solid #5c4678;background:#201a2c;border-radius:8px;padding:9px;display:flex;flex-direction:column;gap:5px;font-size:11px;}
+.layout-ma2-preview b {font-size:11px;color:#efe6ff;}
+.layout-ma2-preview ul {margin:0;padding-left:16px;display:flex;flex-direction:column;gap:3px;color:#d2c5e6;}
+.layout-ma2-notice {font-size:11px;color:#b7f0cc;background:#182b22;border:1px solid #2f5c43;border-radius:8px;padding:7px 9px;}
+.layout-ma2-err {font-size:11px;color:#ffb4b4;background:#2d1a22;border:1px solid #6b3441;border-radius:8px;padding:7px 9px;}
+.layout-ma2-check {flex-direction:row!important;align-items:center;gap:8px!important;cursor:pointer;}
+.layout-ma2-check input {width:16px!important;min-height:16px!important;flex:0 0 auto;}
+.layout-ma2-actions {display:flex;flex-direction:column;gap:6px;}
+.layout-ma2-actions button {font-size:11px;padding:7px 10px;}
+.layout-ma2-primary {background:#705291;color:#fff;border-color:#a88ac6;}

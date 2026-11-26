@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, Response
 
 from .commands import ActionError, failure
 from .fixtures import save_config
+from .layout_xml import generate_layout_xml, patch_layout_xml, preview_layout_import
 from .link import HALTED, NO_LINK, clean
 from .safety import DEFAULT_MA2, DEFAULT_SAFETY, load_secret, read_settings_pair, save_settings_pair, validate_settings, without_passwords
 
@@ -90,6 +91,201 @@ def register(app, c, is_loopback):
             code = e.code if isinstance(e, ActionError) else "plan_io" if isinstance(e, OSError) else None
             result = failure(mask(str(e)), code or "action_failed", getattr(e, "params", None))
         record(request, json.dumps({"a": "fixtures_import_confirm"}), result)
+        return result
+
+    @app.get("/api/layout/ma2/files")
+    def layout_ma2_files(request: Request):
+        if not is_loopback(request):
+            return JSONResponse(failure("импорт и экспорт Layout XML доступны только с самого ПК", "permission_denied"), status_code=403)
+        current = cfg.get("ma2_layout")
+        has_template = c.load_layout_template(current) is not None
+        return {
+            "ok": True,
+            "export_dir": str(export_dir),
+            "files": c.layout_xml_files(),
+            "current": current,
+            "has_template": has_template,
+            "allow_layout_import": safety["allow_layout_import"] is True,
+            "ma2_ready": link.ready and not link.halted,
+        }
+
+    @app.post("/api/layout/ma2/preview")
+    async def layout_ma2_preview(request: Request):
+        if not is_loopback(request):
+            return JSONResponse(failure("импорт Layout XML доступен только с самого ПК", "permission_denied"), status_code=403)
+        try:
+            ctype = (request.headers.get("content-type") or "").lower()
+            source = "upload"
+            source_name = ""
+            if "application/json" in ctype:
+                body = await request.json()
+                if not isinstance(body, dict):
+                    raise ActionError("ожидается JSON-объект")
+                if isinstance(body.get("xml"), str) and body["xml"].strip():
+                    xml_text = body["xml"]
+                    source = "upload"
+                    source_name = str(body.get("filename") or "")
+                elif isinstance(body.get("file"), str) and body["file"].strip():
+                    folder_index = body.get("folder_index", 0)
+                    xml_text, full_path = c.read_layout_xml_file(body["file"], folder_index)
+                    source = "importexport"
+                    source_name = Path(full_path).name
+                else:
+                    raise ActionError("укажите файл из importexport или загрузите XML")
+            else:
+                xml_text = (await request.body()).decode("utf-8-sig")
+                if not xml_text.strip():
+                    raise ActionError("пустой XML-файл Layout")
+            if len(xml_text.encode("utf-8")) > 10_000_000:
+                raise ActionError("файл Layout XML слишком большой (>10 МБ)")
+            preview = preview_layout_import(xml_text, cfg["fixtures"])
+            import uuid as _uuid
+            token = _uuid.uuid4().hex
+            state["pending_layout_import"] = {
+                "token": token,
+                "context": (state["plan_epoch"], c.config_revision()),
+                "xml_text": xml_text,
+                "source": source,
+                "source_name": source_name,
+                "preview": preview,
+            }
+            return {
+                "ok": True,
+                "preview_token": token,
+                "source": source,
+                "source_name": source_name,
+                "layout_name": preview["layout_name"],
+                "xml_fixture_count": preview["xml_fixture_count"],
+                "matched_count": len(preview["matched"]),
+                "matched": preview["matched"],
+                "unmatched_xml_ids": preview["unmatched_xml_ids"],
+                "unplaced_plan_ids": preview["unplaced_plan_ids"],
+                "extra_elements": preview["extra_elements"],
+                "skipped_channel_only": preview["skipped_channel_only"],
+                "bounds": preview["bounds"],
+            }
+        except (ActionError, ValueError, UnicodeDecodeError, OSError) as e:
+            code = e.code if isinstance(e, ActionError) else "action_failed"
+            return failure(mask(str(e)), code or "action_failed")
+
+    @app.post("/api/layout/ma2/apply")
+    async def layout_ma2_apply(request: Request):
+        if not is_loopback(request):
+            return JSONResponse(failure("импорт Layout XML доступен только с самого ПК", "permission_denied"), status_code=403)
+        try:
+            body = await request.json()
+            if not isinstance(body, dict) or not isinstance(body.get("preview_token"), str):
+                raise ActionError("нужен preview_token из предпросмотра")
+            async with action_lock:
+                if state["loading"]:
+                    raise ActionError("идёт загрузка шоу", code="show_loading")
+                pending = state.get("pending_layout_import")
+                if not pending or body["preview_token"] != pending["token"]:
+                    raise ActionError("предпросмотр устарел: откройте Layout XML заново")
+                if pending["context"] != (state["plan_epoch"], c.config_revision()):
+                    state.pop("pending_layout_import", None)
+                    raise ActionError("план изменился после предпросмотра: повторите предпросмотр")
+                preview = pending["preview"]
+                if not preview["matched"]:
+                    raise ActionError("нет ни одного совпавшего прибора по Fixture ID")
+                template_file = c.save_layout_template(pending["xml_text"])
+                by_id = {m["id"]: m for m in preview["matched"]}
+                fixtures = []
+                for f in cfg["fixtures"]:
+                    m = by_id.get(f["id"])
+                    if m is None:
+                        fixtures.append(f)
+                    else:
+                        updated = {**f, "x": m["new_x"], "y": m["new_y"]}
+                        if m.get("ma2_rot") is not None:
+                            updated["rot"] = m["ma2_rot"]
+                        fixtures.append(updated)
+                layout_meta = {
+                    "name": preview["layout_name"] or Path(pending["source_name"]).stem or "MA2 Layout",
+                    "source": pending["source"],
+                    "source_name": pending["source_name"],
+                    "imported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "template_file": template_file,
+                    "bounds": preview["bounds"],
+                    "extra_elements": preview["extra_elements"],
+                    "matched_count": len(preview["matched"]),
+                    "imported_positions": preview["imported_positions"],
+                }
+                c.save_working_plan({**cfg, "attrs": c.original_attrs, "fixtures": fixtures, "ma2_layout": layout_meta})
+                cfg["fixtures"] = fixtures
+                cfg["ma2_layout"] = layout_meta
+                state.pop("pending_layout_import", None)
+                result = {"ok": True, "applied": len(preview["matched"]), "layout": layout_meta}
+            await broadcast(config_msg())
+        except (ActionError, ValueError, OSError) as e:
+            code = e.code if isinstance(e, ActionError) else "plan_io" if isinstance(e, OSError) else "action_failed"
+            result = failure(mask(str(e)), code or "action_failed")
+        record(request, json.dumps({"a": "layout_ma2_apply"}), result)
+        return result
+
+    @app.post("/api/layout/ma2/export")
+    async def layout_ma2_export(request: Request):
+        if not is_loopback(request):
+            return JSONResponse(failure("экспорт Layout XML доступен только с самого ПК", "permission_denied"), status_code=403)
+        try:
+            body = await request.json()
+            if not isinstance(body, dict):
+                raise ActionError("ожидается JSON-объект")
+            export_mode = body.get("mode", "download")
+            if export_mode not in ("download", "save_importexport", "import_to_ma2"):
+                raise ActionError("mode должен быть download, save_importexport или import_to_ma2")
+            force_new = body.get("force_new") is True
+            current_meta = cfg.get("ma2_layout")
+            template_xml = None if force_new else c.load_layout_template(current_meta)
+            if template_xml is not None and isinstance(current_meta, dict):
+                xml_text, summary = patch_layout_xml(template_xml, cfg["fixtures"], current_meta)
+                default_name = current_meta.get("name") or cfg.get("show") or "luma_layout"
+            else:
+                default_name = cfg.get("show") or "luma_layout"
+                xml_text, summary = generate_layout_xml(
+                    cfg["fixtures"],
+                    hall=cfg.get("hall"),
+                    name=str(body.get("layout_name") or default_name),
+                    show_name=str(cfg.get("show") or ""),
+                )
+            stem = c.sanitize_layout_stem(body.get("filename") or default_name)
+            if export_mode == "download":
+                headers = {
+                    "Content-Disposition": f'attachment; filename="{stem}.xml"',
+                    "X-LUMA-Layout-Mode": summary["mode"],
+                    "X-LUMA-Layout-Updated": str(len(summary["updated_ids"])),
+                    "X-LUMA-Layout-Extra": str(summary["extra_elements"]),
+                }
+                return Response(xml_text.encode("utf-8"), media_type="application/xml; charset=utf-8", headers=headers)
+            if export_mode == "save_importexport":
+                written = c.write_layout_xml_file(xml_text, stem)
+                result = {"ok": True, "action": "save_importexport", **written, "summary": summary}
+                record(request, json.dumps({"a": "layout_ma2_export", "mode": export_mode}), result)
+                return result
+            # import_to_ma2: explicit confirmation + safety.allow_layout_import + safe slot check
+            if body.get("confirm_import") is not True:
+                raise ActionError("для импорта Layout в MA2 требуется отдельное подтверждение", code="confirm_required")
+            if safety["allow_layout_import"] is not True:
+                raise ActionError("импорт Layout в MA2 запрещён: включите safety.allow_layout_import в настройках", code="permission_denied")
+            slot = body.get("slot", 99)
+            if type(slot) is not int or not 1 <= slot <= 999:
+                raise ActionError("слот Layout должен быть целым числом от 1 до 999")
+            async with action_lock:
+                if link.halted:
+                    raise ActionError(HALTED, code="halted")
+                if not link.ready:
+                    raise ActionError(NO_LINK, code=link.connection_phase)
+                if state["loading"]:
+                    raise ActionError("идёт загрузка шоу", code="show_loading")
+                check_show()
+                await c.check_layout_slot_empty(slot, gen=link._gen, empty_re=c.empty_re)
+                written = c.write_layout_xml_file(xml_text, stem)
+                imported = await c.import_layout_to_ma2(written["stem"], slot, gen=link._gen, empty_re=c.empty_re, check_slot=False)
+                result = {"ok": True, "action": "import_to_ma2", **written, **imported, "summary": summary}
+        except (ActionError, ValueError, OSError) as e:
+            code = e.code if isinstance(e, ActionError) else "plan_io" if isinstance(e, OSError) else "action_failed"
+            result = failure(mask(str(e)), code or "action_failed")
+        record(request, json.dumps({"a": "layout_ma2_export", "mode": "import_to_ma2"}), result)
         return result
 
     @app.get("/api/idle")

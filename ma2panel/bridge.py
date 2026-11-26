@@ -254,7 +254,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                            "safety": {"mode": mode, "fixtures": sorted(allowed_fixtures), "scenes": sorted(allowed_scenes),
                                       "store": sorted(store_execs), "master": safety["allow_master"] or mode == "full",
                                       "page": safety["allow_page_change"] or mode == "full",
-                                      **{k: safety[k] for k in ("allow_fixture_read", "allow_highlight", "allow_show_load", "allow_show_save", "allow_group_store", "allow_patch", "allow_rdm")}}}}
+                                      **{k: safety[k] for k in ("allow_fixture_read", "allow_highlight", "allow_show_load", "allow_show_save", "allow_group_store", "allow_layout_import", "allow_patch", "allow_rdm")}}}}
 
     def config_revision():
         snapshot = json.dumps(cfg, sort_keys=True, ensure_ascii=False)
@@ -273,7 +273,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 continue
             if isinstance(name, str) and name != cfg.get("show") and name not in plans:
                 plans.append(name)
-        return {"config": {**{k: cfg.get(k) for k in ("groups", "ma2groups", "ma2presets", "fixtures", "scenes", "plan", "hall", "presets", "attrs", "pages", "show", "fixtures_read", "dmx_map", "scene_order_version", "scene_fade")},
+        return {"config": {**{k: cfg.get(k) for k in ("groups", "ma2groups", "ma2presets", "fixtures", "scenes", "plan", "hall", "presets", "attrs", "pages", "show", "fixtures_read", "dmx_map", "scene_order_version", "scene_fade", "ma2_layout")},
                            "dmx_map": {k: v for k, v in cfg.get("dmx_map", {}).items() if not v.get("stale") and not v.get("unsupported")},
                            "plans": plans, "revision": revision_token(), "patch": patch_rows(cfg["fixtures"])}}
 
@@ -3927,6 +3927,32 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     files = exports.bind(link, ma2, export_dir, export_extra, state, config_path, safe_data)
     export_folders, listing, save_diag_json, export_type, export_once, run_export_probe = (
         files.export_folders, files.listing, files.save_diag_json, files.export_type, files.export_once, files.run_export_probe)
+    layout_xml_files, read_layout_xml_file, write_layout_xml_file, sanitize_layout_stem, check_layout_slot_empty, import_layout_to_ma2 = (
+        files.layout_xml_files, files.read_layout_xml_file, files.write_layout_xml_file, files.sanitize_layout_stem,
+        files.check_layout_slot_empty, files.import_layout_to_ma2)
+
+    def layout_templates_dir():
+        folder = Path(config_path).parent / "layout_templates"
+        folder.mkdir(exist_ok=True)
+        return folder
+
+    def save_layout_template(xml_text: str) -> str:
+        import hashlib
+        digest = hashlib.sha256(xml_text.encode("utf-8")).hexdigest()[:24]
+        name = f"layout-{digest}.xml"
+        (layout_templates_dir() / name).write_text(xml_text, encoding="utf-8")
+        return name
+
+    def load_layout_template(meta: dict | None) -> str | None:
+        if not isinstance(meta, dict):
+            return None
+        name = meta.get("template_file")
+        if not isinstance(name, str) or Path(name).name != name or not name.endswith(".xml"):
+            return None
+        path = layout_templates_dir() / name
+        if not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8-sig")
 
     register_api(app, SimpleNamespace(**locals(), HERE=HERE), lambda request: is_loopback(request))  # looked up per call: tests patch bridge.is_loopback
     from . import show_transfer

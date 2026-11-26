@@ -26,6 +26,7 @@ DEFAULT_SAFETY = {
     "allow_show_load": False,
     "allow_show_save": False,
     "allow_group_store": False,
+    "allow_layout_import": False, # Import "<file>" At Layout N: writes a Layout slot on MA2
     "allow_patch": False,        # Assign Fixture N At Dmx: changes the show's patch (spec 21)
     "allow_rdm": False,          # RdmList and RdmSetParameter by UID: changes real devices, every show (spec 21)
     "extra_allowed_regex": [],   # whole-line patterns added to the allowlist (e.g. a different attribute name)
@@ -61,7 +62,7 @@ LIVE = [
     rf'Attribute "(?:ColorRGB[123]|Pan|Tilt|Zoom|Focus|Strobe)" At -?{NUM}{FADE}',
 ]
 READ = [r"ListVar", r"ListShows", r"List Executor \d+\.\d+(?: Thru \d+\.\d+)?", r"List (?:Group|Sequence|Page|Layout|Macro|User|Fixture|FixtureType|Attribute)"]
-READ += [r"List Group \d+(?: Thru \d+)?", r"List Preset \d+\.\d+(?: Thru \d+\.\d+)?"]
+READ += [r"List Group \d+(?: Thru \d+)?", r"List Preset \d+\.\d+(?: Thru \d+\.\d+)?", r"List Layout \d+(?: Thru \d+)?"]
 # The exact global RDM switch lines (forum-sourced, unverified on 3.9.60): only the search coordinator sends them,
 # only through rdm_extra admission, always subject to allow_rdm.
 RDM_GLOBAL = ('Assign Root "Settings"."Global" /EnableRDM=On', 'Assign Root "Settings"."Global" /EnableRDM=Off')
@@ -262,6 +263,9 @@ def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=(), 
             return None if safety.get("allow_group_store") is True and valid else "запись группы заблокирована: allow_group_store и безопасная команда Store Group"
         if low.startswith("export"):
             return None if safety.get("allow_fixture_read") is True and (line == export_cmd or line in export_extra) else "экспорт заблокирован: allow_fixture_read и ma2.export_cmd"
+        if low.startswith("import"):
+            valid = re.fullmatch(r'Import "[^"/\\;\x00-\x1f\x7f-\x9f]+" At Layout [1-9]\d{0,2}', line)
+            return None if safety.get("allow_layout_import") is True and valid and line in export_extra else "импорт Layout в MA2 заблокирован: allow_layout_import и подтверждённый файл"
         if low.startswith("lua"):  # only the bridge's own read lines (DMX read-back, RDM state), never a free Lua line
             if rdm_extra:  # the coordinator's nonce-signed state reads; lazy import avoids a safety/rdm_search cycle
                 from . import rdm_search
@@ -341,7 +345,7 @@ def validate_settings(value):
         if key in value and not isinstance(value[key], dict):
             raise ValueError(f"{key} должен быть объектом")
     effective_safety(value)  # SystemExit is translated by the endpoint
-    for key in ("allow_fixture_read", "allow_highlight", "allow_show_load", "allow_show_save", "allow_group_store", "allow_patch", "allow_rdm"):
+    for key in ("allow_fixture_read", "allow_highlight", "allow_show_load", "allow_show_save", "allow_group_store", "allow_layout_import", "allow_patch", "allow_rdm"):
         if key in value.get("safety", {}) and type(value["safety"][key]) is not bool:
             raise ValueError(f"safety.{key}: требуется bool")
     ma2 = value.get("ma2", {})

@@ -94,6 +94,7 @@ def validate_auto_plan(data, prepared):
         require(string_fields(fixture, ("label", "name", "type", "address")), "fixtures")
         require(isinstance(fixture.get("beam", {}), dict), "fixtures.beam")
         require(fixture.get("rdm") is None or isinstance(fixture["rdm"], dict), "fixtures.rdm")
+        require(fixture.get("physical_pos") is None or isinstance(fixture["physical_pos"], dict), "fixtures.physical_pos")
     for group in rows("groups", "id", named):
         members = group.get("fixtures")
         require(isinstance(members, list) and all(positive(i) for i in members), "groups.fixtures")
@@ -121,6 +122,8 @@ def validate_auto_plan(data, prepared):
         require(isinstance(items, list) and all(isinstance(p, dict) for p in items), f"ma2presets.{key}")
     if data.get("hall") is not None:
         validate_hall(data["hall"])
+    if data.get("ma2_layout") is not None:
+        require(isinstance(data["ma2_layout"], dict), "ma2_layout")
     # Exercise the bridge's real derived data before either file is replaced.
     patch_rows(fixtures)
     for spec in prepared["attrs"].values():

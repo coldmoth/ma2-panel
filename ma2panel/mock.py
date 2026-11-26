@@ -39,6 +39,7 @@ class MockMA2:
         self.missing_attrs: set[str] = set()  # test knob: these attributes answer Error #14, as Focus on a head without one
         self.rows = {"1.101": "Pianist", "1.102": "Rehearsal"}
         self.groups = {1: "Front"}
+        self.layouts: dict[int, str] = {1: "Main Hall"}
         self.group_members = {}  # optional explicit fixture membership for isolated sync tests
         self.dmx: dict[int, int] = {}  # test knob: what getdmx returns, absolute address -> 0-255
         self.fixture_types: dict[int, str] = {}  # test knob: Export FixtureType <no> -> XML text
@@ -428,6 +429,14 @@ class MockMA2:
             pages = sorted({int(e.split(".")[0]) for e in self.rows} | {1})
             counts = {p: sum(e.split(".")[0] == str(p) for e in self.rows) for p in pages}
             return "        No.  Name  Info  \r\n" + "".join(f"Page {p:2} {p:<4} Page" + (f"         ({counts[p]})" if counts[p] else "") + "\r\n" for p in pages) + "[Channel]>"
+        if m := re.fullmatch(r'Import "([^"\r\n]+)" At Layout (\d+)', text):
+            slot = int(m[2])
+            self.layouts[slot] = m[1]
+            return f"Executing : {text}\r\n[Channel]>"
+        if m := re.fullmatch(r"List Layout (\d+)(?: Thru (\d+))?", text):
+            lo, hi = int(m[1]), int(m[2] or m[1])
+            rows = [f'Layout {n} {n}    {name}\r\n' for n, name in sorted(self.layouts.items()) if lo <= n <= hi]
+            return ("".join(rows) or EMPTY_LIST + "\r\n") + "[Channel]>"
         if text.startswith("List"):
             if self.list_garbage:
                 return "???\r\n[Channel]>"
