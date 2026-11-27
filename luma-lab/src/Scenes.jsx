@@ -51,11 +51,16 @@ function useStoppingScenes(state) {
   }, []);
   useEffect(() => {
     for (const id of [...stoppingIds]) {
-      if (sceneActive(state, id) !== true) {
+      if (sceneActive(state, id) === false) {
         clearSceneStopping(id);
       }
     }
-  }, [state.running, state.running_meta, state.config?.show]);
+  }, [state.running, state.running_meta]);
+  useEffect(() => {
+    for (const id of [...stoppingIds]) {
+      clearSceneStopping(id);
+    }
+  }, [state.config?.show]);
   return stoppingIds;
 }
 
@@ -64,7 +69,9 @@ export function LiveSceneBar({ state, slots = [] }) {
   const stopping = useStoppingScenes(state);
   const offBlock = bridge.blockReason("scene_off");
   const scenes = state.config?.scenes || [];
-  const activeScenes = scenes.filter((scene) => sceneActive(state, scene.id) === true);
+  const activeScenes = scenes.filter(
+    (scene) => sceneActive(state, scene.id) === true || stopping.has(scene.id),
+  );
   if (!activeScenes.length) return null;
   async function stopScene(scene) {
     if (stopping.has(scene.id)) return;

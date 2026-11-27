@@ -912,7 +912,7 @@ function PreparationSection({ state }) {
               step={0.5}
               units={t("common.secondsUnit")}
               size="sm"
-              width={140}
+              width={176}
               isDisabled={Boolean(busyAction) || Boolean(fadeBlock)}
               onChange={(value) => setFadeDraft(Math.max(0, Math.min(30, Number(value) || 0)))}
             />
