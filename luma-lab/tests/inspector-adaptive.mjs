@@ -91,8 +91,11 @@ async function check(locale, { width, height, touch, scale = 1 }) {
     await shot("after");
     await noActions(async () => {
       await click(open);
-      await fullWidth();
+      await dock.waitFor();
+      assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+      assert.equal(await dimmer.count(), 0);
       await click(toggle);
+      await fullWidth();
       await click(nav(t.fixtures));
       await card(9).waitFor();
       assert.equal(await fullWidth(), hallWidth);
@@ -102,23 +105,23 @@ async function check(locale, { width, height, touch, scale = 1 }) {
 
     await click(fixture(9));
     await settled([9]);
-    if (touch || scale === 2) {
-      await open.waitFor();
-      assert.equal(await fullWidth(), hallWidth);
-      assert.match(await page.locator(".inspector-summary").innerText(), /Moving Head 09/);
-      await shot("after-selected");
-      // A second tap on the visible plan can replace the selection.
-      await click(fixture(10));
-      await settled([10]);
-      assert.match(await page.locator(".inspector-summary").innerText(), /Moving Head 10/);
-      await click(fixture(9));
-      await settled([9]);
-      await noActions(() => click(open));
-      await dock.waitFor();
-      assert(await dock.evaluate(el => el.classList.contains("bottom")));
+    const side = width >= 1024;
+    await dock.waitFor();
+    assert(await dock.evaluate((el, side) => el.classList.contains(side ? "side" : "bottom"), side));
+    await noActions(() => click(collapse));
+    assert.equal(await fullWidth(), hallWidth);
+    assert.match(await page.locator(".inspector-summary").innerText(), /Moving Head 09/);
+    await shot("after-selected");
+    await click(fixture(10));
+    await settled([10]);
+    assert.match(await page.locator(".inspector-summary").innerText(), /Moving Head 10/);
+    await click(fixture(9));
+    await settled([9]);
+    await noActions(() => click(open));
+
+    if (!side) {
       assert.equal(await page.getByRole("separator").count(), 0);
     } else {
-      await page.locator(".inspector-dock.side").waitFor();
       const handle = page.getByRole("separator");
       await noActions(async () => {
         const initial = Number(await handle.getAttribute("aria-valuenow"));
@@ -152,10 +155,10 @@ async function check(locale, { width, height, touch, scale = 1 }) {
         assert.equal(await handle.getAttribute("aria-valuenow"), oldWidth);
       }
       if (touch) {
-        const target = dimmer.getByRole("textbox");
+        const target = dimmer.getByRole("slider", { name: t.dim, exact: true });
         await target.focus();
         await page.setViewportSize({ width: height, height: width });
-        await page.locator(".inspector-dock.bottom").waitFor();
+        await page.locator(`.inspector-dock.${side ? "bottom" : "side"}`).waitFor();
         await dimmer.waitFor();
         assert(await target.evaluate(el => el === document.activeElement));
         await settled([9]);
@@ -195,7 +198,7 @@ async function check(locale, { width, height, touch, scale = 1 }) {
     await header();
     assert.deepEqual(errors, []);
     assert.deepEqual(actions, [
-      ...Array(touch || scale === 2 ? 4 : 2).fill("select_fixtures"), "clear",
+      ...Array(4).fill("select_fixtures"), "clear",
     ]);
     console.log(`PASS ${locale} ${width}×${height}${scale === 2 ? " (200%)" : ""}: ${actions.join(", ")}`);
   } finally {

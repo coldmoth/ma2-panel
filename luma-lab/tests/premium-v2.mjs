@@ -39,6 +39,7 @@ const wait = async (fn) => {
 const nav = (name) => page.getByRole("button", { name, exact: true }).click();
 try {
  await mkdir("screenshots/premium-v2",{recursive:true});
+ await page.addInitScript(() => localStorage.setItem("luma.language.v1", "ru"));
  await page.goto(process.env.LUMA_URL || "http://127.0.0.1:5189");await wait(b=>b.ready());
  await page.locator('[data-fixture="9"]').click();await wait(b=>b.state.selected.join(',')==='9');
  const initial = await state(b=>({hall:b.state.config.hall,fixtures:b.state.config.fixtures}));
@@ -75,9 +76,14 @@ try {
  const f=page.locator('[data-fixture="9"]'),fb=await f.boundingBox();
  await page.mouse.move(fb.x+fb.width/2,fb.y+fb.height/2);await page.mouse.down();await page.mouse.move(fb.x+fb.width/2+35,fb.y+fb.height/2+25,{steps:8});await page.mouse.up();
  await wait(b=>Math.abs(b.state.config.fixtures.find(f=>f.id===9).x-.12)>.01);
- await page.locator('.layout-fields input').nth(0).fill('.127');await nav('Сохранить');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).x===.127);
- await page.getByLabel('Поворот, °',{exact:true}).fill('37.5');await nav('Применить угол');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).rot===37.5);
- await page.locator('.layout-fields select').selectOption('profile');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).icon==='profile');
+ const roomWidth = await state(b=>b.state.config.hall.w);
+ await page.locator('.layout-fields input').nth(0).fill('2.5');await nav('Сохранить');
+ await page.waitForFunction(async roomWidth => {
+  const {bridge} = await import('/src/client.mjs');
+  return Math.abs(bridge.state.config.fixtures.find(f=>f.id===9).x - 2.5 / roomWidth) < .00001;
+ }, roomWidth);
+ await page.getByLabel('Поворот, °',{exact:true}).fill('37.5');await nav('Сохранить');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).rot===37.5);
+ await page.locator('.layout-fields select').first().selectOption('profile');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).icon==='profile');
  await page.getByLabel('Ширина помещения, м',{exact:true}).fill('20');await page.getByLabel('Длина помещения, м',{exact:true}).fill('26');
  await page.getByLabel('Ширина сцены, м',{exact:true}).fill('10');await page.getByLabel('Глубина сцены, м',{exact:true}).fill('4');
  await page.getByLabel('Положение вдоль стены, %',{exact:true}).fill('25');await page.getByLabel('Сцена у стены',{exact:true}).selectOption('left');

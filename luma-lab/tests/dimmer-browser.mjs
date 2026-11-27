@@ -43,12 +43,11 @@ try {
   const select = async (id, modifier) => {
     await fixture(id).click({ modifiers: modifier ? [modifier] : [] });
   };
-  const target = section.getByRole("textbox", { name: "Target brightness (%)" });
-  const slider = page.getByRole("slider", { name: "Dimmer", exact: true });
-  const apply = section.getByRole("button", { name: "Apply", exact: true });
-  const current = section.getByRole("status");
+  const slider = section.getByRole("slider", { name: "Dimmer", exact: true });
+  const preset = (value) => section.getByRole("button", { name: `${value}%`, exact: true });
+  const evidence = (quality) => section.locator(`.evidence-dot.${quality}`);
   const assertCurrent = async (value) => {
-    await current.filter({ hasText: `Current · ${value}` }).waitFor();
+    await section.locator(".dimmer-readout").filter({ hasText: value }).waitFor();
   };
   const dimActions = () => actions.filter(({ a }) => a === "dim");
   const receipt = async (value, sequence) => {
@@ -100,77 +99,65 @@ try {
     await section.waitFor();
     assert.deepEqual(actions.slice(before), []);
   };
-  await target.fill("75");
   await reopen();
+  await slider.waitFor();
+  assert.equal(await slider.getAttribute("aria-valuetext"), "Unknown value");
+  await evidence("unknown").waitFor();
+  for (const key of ["ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"])
+    await noArrowCommands(slider, key);
+  results.push("unknown: mounted slider, no keyboard actions");
 
-  // This also exercises the original slider when checking the regression against old code.
-  const unknownControl = (await slider.count()) ? slider : target;
-  if (unknownControl === slider) assert.equal(await slider.getAttribute("aria-valuetext"), "Unknown value");
-  for (const key of ["ArrowUp", "ArrowDown"]) {
-    await noArrowCommands(unknownControl, key);
-    results.push(`unknown + ${key}: no actions`);
-  }
-  await assertCurrent("Unknown");
-  assert.equal(await slider.count(), 0);
-  assert.equal(await target.inputValue(), "");
-  await target.fill("101");
-  assert(await apply.isDisabled());
-  await target.press("Enter");
-  assert.equal(dimActions().length, 0);
-  await target.fill("60");
-  assert.equal(dimActions().length, 0);
-  await apply.click();
+  await preset(50).click();
   await settled([9]);
-  await receipt(60, [60]);
-  results.push("explicit 60%: one dim request, mock completed");
-  await assertCurrent("Unknown");
-  await section.getByText("Last request · 60%", { exact: true }).waitFor();
-  assert.equal(await slider.count(), 0);
-  assert.equal(await target.inputValue(), "");
-  results.push("sent without readback: current remains unknown");
+  await receipt(50, [50]);
+  await assertCurrent("50%");
+  assert.equal(await evidence("confirmed").count(), 0);
+  await noArrowCommands(slider, "ArrowUp");
+  results.push("explicit preset sends one request; panel echo cannot authorize a relative step");
 
   const readback40 = sample({ 9: { dim: 40 } });
   deliver(readback40);
-  await assertCurrent("40%");
+  await evidence("confirmed").waitFor();
   await reopen();
   await assertCurrent("40%");
   await slider.press("ArrowUp");
   await settled([9]);
-  await receipt(41, [60, 41]);
-  await assertCurrent("Unknown");
-  assert(await target.evaluate((element) => element === document.activeElement));
-  await noArrowCommands(target, "ArrowDown");
-  results.push("fresh 40% + ArrowUp: one dim 41%, focus stays in dimmer");
+  await receipt(41, [50, 41]);
+  assert(await slider.evaluate(element => element === document.activeElement));
+  await noArrowCommands(slider, "ArrowDown");
+  results.push("fresh 40% + ArrowUp sends exactly 41% and preserves focus");
 
   deliver(sample({ 9: { dim: 40 } }));
+  await evidence("confirmed").waitFor();
+  await slider.focus();
+  await page.keyboard.down("ArrowUp");
+  await evidence("last").waitFor({ timeout: 9000 });
+  const beforeKeyUp = actions.length;
+  await page.keyboard.up("ArrowUp");
+  assert.deepEqual(actions.slice(beforeKeyUp), []);
+  await noArrowCommands(slider, "ArrowUp");
   await assertCurrent("40%");
-  await page.waitForFunction(() => {
-    const bridge = window.testBridge;
-    return bridge.state.history[9]?.dim?.quality === "last";
-  }, null, { timeout: 9000 });
-  await assertCurrent("Unknown");
-  await noArrowCommands(target, "ArrowUp");
-  results.push("readback expiry: current becomes unknown");
+  results.push("expiry during a keyboard gesture discards the step; stale readback stays visible");
 
   await select(10, "Shift");
   await settled([9, 10]);
   deliver(sample({ 9: { dim: 40 } }));
-  await assertCurrent("Unknown");
+  assert.equal(await evidence("confirmed").count(), 0);
+  await noArrowCommands(slider, "ArrowUp");
   const mixed = sample({ 9: { dim: 40 }, 10: { dim: 70 } });
   deliver(mixed);
   await assertCurrent("Mixed");
-  assert.equal(await slider.count(), 0);
-  await noArrowCommands(target, "ArrowUp");
-  await noArrowCommands(target, "ArrowDown");
-  await target.fill("55.5");
-  await target.press("Enter");
+  await evidence("confirmed").waitFor();
+  await noArrowCommands(slider, "ArrowUp");
+  await noArrowCommands(slider, "ArrowDown");
+  await preset(75).press("Enter");
   await settled([9, 10]);
-  await receipt(55.5, [60, 41, 55.5]);
+  await receipt(75, [50, 41, 75]);
   await page.waitForFunction(() => {
     const bridge = window.testBridge;
-    return [9, 10].every((id) => bridge.state.shown[id]?.dim === 55.5);
+    return [9, 10].every((id) => bridge.state.shown[id]?.dim === 75);
   });
-  results.push("mixed and partial readback: no implicit action, explicit target applies to both");
+  results.push("mixed and partial readback send no inferred value; explicit preset applies to both");
 
   await select(9);
   await settled([9]);
@@ -183,56 +170,45 @@ try {
   statusOverride = { no_attr: { ...lastStatus.no_attr, dim: [unsupported] } };
   deliver({ status: { ...lastStatus, ...statusOverride } });
   await section.getByText(/Dimmer available on 1 of 2/).waitFor();
-  assert(await target.isDisabled());
-  assert(await apply.isDisabled());
+  assert(await slider.isDisabled());
+  for (const value of [0, 25, 50, 75, 100]) assert(await preset(value).isDisabled());
   assert.equal(dimActions().length, 3);
-  results.push("partial support: restriction shown, entire change disabled");
+  results.push("partial support disables the slider and all presets");
   statusOverride = null;
   deliver({ status: lastStatus });
 
-  await select(9);
-  await settled([9]);
-  await target.fill("75");
   await page.getByRole("button", { name: "Clear selection", exact: true }).click();
   await settled([]);
   await select(10);
   await settled([10]);
-  assert.equal(await target.inputValue(), "");
-  assert.equal(await section.getByText(/Last request/).count(), 0);
-  await target.press("Enter");
-  assert.equal(dimActions().length, 3);
-  results.push("clear/reselect: draft and last request stay out of the new selection");
+  assert.equal(await evidence("confirmed").count(), 0);
+  await noArrowCommands(slider, "ArrowUp");
+  results.push("clear and reselect cannot reuse readback");
 
   const readback10 = sample({ 10: { dim: 40 } });
   deliver(readback10);
-  await assertCurrent("40%");
-  await target.fill("80");
+  await evidence("confirmed").waitFor();
   await page.evaluate(() => window.testBridge.socket.close());
   await page.waitForFunction(() => !window.testBridge.state.connected);
-  await settled([]);
-  await select(10);
   await settled([10]);
   deliver(readback10);
-  await assertCurrent("Unknown");
-  assert.equal(await slider.count(), 0);
-  assert.equal(await target.inputValue(), "");
-  results.push("WebSocket reconnect: cached readback and draft cannot return");
+  assert.equal(await evidence("confirmed").count(), 0);
+  await noArrowCommands(slider, "ArrowUp");
+  results.push("WebSocket reconnect preserves selection and invalidates cached readback");
 
   const newSample = sample({ 10: { dim: 40 } });
   deliver(newSample);
-  await assertCurrent("40%");
-  await target.fill("90");
+  await evidence("confirmed").waitFor();
   statusOverride = { show: { name: "Different mock show", source: "ma2" } };
   deliver({ ...newSample, status: { ...lastStatus, ...statusOverride } });
   await settled([]);
   await select(10);
   await settled([10]);
   deliver(newSample);
-  await assertCurrent("Unknown");
-  assert.equal(await target.inputValue(), "");
-  await noArrowCommands(target, "ArrowUp");
-  assert.deepEqual(dimActions().map(({ v }) => v), [60, 41, 55.5]);
-  results.push("show switch: cached readback and draft cannot return");
+  await evidence("unknown").waitFor();
+  await noArrowCommands(slider, "ArrowUp");
+  assert.deepEqual(dimActions().map(({ v }) => v), [50, 41, 75]);
+  results.push("show switch cannot reuse cached readback");
   assert.deepEqual(errors, []);
   console.log(`PASS ${results.length} dimmer browser checks\n• ${results.join("\n• ")}`);
 } catch (error) {

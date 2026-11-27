@@ -490,7 +490,7 @@ export class BridgeClient {
       if (this.selectionSyncPromise === request) this.selectionSyncPromise = null;
     }
   }
-  async select(ids) {
+  async select(ids, { confirm = false } = {}) {
     const fixtures = this.state.config?.fixtures;
     const next = [...new Set(ids)].filter(
       (id) => !fixtures || fixtures.some((f) => f.id === id && !f.missing),
@@ -499,22 +499,42 @@ export class BridgeClient {
     this.selectionSyncPromise = null;
     const a = next.length ? "select_fixtures" : "clear";
     const blocked = this.blockReason(a);
+    if (confirm && !blocked) {
+      this.publish({ selecting: true });
+      try {
+        await this.syncSelection(next, serial);
+        if (serial === this.selectionSerial) this.publish({ selected: next });
+      } finally {
+        if (serial === this.selectionSerial) this.publish({ selecting: false });
+      }
+      return;
+    }
     this.needsSelectionSync = blocked !== null;
     this.publish({ selected: next, selecting: false });
     if (blocked) return;
     await this.syncSelection(next, serial);
   }
-  async control(action) {
+  async control(action, validate) {
     const blocked = this.blockReason(action.a);
     if (blocked) throw new BridgeError(blocked);
-    if (!this.state.selected.length)
-      throw new BridgeError(issue("selection_pending"));
+    const ids = this.state.selected;
+    const serial = this.selectionSerial;
+    const context = this.context;
+    const revision = this.state.config?.revision;
+    const checkContext = () => {
+      if (this.selectionSerial !== serial || this.context !== context ||
+          this.state.config?.revision !== revision || (validate && !validate()))
+        throw new BridgeError(issue("selection_pending"));
+    };
+    if (!ids.length) throw new BridgeError(issue("selection_pending"));
     if (this.selectionSyncPromise) {
       await this.selectionSyncPromise;
+      checkContext();
     }
     if (this.needsSelectionSync) {
-      await this.syncSelection(this.state.selected, this.selectionSerial);
+      await this.syncSelection(ids, serial);
     }
+    checkContext();
     return this.action(action);
   }
   expireEvidence(now = Date.now()) {

@@ -57,6 +57,8 @@ try {
   await toggle.tap();
   await list.locator('[data-hall-group="heads"]').tap();
   await settled([9, 10, 11, 12, 13, 14]);
+  await page.locator(".inspector-dock .inspector").waitFor();
+  await page.locator(".inspector-toggle").tap();
   assert.match(await page.locator(".inspector-summary").textContent(), /6 fixtures/);
   assert.deepEqual(actions.splice(0), [{ a: "select_fixtures", ids: [9, 10, 11, 12, 13, 14] }]);
 

@@ -92,7 +92,7 @@ function useSceneTransitions(state) {
   return { stopping: stoppingIds, launching: launchingId };
 }
 
-export function LiveSceneBar({ state, slots = [], persistent = false }) {
+export function LiveSceneBar({ state, slots = [], persistent = false, inert = false }) {
   const { t } = useLanguage();
   const { stopping, launching } = useSceneTransitions(state);
   const offBlock = bridge.blockReason("scene_off");
@@ -126,6 +126,7 @@ export function LiveSceneBar({ state, slots = [], persistent = false }) {
       className={`live-scenes-bar ${persistent ? "persistent" : ""} ${isLive ? "live" : "idle"}`.trim()}
       role="region"
       aria-label={t("scenes.onAir")}
+      inert={inert}
     >
       <span className="live-scenes-badge">
         <i className="live-pulse" aria-hidden="true" />

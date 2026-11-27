@@ -1,11 +1,13 @@
 // Run after restarting the isolated harness with the documented group fixture.
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
-import {writeFile} from 'node:fs/promises';
+import {mkdir, writeFile} from 'node:fs/promises';
 const browser=await chromium.launch();
 const p=await browser.newPage({viewport:{width:1440,height:900}});
 const errors=[],actions=[];p.on('pageerror',e=>errors.push(e.message));p.on('websocket',ws=>ws.on('framesent',({payload})=>{const a=JSON.parse(payload);if(a.a)actions.push(a);}));
 try {
+ await mkdir(new URL('../screenshots/groups-editor/', import.meta.url), {recursive:true});
+ await p.addInitScript(() => localStorage.setItem("luma.language.v1", "ru"));
  await p.goto(process.env.LUMA_URL || 'http://127.0.0.1:5196');await p.locator('[data-fixture="1"]').waitFor();
  const config=await p.evaluate(async()=>{const {bridge}=await import('/src/client.mjs');return bridge.state.config;});
  const g=config.groups.find(g=>g.label==='Проверка рестарта');assert.deepEqual(g.fixtures,[2,10]);assert.equal(g.color,'#7ab7b0');assert.equal(g.icon,'sun');

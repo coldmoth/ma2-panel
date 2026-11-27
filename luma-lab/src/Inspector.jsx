@@ -56,12 +56,13 @@ function DimmerControl({ state, values, selectionSerial, send }) {
           ? "last"
           : "unknown";
 
-  function apply(value) {
+  function apply(value, basis = null) {
     const latest = bridge.state;
     if (bridge.selectionSerial !== selectionSerial || latest.selecting ||
         !latest.selected.length || dimmerSupportCount(latest) !== latest.selected.length ||
         !bridge.ready("dim")) return;
-    send({ a: "dim", v: value });
+    send({ a: "dim", v: value },
+      basis === null ? undefined : () => currentDimmer(bridge.state) === basis);
   }
 
   return (
@@ -81,7 +82,11 @@ function DimmerControl({ state, values, selectionSerial, send }) {
         <p className="capability-note">{t("inspector.dimUnavailable", { count, total })}</p>
       )}
       <Range label={t("tool.dim")} value={sliderValue} disabled={disabled}
-        showCaption={false} onCommit={(value) => apply(Math.round(value))} />
+        showCaption={false}
+        keyboardBasis={() => typeof current === "number" &&
+          bridge.selectionSerial === selectionSerial && currentDimmer(bridge.state) === current
+          ? current : null}
+        onCommit={(value, basis) => apply(Math.round(value), basis)} />
       <ButtonGroup
         className="dimmer-presets"
         label={t("inspector.dimPresets")}
@@ -391,9 +396,9 @@ export default function Inspector({
       );
   const editingSelection = useRef(selectionEditing);
   editingSelection.current = selectionEditing;
-  function send(a) {
+  function send(a, validate) {
     if (editingSelection.current) return Promise.resolve(false);
-    return bridge.control(a).then(() => true).catch((e) => {
+    return bridge.control(a, validate).then(() => true).catch((e) => {
       bridge.report(e);
       return false;
     });

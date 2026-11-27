@@ -602,7 +602,7 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 38px;
+  height: 44px;
   min-width: 124px;
   flex: none;
   white-space: nowrap;
@@ -3018,6 +3018,19 @@ input[type="range"]:disabled {
     padding: 10px;
   }
 }
+@media (max-width: 760px) {
+  .global-bar { padding-inline: 8px; gap: 6px; }
+  .global-bar .show-name { display: none; }
+  .global-bar .connection-pill { min-width: 0; overflow: hidden; }
+  .global-bar .connection-pill > span { overflow: hidden; text-overflow: ellipsis; }
+  .global-actions { gap: 6px; }
+  .global-actions .grandmaster { width: clamp(72px, 18vw, 130px); padding-inline: 8px; }
+  .global-actions .grandmaster > svg,
+  .global-actions .undo-btn > span,
+  .global-actions .highlight-pill > span,
+  .global-actions .blackout kbd { display: none; }
+}
+
 @media (max-width: 1100px) {
   .shell {
     grid-template-columns: 66px minmax(0, 1fr);
@@ -3281,17 +3294,9 @@ input[type="range"]:disabled {
 .page-hall .stage-viewport > svg { position:absolute; inset:0; }
 .page-hall .error-banner,.page-hall .arm-banner { flex:none; }
 .page-hall > .live-scenes-bar {
-  position: absolute;
-  bottom: 52px;
-  right: 18px;
-  height: 44px;
-  max-width: calc(100% - 36px);
+  flex: 0 0 44px;
   margin: 0;
   padding: 0 10px;
-  z-index: 2;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.52);
 }
 .quick-scenes { flex:none; position:relative; z-index:3; }
 .quick-scenes-toggle { width:100%; height:40px; display:flex; align-items:center; gap:9px; padding:0 14px; color:var(--sub); background:var(--panel); border:1px solid var(--line); border-radius:0 0 10px 10px; text-align:left; font-size:12px; font-weight:500; }
@@ -3332,7 +3337,7 @@ input[type="range"]:disabled {
 }
 .inspector-dock.bottom .inspector-body {
   --available-height: calc(100dvh - var(--global-bar-height));
-  max-height: min(420px, calc(var(--available-height) * .4), max(64px, calc(var(--available-height) - 280px)));
+  max-height: min(420px, calc(var(--available-height) * .4), max(64px, calc(var(--available-height) - 320px)));
 }
 .inspector-body > .inspector {
   position: static;

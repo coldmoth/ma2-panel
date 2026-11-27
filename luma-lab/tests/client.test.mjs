@@ -317,6 +317,21 @@ test("TCP without confirmed login still allows local UI selection, sends nothing
   assert.equal(c.needsSelectionSync, false);
 });
 
+test("selection changes during preflight cancel the queued light command", async () => {
+  const c = connected();
+  const first = c.select([1]);
+  const dim = c.control({ a: "dim", v: 50 });
+  const second = c.select([]);
+  const [firstRequest, secondRequest] = c.socket.sent;
+  c.receive({ request_id: firstRequest.request_id, a: "select_fixtures", ok: true });
+  await first;
+  await assert.rejects(dim, { code: "selection_pending" });
+  c.receive({ request_id: secondRequest.request_id, a: "clear", ok: true });
+  await second;
+  assert.deepEqual(c.socket.sent.map(({ a, ids }) => ({ a, ids })),
+    [{ a: "select_fixtures", ids: [1] }, { a: "clear", ids: undefined }]);
+});
+
 test("connecting, login failure, authenticated with pending show, and mismatch are distinct", async () => {
   const c = new BridgeClient();
   assert.equal(c.blockReason("dim").code, "bridge_disconnected");

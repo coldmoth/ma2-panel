@@ -1,3 +1,13 @@
+# 3.4.0-beta.1 — LUMA hall trial
+
+- Keep fixture selection and Inspector available locally during desk reconnects and on touchscreens. Sync selection before lighting commands.
+- Keep Dimmer visible, add absolute brightness presets, and require fresh, uniform readback for keyboard steps. Preserve pending intensity and color values until fresh readback arrives.
+- Show live scenes, fade-out progress and Undo. Record new scenes through a free Executor search.
+- Import and export grandMA2 Layout XML, with a preview before applying positions, and improve Telnet reply parsing.
+- Add a first-run setup wizard and optional Windows grandMA2 onPC launch.
+
+Enable test updates in Settings to receive this beta. Test first with a backup of the installation and show. Physical Windows and grandMA2 acceptance is pending.
+
 # 3.3.3-rc.1 — bridge restart fix
 
 - Fix bridge restarts after saving settings when a panel WebSocket remains open or periodic MA2 reads are running.

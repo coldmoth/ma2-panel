@@ -37,12 +37,13 @@ async function rotate(id,angle,{shift=false,cancel=false,touch=false}={}){
  if(shift)await page.keyboard.down('Shift');
  if(touch){const cdp=await context.newCDPSession(page);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...start,id:1}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...end,id:1}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});await cdp.detach();}
  else {await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(end.x,end.y,{steps:8});
-  assert.match(await page.getByRole('status').last().textContent(),/несохран/);
+  assert.match(await page.locator('.layout-status').textContent(),/несохран/);
   if(cancel)await page.keyboard.press('Escape');await page.mouse.up();}
  if(shift)await page.keyboard.up('Shift');
  if(!cancel)await saved();
 }
 try {
+ await page.addInitScript(() => localStorage.setItem("luma.language.v1", "ru"));
  await page.goto(process.env.LUMA_URL || 'http://127.0.0.1:5194');
  await page.locator('[data-fixture="1"]').waitFor();
  await page.evaluate(async()=>{const {bridge}=await import('/src/client.mjs');
@@ -182,7 +183,9 @@ finally {await browser.close();}
 // Independent engine checks the editor layout and pointer rotation.
 const wb=await webkit.launch();
 try{
- const p=await wb.newPage({viewport:{width:1024,height:768}});await p.goto(process.env.LUMA_URL||'http://127.0.0.1:5194');
+ const p=await wb.newPage({viewport:{width:1024,height:768}});
+ await p.addInitScript(() => localStorage.setItem("luma.language.v1", "ru"));
+ await p.goto(process.env.LUMA_URL||'http://127.0.0.1:5194');
  await p.getByRole('button',{name:'Расстановка',exact:true}).click();await p.locator('[data-fixture="1"]').focus();await p.keyboard.press('Enter');
  await p.getByRole('slider',{name:'Поворот прибора'}).focus();await p.keyboard.press('Shift+ArrowRight');
  await p.waitForFunction(()=>document.querySelector('.layout-status')?.textContent==='Сохранено');

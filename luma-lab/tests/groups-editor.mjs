@@ -11,6 +11,7 @@ const context=await browser.newContext({viewport:{width:1440,height:900},hasTouc
 const page=await context.newPage();page.setDefaultTimeout(8000);
 page.on('pageerror',e=>errors.push(e.message));
 page.on('websocket',ws=>ws.on('framesent',({payload})=>{try{const a=JSON.parse(payload);if(a.a)actions.push(a);}catch{}}));
+const groupActions = () => actions.filter(({a}) => a !== 'plan_editing');
 const state=()=>page.evaluate(async()=>{const {bridge}=await import('/src/client.mjs');return bridge.state;});
 const dialog=()=>page.locator('dialog[open]');
 const nav=()=>page.getByRole('complementary',{name:'Категории приборов'});
@@ -23,16 +24,22 @@ async function edit(){await page.getByRole('button',{name:'Изменить со
 async function deleteGroup(label){await openGroup(label);await page.getByLabel('Действия группы').click();await page.getByRole('button',{name:'Удалить группу',exact:true}).click();await dialog().getByRole('button',{name:'Удалить группу',exact:true}).click();await dialog().waitFor({state:'hidden'});await settled();}
 function record(s){results.push(s);console.log('PASS',s);}
 try {
+ await page.addInitScript(() => localStorage.setItem("luma.language.v1", "ru"));
  await page.goto(url);await page.locator('[data-fixture="1"]').waitFor();await settled();
+ await page.waitForFunction(async () => {
+  const {bridge} = await import('/src/client.mjs');
+  const config = bridge.state.config;
+  return config?.fixtures.every(({type}) => config.dmx_map?.[type]?.has);
+ });
  const original=(await state()).config.fixtures, originalHall=(await state()).config.hall;
  await page.getByRole('button',{name:'Приборы',exact:true}).click();
- const before=actions.length;
+ const before=groupActions().length;
  await nav().getByRole('button',{name:'Новая локальная группа',exact:true}).click();
  await dialog().getByLabel('Название группы').fill('Левая сторона');
  for(const name of ['LED Bar 01','Moving Head 09','PAR 15','Fresnel 19'])await dialog().getByRole('checkbox',{name:`В группе: ${name}`,exact:true}).check();
  await page.screenshot({path:new URL('group-editor.png',output).pathname});
  await save();const left=await group('Левая сторона');assert.deepEqual(left.fixtures,[1,9,15,19]);
- assert(actions.slice(before).every(a=>a.a==='group_save'));
+ assert(groupActions().slice(before).every(a=>a.a==='group_save'));
  await openGroup('Левая сторона');assert.equal(await page.locator('.fixture-card').count(),4);
  record('create group with four fixture types; composition and count; CRUD sends only config actions');
  await page.getByRole('button',{name:'Выделить группу',exact:true}).click();await settled();assert.deepEqual((await state()).selected,[1,9,15,19]);
@@ -98,8 +105,9 @@ try {
  const deletion=actions.length;await deleteGroup('Левая сцена');assert.equal(await group('Левая сцена'),undefined);assert.deepEqual((await state()).selected,[]);assert(actions.slice(deletion).every(a=>a.a==='group_delete'));
  assert((await group('Фронтальный свет')).fixtures.includes(1));assert.deepEqual((await state()).config.fixtures,original);await deleteGroup('Дуэт');
  record('delete confirmation/cancel; active selection cleared locally; fixtures and other groups unchanged');
- assert(actions.every(a=>['group_save','group_delete','select_fixtures'].includes(a.a)),JSON.stringify(actions));assert.deepEqual(errors,[]);
- const safari=await webkit.launch();try {const p=await safari.newPage({viewport:{width:1024,height:768}});await p.goto(url);await p.locator('[data-fixture="1"]').waitFor();await p.getByRole('button',{name:'Приборы',exact:true}).click();await p.getByRole('button',{name:'Новая локальная группа',exact:true}).click();await p.getByLabel('Название группы').fill('WebKit');await p.getByRole('checkbox',{name:'В группе: LED Bar 01',exact:true}).check();await p.getByRole('button',{name:'Сохранить группу',exact:true}).click();await p.locator('dialog[open]').waitFor({state:'hidden'});assert(await p.getByRole('complementary',{name:'Категории приборов'}).getByRole('button').filter({hasText:'WebKit'}).count());await p.screenshot({path:new URL('webkit-1024.png',output).pathname});await p.evaluate(async()=>{const {bridge}=await import('/src/client.mjs');const g=bridge.state.config.groups.find(g=>g.label==='WebKit');await bridge.action({a:'group_delete',id:g.id});});}finally{await safari.close();}
+ assert(actions.every(a=>['group_save','group_delete','select_fixtures','plan_editing'].includes(a.a)),JSON.stringify(actions));
+ assert(actions.filter(({a}) => a === 'plan_editing').every(({active}) => typeof active === 'boolean'));assert.deepEqual(errors,[]);
+ const safari=await webkit.launch();try {const p=await safari.newPage({viewport:{width:1024,height:768}});await p.addInitScript(() => localStorage.setItem("luma.language.v1", "ru"));await p.goto(url);await p.locator('[data-fixture="1"]').waitFor();await p.getByRole('button',{name:'Приборы',exact:true}).click();await p.getByRole('button',{name:'Новая локальная группа',exact:true}).click();await p.getByLabel('Название группы').fill('WebKit');await p.getByRole('checkbox',{name:'В группе: LED Bar 01',exact:true}).check();await p.getByRole('button',{name:'Сохранить группу',exact:true}).click();await p.locator('dialog[open]').waitFor({state:'hidden'});assert(await p.getByRole('complementary',{name:'Категории приборов'}).getByRole('button').filter({hasText:'WebKit'}).count());await p.screenshot({path:new URL('webkit-1024.png',output).pathname});await p.evaluate(async()=>{const {bridge}=await import('/src/client.mjs');const g=bridge.state.config.groups.find(g=>g.label==='WebKit');await bridge.action({a:'group_delete',id:g.id});});}finally{await safari.close();}
  record('Chromium desktop/tablet and WebKit touch-size CRUD; no horizontal overflow or JS errors');
  await writeFile(new URL('verification.json',output),JSON.stringify({results,measures,errors,actions},null,2));
  console.log(`${results.length} scenario groups PASS; ${actions.length} actions`);

@@ -106,8 +106,7 @@ try {
     await settled([10]);
     await checked(9, false);
     await checked(10, true);
-    assert.match(await page.locator(".inspector-summary").textContent(), /1/);
-    assert.equal(await page.locator(".inspector-toggle").getAttribute("aria-expanded"), "false");
+    assert.equal(await page.locator(".inspector-toggle").getAttribute("aria-expanded"), "true");
     assert.equal(actions.length, 1);
 
     await button(t.multiple).tap();
@@ -116,13 +115,13 @@ try {
     assert.equal(await page.locator(".grandmaster").getByRole("slider").isDisabled(), true);
     rejectNext = true;
     await button(t.done).tap();
-    await settled([]);
+    await settled([10]);
     await count(2);
     assert.equal(acks.at(-1).ok, false);
     await button(t.cancel).tap();
     await draft.waitFor({ state: "hidden" });
     await checked(9, false);
-    await checked(10, false);
+    await checked(10, true);
     assert.deepEqual(actions.at(-1), { a: "select_fixtures", ids: [10, 9] });
 
     await fixture(10).focus();

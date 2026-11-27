@@ -55,18 +55,16 @@ try {
       await measure("Blackout", false);
       await resize(sizes[0]);
       await page.locator('[data-fixture="9"]').click();
-      await page.locator(".inspector-strip .unselect").waitFor();
-      await page.locator(".inspector-toggle").click();
-      await page.locator(".inspector-dock.bottom .inspector").waitFor();
+      await page.locator(".inspector-dock .unselect").waitFor();
       await measure("Blackout", true);
       await page.setViewportSize({ width: 1180, height: 820 });
       await button.click();
       await phase("active");
       const restore = language === "ru" ? "Восстановить" : "Restore";
       assert.equal(await button.locator("span").textContent(), restore);
-      await page.locator(".inspector-strip").waitFor();
-      // The bridge clears the selection when Blackout activates.
-      await measure(restore, false);
+      // Blackout clears the desk selection, but preserves the local Inspector.
+      assert.equal(await page.locator('[data-fixture="9"]').getAttribute("aria-pressed"), "true");
+      await measure(restore, true);
 
       // Physical hit at the center after rotation. On failure use the wide
       // viewport to reset the mock before checking the next locale and scale.

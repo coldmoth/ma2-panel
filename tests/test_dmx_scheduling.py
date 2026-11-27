@@ -57,16 +57,23 @@ def test_measure_dmx_round_robin_and_five_clients(context, monkeypatch, chunks, 
         return True, '\n'.join(stored.values()) if line == 'ListVar' else ''
     c.link.send = send
     async def go():
-        for _ in range(chunks * 3):
+        # Five operator commands interleave with the first sample. Discard its
+        # stale bytes, retry that span, then measure three full sweeps.
+        for read in range(1 + chunks * 3):
             pause = await c.read_dmx()
             assert pause != 30
+            if read == 0:
+                assert pause == .05
+                assert not c.state['dmx'] and not c.dmx_cycle['seen']
             await virtual_sleep(pause)
             c.expire_dmx()
             live_ages.extend(clock[0] - stamp for stamp in c.dmx_cycle["seen"].values())
             ages.extend(clock[0] - stamp for stamp in measured.values())
         await asyncio.gather(*tasks)
     asyncio.run(go())
-    assert spans[:chunks] == spans[chunks:2 * chunks]
+    assert len(spans) == 1 + chunks * 3 and spans[0] == spans[1]
+    sweep = spans[1:1 + chunks]
+    assert spans[1:] == sweep * 3
     assert len(set(spans)) == chunks
     row = {'chunks': chunks, 'sparse': sparse, 'rtt_ms': rtt * 1000,
            'steady_cycle_seconds': round(starts[-1] - starts[-1 - chunks], 3),

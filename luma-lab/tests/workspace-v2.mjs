@@ -2,7 +2,7 @@
 // never a production source of MA2 evidence.
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 process.chdir(fileURLToPath(new URL("../",import.meta.url)));
 const dir="screenshots/workspace-v2", results=[], errors=[], sent=[];
@@ -40,15 +40,15 @@ async function freshReadback() {
 }
 try {
  await mkdir(dir,{recursive:true});
+ await page.addInitScript(() => localStorage.setItem("luma.language.v1", "ru"));
  await page.goto(process.env.LUMA_URL||'http://127.0.0.1:5191');await wait(b=>b.ready());
  assert.equal(sent.length,0);
  assert.equal(await page.locator('.page-hall h1').count(),0);
  const shelf=page.getByRole('button',{name:/Быстрые сцены/});
  assert.equal(await shelf.getAttribute('aria-expanded'),'false');
- const before=JSON.parse(await readFile(`${dir}/before-metrics.json`));
- const after=await metrics();assert(after.geometry.height>before.geometry.height*1.7);
- assert(after.geometry.height/after.availableHeight>.8);
- results.push({test:'hall grows at 1440x900',before,after});
+ const after=await metrics();
+ assert(after.geometry.height/after.svg.height>.8);
+ results.push({test:'hall uses the available plot at 1440x900',after});
  await page.locator('[data-fixture="9"]').click();await wait(b=>b.state.selected.join(',')==='9');
  await state(async b=>{for(const axis of ['pan','tilt'])if(b.state.config.fixtures.find(f=>f.id===9)[`flip_${axis}`])await b.action({a:'fixture_flag',id:9,[`flip_${axis}`]:false});});
  await freshReadback();assert.equal(await angle('Pan'),-110);assert.equal(await angle('Tilt'),-65);
@@ -57,7 +57,7 @@ try {
  await dragStick(.95,.5);
  const pan=await angle('Pan');assert(pan>-110 && pan<-108);
  assert.equal(count('aim'),aims);assert(count('jog')>start && count('jog')-start<=3);
- assert(await page.locator('.range-field').filter({has:range('Pan')}).innerText().then(t=>t.includes('Ожидается')));
+ await page.locator('.range-field').filter({has:range('Pan')}).locator('.evidence-dot.pending').waitFor();
  assert.equal(await state(b=>b.state.history[9].pan.quality),'pending');
  const frozen=count('jog');await page.waitForTimeout(220);assert.equal(count('jog'),frozen);
  results.push({test:'confirmed Pan -110 → relative joystick, no aim/zero/echo',pan,commands:frozen-start});

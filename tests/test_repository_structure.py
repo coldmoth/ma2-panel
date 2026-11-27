@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_payload_runs_without_source_tree(tmp_path):
     files = release.build(ROOT, version='3.2.0+structure-test')
     assert 'ma2panel/bridge.py' in files
+    for name in ('layout_xml.py', 'launcher.py'):
+        assert files[f'ma2panel/{name}'] == (ROOT / 'ma2panel' / name).read_bytes()
+    assert files['start.bat'] == (ROOT / 'scripts/win/start.bat').read_bytes()
     assert 'ma2panel/resources/mock/sample_export.xml' in files
     assert 'config.json' not in files and 'settings.json' not in files
     release.write_tree(files, tmp_path)

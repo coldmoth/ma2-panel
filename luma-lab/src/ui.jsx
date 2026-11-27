@@ -67,6 +67,10 @@ export function Action({
     </Button>
   );
 }
+const RANGE_KEYS = new Set([
+  "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown",
+]);
+
 export function Range({
   label,
   value,
@@ -80,10 +84,12 @@ export function Range({
   title,
   inputRef,
   showCaption = true,
+  keyboardBasis,
 }) {
   const { t } = useLanguage();
   const [draft, setDraft] = useState(null);
   const dragging = useRef(false);
+  const keyBasis = useRef(null);
   useEffect(() => {
     if (!dragging.current) setDraft(null);
   }, [value, min, max, disabled]);
@@ -95,10 +101,10 @@ export function Range({
       : value === "mixed"
         ? t("common.mixed")
         : "—";
-  const commit = () => {
+  const commit = (basis = null) => {
     dragging.current = false;
     if (draft !== null && !disabled) {
-      onCommit(draft);
+      onCommit(draft, basis);
       setDraft(null);
     }
   };
@@ -123,26 +129,30 @@ export function Range({
         data-unknown={!known && draft === null}
         disabled={disabled}
         style={{ "--progress": `${((n - min) / (max - min)) * 100}%` }}
-        onPointerDown={() => { dragging.current = true; }}
+        onPointerDown={() => {
+          keyBasis.current = null;
+          setDraft(null);
+          dragging.current = true;
+        }}
         onChange={(e) => setDraft(Number(e.target.value))}
-        onPointerUp={commit}
+        onPointerUp={() => commit()}
+        onKeyDown={(e) => {
+          if (!keyboardBasis || !RANGE_KEYS.has(e.key)) return;
+          const basis = keyboardBasis();
+          if (!dragging.current && basis !== null && keyBasis.current === null && !e.repeat)
+            keyBasis.current = basis;
+          if (dragging.current || basis === null || keyBasis.current !== basis)
+            e.preventDefault();
+        }}
         onKeyUp={(e) => {
-          if (
-            [
-              "ArrowLeft",
-              "ArrowRight",
-              "ArrowUp",
-              "ArrowDown",
-              "Home",
-              "End",
-              "PageUp",
-              "PageDown",
-            ].includes(e.key)
-          )
-            commit();
+          if (!RANGE_KEYS.has(e.key) || (keyboardBasis && dragging.current)) return;
+          const basis = keyBasis.current;
+          keyBasis.current = null;
+          if (!keyboardBasis || (basis !== null && keyboardBasis() === basis)) commit(basis);
+          else setDraft(null);
         }}
         onPointerCancel={() => { dragging.current = false; setDraft(null); }}
-        onBlur={() => { dragging.current = false; setDraft(null); }}
+        onBlur={() => { dragging.current = false; keyBasis.current = null; setDraft(null); }}
       />
     </label>
   );

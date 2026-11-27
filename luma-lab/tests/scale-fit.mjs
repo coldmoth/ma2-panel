@@ -9,12 +9,15 @@ const results = [], interactions = [], errors = [];
 const metrics = page => page.locator('.page-hall .stage-viewport > svg').evaluate(s => {
   const rect = e => { const r = e.getBoundingClientRect(); return { x:r.x, y:r.y, width:r.width, height:r.height }; };
   const g = s.querySelector(':scope > g'), b = g.getBBox(), m = g.getScreenCTM();
-  return { viewport:[innerWidth,innerHeight], main:rect(s.closest('main')), area:rect(s.parentElement),
+  const view = s.viewBox.baseVal;
+  const centre = new DOMPoint(view.x + view.width / 2, view.y + view.height / 2)
+    .matrixTransform(s.getScreenCTM());
+  return { centre: {x:centre.x,y:centre.y}, viewport:[innerWidth,innerHeight], main:rect(s.closest('main')), area:rect(s.parentElement),
     svg:rect(s), geometry:rect(g), floor:rect(s.querySelector('[data-room]')),
     bbox:{x:b.x,y:b.y,width:b.width,height:b.height}, ctm:{a:m.a,d:m.d,e:m.e,f:m.f},
     viewBox:s.getAttribute('viewBox'), transform:g.getAttribute('transform'),
     fill:rect(g).height/rect(s.parentElement).height,
-    mainFill:rect(g).height/rect(s.closest('main')).height,
+    mainFill:rect(g).height/(rect(s.closest('main')).height - rect(document.querySelector('.page-hall > .live-scenes-bar')).height),
     clipped:[...g.querySelectorAll('[data-fixture], [data-room], [data-stage-area]')].some(e => {
       const r=e.getBoundingClientRect(),a=s.getBoundingClientRect();
       return r.left<a.left-.5 || r.right>a.right+.5 || r.top<a.top-.5 || r.bottom>a.bottom+.5;
@@ -26,6 +29,7 @@ for (const engine of [chromium, webkit]) {
   const page = await browser.newPage({ viewport:{width:1440,height:900}, deviceScaleFactor:1 });
   page.on('pageerror', e => errors.push(e.message));
   try {
+    await page.addInitScript(() => localStorage.setItem("luma.language.v1", "ru"));
     await page.goto(process.env.LUMA_URL || 'http://127.0.0.1:5193/');
     await page.waitForSelector('[data-fixture="9"]');
     await page.evaluate(() => document.fonts.ready);
@@ -49,8 +53,8 @@ for (const engine of [chromium, webkit]) {
         assert(m.fill>=.85 || m.geometry.width/m.area.width>=.92, `hall stays small: ${JSON.stringify(m)}`);
         if (width>=1366) assert(m.mainFill>.8, 'wide workspace must not have an empty lower half');
         assert(Math.abs(m.ctm.a-m.ctm.d)<.001, 'uniform scaling');
-        assert(Math.abs(m.geometry.x+m.geometry.width/2-(m.area.x+m.area.width/2))<1, 'centered horizontally');
-        assert(Math.abs(m.geometry.y+m.geometry.height/2-(m.area.y+m.area.height/2))<1, 'centered vertically');
+        assert(Math.abs(m.centre.x-(m.area.x+m.area.width/2))<1, 'centered horizontally');
+        assert(Math.abs(m.centre.y-(m.area.y+m.area.height/2))<1, 'centered vertically');
       }
     }
     await page.setViewportSize({width:1440,height:900});

@@ -181,10 +181,10 @@ export default function App() {
     if (page !== "hall" && page !== "fixtures") setPage("hall");
     return applySelection(availableGroupIds(group, fixtures), group);
   }
-  async function applySelection(ids, group) {
+  async function applySelection(ids, group, { confirm = false } = {}) {
     const context = bridge.context;
     try {
-      await bridge.select(ids);
+      await bridge.select(ids, { confirm });
       if (bridge.context !== context || String(bridge.state.selected) !== String(ids)) return false;
       const current = group && selectionGroups(bridge.state.config, t).find(g => g.id === group.id);
       const members = JSON.stringify(group?.fixtures || []);
@@ -633,12 +633,12 @@ export default function App() {
                 onCancelDraft={() => setHallDraft(null)}
                 onApplyDraft={async () => {
                   if (!draft || bridge.state.selecting || bridge.context !== draft.context) return false;
-                  if (!await applySelection(draftIds)) return false;
+                  if (!await applySelection(draftIds, null, { confirm: true })) return false;
                   setHallDraft(null);
                   return true;
                 }}
               />
-              {!quickScenes && <LiveSceneBar state={state} slots={slotIds} />}
+              <LiveSceneBar state={state} slots={slotIds} persistent inert={!!draft} />
               <div inert={!!draft} className={`quick-scenes ${quickScenes ? "open" : ""}`} data-shortcut-layer={quickScenes ? "" : undefined}>
                 {quickScenes && <div className="quick-scenes-content" id="quick-scenes-content">
                   <div className="quick-scenes-head">

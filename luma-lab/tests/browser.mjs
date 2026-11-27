@@ -77,10 +77,9 @@ try {
   await click("Perspective");
   results.push("shared stage coordinates");
   const dimmer = page.getByRole("region", { name: "Dimmer", exact: true });
-  await dimmer.getByRole("textbox", { name: "Target brightness (%)", exact: true }).fill("58");
-  await button("Apply", dimmer).click();
+  await button("50%", dimmer).click();
   await wait(
-    (b) => b.state.shown[9]?.dim === 58 && b.state.shown[10]?.dim === 58,
+    (b) => b.state.shown[9]?.dim === 50 && b.state.shown[10]?.dim === 50,
   );
   results.push("mock dimmer");
   await click("Color #568aff");
@@ -241,7 +240,7 @@ try {
     await nav("Зал");
     await page.locator('[data-fixture="9"]').click();
     await wait((b) => b.state.selected.join(",") === "9");
-    await page.getByRole("textbox", { name: "Целевая яркость (%)", exact: true }).waitFor();
+    await page.getByRole("slider", { name: "Яркость", exact: true }).waitFor();
     await page.screenshot({ path: join(artifacts, `hall-${width}x${height}.png`) });
     assert(
       await page.evaluate(
@@ -257,10 +256,9 @@ try {
   }
   results.push("1440/1366/1024: no horizontal overflow, scene shelf toggle visible");
   await click("Подключение и система");
-  const frame = page.frameLocator("iframe");
-  await frame.locator("#ma2-host").waitFor();
-  assert(await frame.getByRole("button", { name: /Сохранить/ }).count());
-  results.push("original full settings through proxy");
+  await page.getByRole("heading", { name: "Подключение и система", exact: true }).waitFor();
+  await page.getByRole("button", { name: /Сохранить/, exact: false }).first().waitFor();
+  results.push("native connection and system settings");
   await page.setViewportSize({ width: 1440, height: 900 });
   await nav("Зал");
   await click("Свернуть навигацию");
@@ -277,11 +275,11 @@ try {
     return true;
   });
   await wait((b) => !b.state.connected);
-  assert.deepEqual(await state((b) => b.state.selected), []);
+  assert.deepEqual(await state((b) => b.state.selected), [9]);
   await wait((b) => b.ready());
-  assert.deepEqual(await state((b) => b.state.selected), []);
+  assert.deepEqual(await state((b) => b.state.selected), [9]);
   assert.equal(sent.length, beforeReconnect);
-  results.push("reconnect clears selection, never replays");
+  results.push("reconnect preserves local selection and never replays");
   assert.deepEqual(errors, []);
   assert.equal(results.length, 19);
   console.log(
