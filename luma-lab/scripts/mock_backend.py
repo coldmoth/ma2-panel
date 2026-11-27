@@ -41,13 +41,19 @@ def main():
         config_path.write_text(json.dumps(cfg,ensure_ascii=False,indent=2))
         settings_path.write_text(json.dumps(settings,ensure_ascii=False,indent=2))
     # Even after editing settings, listeners and every outbound socket stay isolated.
+    readback = os.environ.get('LUMA_MOCK_READBACK') == '1'
     settings=json.loads(settings_path.read_text());settings.update(bind='127.0.0.1',port=ports[0],simple_port=ports[1])
+    if readback:
+        settings['dmx_seconds'] = 1
+        settings.setdefault('safety', {})['allow_layout_import'] = True
     settings_path.write_text(json.dumps(settings,ensure_ascii=False,indent=2))
     allowed=set();sys.addaudithook(network_guard(allowed))
     original_start=bridge.start_mock
     async def start(*args,**kwargs):
         mock=await original_start(*args,**kwargs);allowed.add(mock.port)
         cfg=json.loads(config_path.read_text());seed_mock(mock,cfg,RUNTIME)
+        if cfg.get('show') and cfg['show'] not in mock.shows:
+            mock.shows.insert(0, cfg['show'])
         mock.configure_simulation(cfg)
         # Test-state initialization, never an action sent by the browser.
         palettes=[[[100,58,20],[100,80,42]],[[16,28,100],[56,46,100]],[[55,30,100],[100,20,58]],
@@ -57,6 +63,32 @@ def main():
                 values.update(rgb=palettes[index%6][fid%2],dim=65 if fid<=14 else 38,zoom=35,tilt=60)
         mock.sim_active={ex:mock.sim_scenes[ex] for ex in mock.running if ex in mock.sim_scenes}
         mock.cues={s['exec']:{1:{}} for s in cfg['scenes']}
+        if readback:
+            from ma2panel.commands import absolute
+            orig_answer = mock._answer
+            def answer_with_dmx(text):
+                if 'PANELDMX' in text:
+                    live_cfg = json.loads(config_path.read_text())
+                    dmx_map = live_cfg.get('dmx_map', {})
+                    out = mock.simulation_output(master=True)
+                    dmx = {}
+                    for f in live_cfg.get('fixtures', []):
+                        start_addr = absolute(f.get('address'))
+                        spec = dmx_map.get(f.get('type') or '')
+                        vals = out.get(f['id'])
+                        if not start_addr or not spec or not vals:
+                            continue
+                        if spec.get('dim'):
+                            dmx[start_addr + spec['dim'] - 1] = int(round(max(0, min(100, vals['dim'])) * 2.55))
+                        rgb = vals.get('rgb') or [100, 100, 100]
+                        for idx, ch in enumerate(('r', 'g', 'b')):
+                            if spec.get(ch):
+                                dmx[start_addr + spec[ch] - 1] = int(round(max(0, min(100, rgb[idx])) * 2.55))
+                        if spec.get('shutter') and spec.get('shutter_open'):
+                            dmx[start_addr + spec['shutter'] - 1] = spec['shutter_open'][0][0]
+                    mock.dmx = dmx
+                return orig_answer(text)
+            mock._answer = answer_with_dmx
         return mock
     bridge.start_mock=start
     sys.argv=[str(ROOT/'bridge.py'),'--mock','--config',str(config_path),'--settings',str(settings_path)]
