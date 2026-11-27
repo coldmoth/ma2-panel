@@ -17,7 +17,13 @@ const metrics = page => page.locator('.page-hall .stage-viewport > svg').evaluat
     bbox:{x:b.x,y:b.y,width:b.width,height:b.height}, ctm:{a:m.a,d:m.d,e:m.e,f:m.f},
     viewBox:s.getAttribute('viewBox'), transform:g.getAttribute('transform'),
     fill:rect(g).height/rect(s.parentElement).height,
-    mainFill:rect(g).height/(rect(s.closest('main')).height - rect(document.querySelector('.page-hall > .live-scenes-bar')).height),
+    viewFillsAvailableSpace: Math.abs(
+      rect(s.closest('main')).height - rect(s.parentElement).height -
+      rect(document.querySelector('.stage-heading')).height -
+      rect(document.querySelector('.inspector-strip')).height -
+      rect(document.querySelector('.page-hall > .live-scenes-bar')).height -
+      rect(document.querySelector('.quick-scenes')).height
+    ) <= 10,
     clipped:[...g.querySelectorAll('[data-fixture], [data-room], [data-stage-area]')].some(e => {
       const r=e.getBoundingClientRect(),a=s.getBoundingClientRect();
       return r.left<a.left-.5 || r.right>a.right+.5 || r.top<a.top-.5 || r.bottom>a.bottom+.5;
@@ -51,7 +57,7 @@ for (const engine of [chromium, webkit]) {
         assert(!m.clipped && !m.overflow, 'geometry must remain visible without page scrolling');
         // Width-limited layouts must still use almost all available width.
         assert(m.fill>=.85 || m.geometry.width/m.area.width>=.92, `hall stays small: ${JSON.stringify(m)}`);
-        if (width>=1366) assert(m.mainFill>.8, 'wide workspace must not have an empty lower half');
+        if (width>=1366) assert(m.viewFillsAvailableSpace, `wide workspace fill: ${JSON.stringify(m)}`);
         assert(Math.abs(m.ctm.a-m.ctm.d)<.001, 'uniform scaling');
         assert(Math.abs(m.centre.x-(m.area.x+m.area.width/2))<1, 'centered horizontally');
         assert(Math.abs(m.centre.y-(m.area.y+m.area.height/2))<1, 'centered vertically');
@@ -85,7 +91,8 @@ for (const engine of [chromium, webkit]) {
       const shelf=page.getByRole('button',{name:/Быстрые сцены/});
       await shelf.click(); const open=await metrics(page);
       await shelf.click(); const closed=await metrics(page);
-      assert(Math.abs(open.geometry.height-closed.geometry.height)<1, 'scene overlay never consumes hall height');
+      assert.deepEqual(open.svg, closed.svg, 'scene overlay keeps the plot box');
+      assert.equal(open.viewBox, closed.viewBox, 'scene overlay keeps the SVG viewBox');
       assert(!closed.clipped && !closed.overflow);
       await page.getByRole('button',{name:'Развернуть навигацию',exact:true}).click();
       await handle.focus(); await page.keyboard.press('End');

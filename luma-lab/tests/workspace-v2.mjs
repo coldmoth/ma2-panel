@@ -23,9 +23,9 @@ const nav=name=>page.getByRole('button',{name,exact:true}).click();
 const count=a=>sent.filter(s=>s.a===a).length;
 const metrics=()=>page.locator('.stage-viewport > svg').evaluate(s=>{
   const m=s.getScreenCTM(),g=s.querySelector('g[transform]').getBBox(),r=s.getBoundingClientRect(),main=document.querySelector('.page-hall').getBoundingClientRect();
-  return {svg:{width:r.width,height:r.height},geometry:{width:g.width*m.a,height:g.height*m.d},availableHeight:main.height};
+  return {viewBox:s.getAttribute("viewBox"),svg:{width:r.width,height:r.height},geometry:{width:g.width*m.a,height:g.height*m.d},availableHeight:main.height};
 });
-const range=key=>page.getByLabel(key,{exact:true});
+const range=key=>page.getByRole('slider',{name:key,exact:true});
 const angle=async key=>Number(await range(key).inputValue());
 async function dragStick(x,y,ms=220) {
  const r=await page.locator('.joystick').boundingBox();
@@ -76,7 +76,8 @@ try {
  assert.equal(await angle('Pan'),remembered);assert.equal(await angle('Яркость'),64);
  await nav('Приборы');await nav('Сцены');await nav('Зал');assert.equal(await angle('Pan'),remembered);
  results.push({test:'keyboard, fixture and tab changes preserve Pan/Tilt/Dimmer'});
- await shelf.click();const opened=await metrics();assert.equal(opened.geometry.height,after.geometry.height);
+ const closed=await metrics();await shelf.click();const opened=await metrics();
+ assert.deepEqual(opened.svg,closed.svg);assert.equal(opened.viewBox,closed.viewBox);
  assert(await page.locator('.quick-scenes-content .scene-card').count()>0);
  await range('Pan').focus();await page.keyboard.press('Escape');assert.equal(await shelf.getAttribute('aria-expanded'),'false');
  assert.deepEqual(await state(b=>b.state.selected),[9]);
@@ -90,7 +91,8 @@ try {
  assert.equal(await page.evaluate(()=>Number(JSON.parse(localStorage.getItem('luma.inspectorWidth')))),width);
  await nav('Сцены');await nav('Зал');assert.equal(Number(await handle.getAttribute('aria-valuenow')),width);
  await page.screenshot({path:`${dir}/inspector-wide-1440.png`});
- await page.reload();await wait(b=>b.ready());assert.equal(Number(await handle.getAttribute('aria-valuenow')),width);
+ await page.reload();await wait(b=>b.ready());await page.locator('[data-fixture="9"]').click();
+ assert.equal(Number(await handle.getAttribute('aria-valuenow')),width);
  assert.equal(await shelf.getAttribute('aria-expanded'),'false');
  results.push({test:'mouse resizes inspector and controls; width survives tabs and reload',width});
  const layouts=[];

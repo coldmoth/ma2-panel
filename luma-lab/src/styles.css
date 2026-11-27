@@ -499,6 +499,12 @@ kbd {
   min-width: 0;
   max-width: 340px;
 }
+.hall-header-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
 .global-actions {
   margin-left: auto;
   display: flex;
@@ -3273,6 +3279,22 @@ input[type="range"]:disabled {
 .inspect-preview { min-height:68px; }
 
 /* The hall fills its flex area; Stage fits measured geometry with one SVG scale. */
+@media (max-width: 1040px) {
+  .shell.hall-trial { --global-bar-height: 100px; }
+  .hall-trial .global-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 44px 48px;
+    align-content: center;
+    gap: 0 6px;
+    padding-inline: 8px;
+  }
+  .hall-trial .global-bar .show-name { display: none; }
+  .hall-trial .global-bar .connection-pill { min-width: 0; overflow: hidden; justify-self: start; }
+  .hall-trial .global-bar .connection-pill > span { overflow: hidden; text-overflow: ellipsis; }
+  .hall-trial .global-actions { grid-column: 1 / -1; margin: 0; justify-content: flex-end; }
+  .hall-trial .hall-header-links { justify-self: end; }
+}
 .inspector-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

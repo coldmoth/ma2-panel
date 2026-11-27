@@ -29,7 +29,9 @@ try {
  await page.waitForFunction(async () => {
   const {bridge} = await import('/src/client.mjs');
   const config = bridge.state.config;
-  return config?.fixtures.every(({type}) => config.dmx_map?.[type]?.has);
+  if (!bridge.state.status?.mock || !config?.fixtures.length) return false;
+  const {export: {type_reads: reads}} = await (await fetch("/api/diag")).json();
+  return config.fixtures.every(({type}) => reads[type.split(" ")[0]]?.spec && config.dmx_map?.[type]?.has);
  });
  const original=(await state()).config.fixtures, originalHall=(await state()).config.hall;
  await page.getByRole('button',{name:'Приборы',exact:true}).click();
@@ -54,7 +56,9 @@ try {
  const renamed=await group('Левая сцена');assert.equal(renamed.id,left.id);assert.deepEqual(renamed.fixtures,[1,9,19]);assert.equal(renamed.icon,'sun');assert.equal(renamed.color,'#7ab7b0');
  await page.getByRole('button',{name:'Зал',exact:true}).click();await page.locator('.sidebar-groups>button').filter({hasText:'Левая сцена'}).click();await settled();
  assert.deepEqual((await state()).selected,[1,9,19]);
- assert.equal(await page.locator('.sidebar-groups>button').filter({hasText:'Левая сцена'}).locator('svg path').getAttribute('d'),await page.evaluate(async()=>{return 'M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5.6 5.6 1.4 1.4 M17 17l1.4 1.4 M5.6 18.4 1.4-1.4 M17 7l1.4-1.4 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0';}));
+ const groupIconPath = page.locator('.sidebar-groups>button').filter({hasText:'Левая сцена'}).locator('svg path');
+ const sunIconPath = page.locator('.global-bar .grandmaster > svg path');
+ assert.equal(await groupIconPath.getAttribute('d'), await sunIconPath.getAttribute('d'));
  record('rename/remove/color/icon persist; Hall selects updated fixture IDs and icon');
  await page.reload();await page.locator('[data-fixture="1"]').waitFor();assert.deepEqual((await group('Левая сцена')).fixtures,[1,9,19]);
  const disk=JSON.parse(await readFile(process.env.LUMA_GROUP_CONFIG || '/tmp/luma-groups-runtime/config.json','utf8'));

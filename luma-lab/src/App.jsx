@@ -275,7 +275,7 @@ export default function App() {
   return (
     <div
       ref={inspectorSize.shell}
-      className={`shell ${collapsed ? "collapsed" : ""}`}
+      className={`shell ${collapsed ? "collapsed" : ""} ${hallTrial ? "hall-trial" : ""}`}
     >
       <aside className="sidebar" inert={!!draft}>
         <div className="brand">
@@ -439,11 +439,15 @@ export default function App() {
           </span>
         </div>
         <span className="show-name" title={deskShow && deskShow === config?.show ? `${showLabel} · ${t("shell.showMatched")}` : showLabel}>{showLabel}</span>
+        {hallTrial && (
+          <div className="hall-header-links">
+            {state.status.manual && (
+              <Action onClick={() => action({ a: "link_connect" })}>{t("shell.connectMa2")}</Action>
+            )}
+            <a className="help-button" href="/index.html">{t("shell.classic")}</a>
+          </div>
+        )}
         <div className="global-actions">
-          {hallTrial && state.status.manual && (
-            <Action onClick={() => action({ a: "link_connect" })}>{t("shell.connectMa2")}</Action>
-          )}
-          {hallTrial && <a className="help-button" href="/index.html">{t("shell.classic")}</a>}
           {hlState !== "idle" && (
             <div
               className={`highlight-pill ${hlState}`}

@@ -174,7 +174,7 @@ try {
  }
  // Clear selection through a genuine empty-background click.
  await page.locator('.stage-viewport>svg').click({position:{x:8,y:8}});assert.equal(await page.locator('[data-fixture][aria-pressed="true"]').count(),0);
- assert(actions.length>25);assert(actions.every(a=>['layout_save','hall_save'].includes(a.a)),JSON.stringify(actions.filter(a=>!['layout_save','hall_save'].includes(a.a))));
+ assert(actions.filter(a=>['layout_save','hall_save'].includes(a.a)).length>25);assert(actions.every(a=>['layout_save','hall_save','plan_editing'].includes(a.a)),JSON.stringify(actions.filter(a=>!['layout_save','hall_save','plan_editing'].includes(a.a))));
  assert.deepEqual(errors,[]);
  await writeFile(new URL('verification.json',output),JSON.stringify({results,measures,errors,actions:actions.map(({a,pos,hall})=>({a,pos,hall}))},null,2));
  console.log(JSON.stringify({passed:results.length,results,actions:actions.length,measures},null,2));

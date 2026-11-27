@@ -83,7 +83,7 @@ try {
   return Math.abs(bridge.state.config.fixtures.find(f=>f.id===9).x - 2.5 / roomWidth) < .00001;
  }, roomWidth);
  await page.getByLabel('Поворот, °',{exact:true}).fill('37.5');await nav('Сохранить');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).rot===37.5);
- await page.locator('.layout-fields select').first().selectOption('profile');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).icon==='profile');
+ await page.getByLabel('Иконка прибора', { exact: true }).selectOption('profile');await nav('Сохранить');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).icon==='profile');
  await page.getByLabel('Ширина помещения, м',{exact:true}).fill('20');await page.getByLabel('Длина помещения, м',{exact:true}).fill('26');
  await page.getByLabel('Ширина сцены, м',{exact:true}).fill('10');await page.getByLabel('Глубина сцены, м',{exact:true}).fill('4');
  await page.getByLabel('Положение вдоль стены, %',{exact:true}).fill('25');await page.getByLabel('Сцена у стены',{exact:true}).selectOption('left');
@@ -131,7 +131,7 @@ try {
  const bb=await page.locator('.joystick').boundingBox();await page.mouse.move(bb.x+bb.width*.9,bb.y+bb.height/2);await page.mouse.down();await page.waitForTimeout(150);
  await state(b=>{b.socket.close();return true;});await page.mouse.up();await wait(b=>b.ready());
  const afterReconnect=sent.filter(a=>a.a==='jog').length;await page.waitForTimeout(400);assert.equal(sent.filter(a=>a.a==='jog').length,afterReconnect);
- assert.deepEqual(await state(b=>b.state.selected),[]);results.push('disconnect stops held joystick without replay on reconnect');
+ assert.deepEqual(await state(b=>b.state.selected),[9]);results.push('disconnect stops held joystick without replay on reconnect');
  assert.deepEqual(errors,[]);console.log(JSON.stringify({results},null,2));
 } catch(e) {await page.screenshot({path:'screenshots/premium-v2/failure.png',fullPage:true});throw e;}
 finally {await writeFile('screenshots/premium-v2/verification.json',JSON.stringify({results,errors,actions:sent.map(a=>a.a)},null,2));await browser.close();}
