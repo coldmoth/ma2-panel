@@ -12,6 +12,8 @@ const page=await context.newPage();page.setDefaultTimeout(8000);
 page.on('pageerror',e=>errors.push(e.message));
 page.on('websocket',ws=>ws.on('framesent',({payload})=>{try{const a=JSON.parse(payload);if(a.a)actions.push(a);}catch{}}));
 const groupActions = () => actions.filter(({a}) => a !== 'plan_editing');
+// FixtureType discovery may refine footprint independently of local group edits.
+const planFixtures = fixtures => fixtures.map(({footprint, ...fixture}) => fixture);
 const state=()=>page.evaluate(async()=>{const {bridge}=await import('/src/client.mjs');return bridge.state;});
 const dialog=()=>page.locator('dialog[open]');
 const nav=()=>page.getByRole('complementary',{name:'Категории приборов'});
@@ -63,8 +65,8 @@ try {
  await page.reload();await page.locator('[data-fixture="1"]').waitFor();assert.deepEqual((await group('Левая сцена')).fixtures,[1,9,19]);
  const disk=JSON.parse(await readFile(process.env.LUMA_GROUP_CONFIG || '/tmp/luma-groups-runtime/config.json','utf8'));
  assert.deepEqual(disk.groups.find(g=>g.id===left.id).fixtures,[1,9,19]);
- assert.deepEqual((await state()).config.fixtures,original);assert.deepEqual((await state()).config.hall,originalHall);
- record('reload and on-disk persistence; all fixture properties and geometry unchanged');
+ assert.deepEqual(planFixtures((await state()).config.fixtures),planFixtures(original));assert.deepEqual((await state()).config.hall,originalHall);
+ record('reload and on-disk persistence; fixture settings and geometry unchanged');
  await page.getByRole('button',{name:'Приборы',exact:true}).click();await openGroup('Левая сцена');
  await page.getByRole('button',{name:'Выделить группу',exact:true}).click();await settled();
  await page.screenshot({path:new URL('fixtures.png',output).pathname});
@@ -107,7 +109,7 @@ try {
  await page.setViewportSize({width:1440,height:900});
  await page.getByLabel('Действия группы').click();await page.getByRole('button',{name:'Удалить группу',exact:true}).click();await dialog().getByRole('button',{name:'Отмена',exact:true}).click();assert(await group('Левая сцена'));
  const deletion=actions.length;await deleteGroup('Левая сцена');assert.equal(await group('Левая сцена'),undefined);assert.deepEqual((await state()).selected,[]);assert(actions.slice(deletion).every(a=>a.a==='group_delete'));
- assert((await group('Фронтальный свет')).fixtures.includes(1));assert.deepEqual((await state()).config.fixtures,original);await deleteGroup('Дуэт');
+ assert((await group('Фронтальный свет')).fixtures.includes(1));assert.deepEqual(planFixtures((await state()).config.fixtures),planFixtures(original));await deleteGroup('Дуэт');
  record('delete confirmation/cancel; active selection cleared locally; fixtures and other groups unchanged');
  assert(actions.every(a=>['group_save','group_delete','select_fixtures','plan_editing'].includes(a.a)),JSON.stringify(actions));
  assert(actions.filter(({a}) => a === 'plan_editing').every(({active}) => typeof active === 'boolean'));assert.deepEqual(errors,[]);

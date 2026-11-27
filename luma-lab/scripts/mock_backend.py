@@ -56,7 +56,11 @@ def main():
     original_start=bridge.start_mock
     async def start(*args,**kwargs):
         mock=await original_start(*args,**kwargs);allowed.add(mock.port)
-        cfg=json.loads(config_path.read_text());seed_mock(mock,cfg,RUNTIME)
+        cfg = json.loads(config_path.read_text())
+        # A saved plan can omit the footprint until FixtureType discovery.
+        for fixture in cfg["fixtures"]:
+            fixture.setdefault("footprint", fixture.get("channels") or 0)
+        seed_mock(mock, cfg, RUNTIME)
         if cfg.get('show') and cfg['show'] not in mock.shows:
             mock.shows.insert(0, cfg['show'])
         mock.configure_simulation(cfg)
