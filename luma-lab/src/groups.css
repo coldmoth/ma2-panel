@@ -1,32 +1,24 @@
-.fixtures-workspace {display:grid;grid-template-columns:190px minmax(0,1fr);gap:22px;align-items:start}
-.fixture-navigation {position:sticky;top:12px;border-right:1px solid var(--line);padding-right:16px;min-width:0;max-height:calc(100vh - 210px);overflow-y:auto;scrollbar-width:thin}
-.fixture-navigation>button {width:100%;display:flex;align-items:center;gap:10px;padding:10px 9px;min-height:44px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--sub);text-align:left;margin-bottom:3px}
-.fixture-navigation>button>span:not(.group-emblem) {flex:1;min-width:0;overflow-wrap:anywhere;font-size:12px}
-.fixture-navigation button small {margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
-.fixture-navigation>button[aria-pressed=true] {background:var(--accent-dim);border-color:color-mix(in srgb,var(--accent) 24%,transparent);color:var(--accent)}
-.fixture-navigation button:hover {background:var(--elev)}
-.fixture-navigation h3 {display:flex;align-items:center;justify-content:space-between;margin:23px 0 8px;padding-left:9px;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
-.fixture-navigation h3 button {display:grid;place-items:center;min-width:32px;min-height:32px;border:0;background:transparent;color:var(--accent);border-radius:7px}
-.fixture-navigation>.muted {font-size:11px;line-height:1.6;padding:0 9px}
-.group-emblem {display:inline-grid;place-items:center;flex-shrink:0;width:29px;height:29px;border-radius:8px;background:color-mix(in srgb,var(--group) 12%,transparent);color:var(--group)}
-.group-emblem.large {height:58px;width:58px;border-radius:16px}
+.fixtures-workspace {display:grid;grid-template-columns:206px minmax(0,1fr);gap:24px;align-items:start}
+.fixture-navigation {position:sticky;top:12px;border-right:1px solid var(--line);padding-right:16px;min-width:0;max-height:calc(100vh - 180px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+.fixture-navigation>button {width:100%;display:flex;align-items:center;gap:10px;padding:8px 10px;min-height:40px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--sub);text-align:left;margin-bottom:3px}
+.fixture-navigation>button>span:not(.group-emblem) {flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:500}
+.fixture-navigation button small {margin-left:auto;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;flex:none}
+.fixture-navigation>button[aria-pressed=true] {background:var(--accent-dim);border-color:var(--accent-border);color:var(--accent-strong)}
+.fixture-navigation button:hover:not([aria-pressed=true]) {background:rgba(255,255,255,0.04);color:var(--text)}
+.fixture-navigation h3 {display:flex;align-items:center;justify-content:space-between;margin:20px 0 8px;padding-left:10px;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.fixture-navigation h3 button {display:grid;place-items:center;min-width:28px;min-height:28px;border:0;background:transparent;color:var(--accent);border-radius:7px}
+.fixture-navigation h3 button:hover:not(:disabled) {background:var(--elev)}
+.fixture-navigation>.muted {font-size:12px;line-height:1.5;padding:0 10px}
+.group-emblem {display:inline-grid;place-items:center;flex-shrink:0;width:28px;height:28px;border-radius:7px;background:color-mix(in srgb,var(--group) 14%,transparent);color:var(--group)}
+.group-emblem.large {height:56px;width:56px;border-radius:14px}
 .fixture-catalog {min-width:0}
-.fixture-section-head {display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}
-.fixture-section-head h2 {font-size:23px;font-weight:500;margin:5px 0 6px;overflow-wrap:anywhere}
+.fixture-section-head {display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+.fixture-section-head h2 {font-size:21px;font-weight:600;letter-spacing:-0.015em;color:var(--text);margin:4px 0 5px;overflow-wrap:anywhere}
 .fixture-section-head p {margin:0;color:var(--muted);font-size:12px}
-.fixture-section-head .eyebrow {font-size:9px;color:var(--accent);letter-spacing:.13em}
-.group-primary-actions {display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.fixture-section-head .eyebrow {font-size:10px;color:var(--accent);letter-spacing:.12em}
+.group-primary-actions {display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
 .fixture-catalog .catalog-toolbar {margin-bottom:12px}
 .catalog-search {flex:1;min-width:0}
-/* Let Astryx style the searchbox inside its compound control. */
-.catalog-search input {
-  background:revert-layer;
-  border:revert-layer;
-  border-radius:revert-layer;
-  color:revert-layer;
-  outline:revert-layer;
-  padding:revert-layer;
-}
 .catalog-search input::-webkit-search-cancel-button {display:none}
 .catalog-search .catalog-search-control:has(input:focus-visible) {
   outline:var(--focus-outline-width) solid var(--focus-outline-color);
@@ -35,16 +27,16 @@
 @media (pointer:coarse) {
   .catalog-search .catalog-search-control {min-height:44px}
 }
-.fixture-catalog .catalog-caption {align-items:center;gap:8px;margin-bottom:16px}
-.fixture-catalog .catalog-caption small {display:block;font-size:10px;color:var(--muted);margin-top:5px}
-.fixture-catalog .fixture-grid {grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
-.fixture-catalog .fixture-card {position:relative;padding:16px 12px;min-height:110px;align-items:flex-start}
+.fixture-catalog .catalog-caption {align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.fixture-catalog .catalog-caption small {display:block;font-size:11px;color:var(--muted);margin-top:3px}
+.fixture-catalog .fixture-grid {grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:10px}
+.fixture-catalog .fixture-card {position:relative;padding:14px 14px;min-height:102px;align-items:flex-start}
 .fixture-catalog .fixture-card>div {min-width:0;flex:1}
 .fixture-catalog .fixture-card b {white-space:normal;overflow-wrap:anywhere}
 .fixture-catalog .fixture-card .selection-check {flex-shrink:0}
-.fixture-catalog .fixture-card-glyph {margin-top:5px;flex-shrink:0}
-.fixture-catalog .fixture-card div .fixture-memberships {display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
-.fixture-catalog .fixture-memberships>span {display:inline-flex;align-items:center;gap:4px;color:var(--group);background:color-mix(in srgb,var(--group) 10%,transparent);border-radius:4px;padding:3px 5px;font-size:9px;max-width:100%;overflow-wrap:anywhere}
+.fixture-catalog .fixture-card-glyph {margin-top:4px;flex-shrink:0}
+.fixture-catalog .fixture-card div .fixture-memberships {display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.fixture-catalog .fixture-memberships>span {display:inline-flex;align-items:center;gap:4px;color:var(--group);background:color-mix(in srgb,var(--group) 12%,transparent);border-radius:5px;padding:3px 6px;font-size:11px;font-weight:500;max-width:100%;overflow-wrap:anywhere}
 .group-actions {position:relative;align-self:flex-start;z-index:3}
 .group-actions summary {display:grid;place-items:center;width:42px;height:42px;border:1px solid var(--line);border-radius:10px;cursor:pointer;list-style:none;color:var(--sub);background:var(--panel)}
 .group-actions summary::-webkit-details-marker {display:none}
@@ -96,5 +88,5 @@
 .group-destinations button:hover {border-color:var(--accent)}
 .group-destinations button>span:nth-child(2) {flex:1;min-width:0;overflow-wrap:anywhere}
 .group-destinations small {display:block;color:var(--muted);font-size:11px;margin-top:5px}
-@media(max-width:1200px) {.fixtures-workspace {grid-template-columns:160px minmax(0,1fr);gap:14px}.fixture-navigation{padding-right:10px}.fixture-catalog .fixture-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}.fixture-catalog .catalog-caption{align-items:flex-start;flex-direction:column}}
+@media(max-width:1200px) {.fixtures-workspace {grid-template-columns:182px minmax(0,1fr);gap:16px}.fixture-navigation{padding-right:12px}.fixture-catalog .fixture-grid{grid-template-columns:repeat(auto-fill,minmax(205px,1fr))}}
 @media(max-width:900px) {.fixtures-workspace{grid-template-columns:1fr}.fixture-navigation{position:static;display:flex;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);padding:0 0 12px;gap:4px}.fixture-navigation>button{width:auto;max-width:100%;margin:0}.fixture-navigation h3{flex-basis:100%;margin:10px 0 4px}.fixture-navigation>.muted{width:100%;margin:3px 0}.fixture-catalog .catalog-caption{flex-direction:row}.fixture-catalog .fixture-grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}}

@@ -1,9 +1,6 @@
 import { useLanguage } from "./Language.jsx";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { InternationalizationProvider } from "@astryxdesign/core/i18n";
-import { Theme } from "@astryxdesign/core/theme";
-import { lumaTheme } from "./theme/luma.js";
-import "./theme/luma.css";
 import { errorMessage } from "./errors.mjs";
 import React, { useEffect, useRef, useState } from "react";
 import { bridge } from "./client.mjs";
@@ -132,7 +129,7 @@ export default function FixturesWorkspace({state, visuals, onSelect, onSelectGro
     menu.open = false;
     menu.querySelector("summary").focus();
   }
-  function nav(g){return <button key={g.id} aria-pressed={scope===`group:${g.id}`} onClick={()=>{setScope(`group:${g.id}`);setQuery("");}}><span className="group-emblem" style={{"--group":groupColor(g)}}><Icon name={groupIcon(g)} size={16}/></span><span>{g.label}</span><small>{g.fixtures?.length || 0}</small></button>;}
+  function nav(g){return <button key={g.id} title={g.label} aria-pressed={scope===`group:${g.id}`} onClick={()=>{setScope(`group:${g.id}`);setQuery("");}}><span className="group-emblem" style={{"--group":groupColor(g)}}><Icon name={groupIcon(g)} size={16}/></span><span>{g.label}</span><small>{g.fixtures?.length || 0}</small></button>;}
   return <div className="fixtures-workspace">
     <aside className="fixture-navigation" aria-label={t("fixtures.categories")}>
       <button aria-pressed={scope==="all"} onClick={()=>{setScope("all");setQuery("");}}><Icon name="fixtures"/><span>{t("shell.allFixtures")}</span><small>{fixtures.length}</small></button>
@@ -151,28 +148,26 @@ export default function FixturesWorkspace({state, visuals, onSelect, onSelectGro
       {active && <div className="group-primary-actions">{isLocal(active) && <><Action variant="primary" disabled={!groupReady} onClick={()=>onEditor({group:active})}><Icon name="plus"/>{t("fixtures.addFixtures")}</Action><Action disabled={!groupReady} onClick={()=>onEditor({group:active})}>{t("fixtures.editMembers")}</Action></>}<Action disabled={!availableGroupIds(active, fixtures).length} onClick={()=>onSelectGroup(active)}>{t("fixtures.selectGroup")}</Action></div>}
       <div className="catalog-toolbar">
         <div className="catalog-search">
-          <Theme theme={lumaTheme} mode="dark">
-            <InternationalizationProvider locale={language} overrides={{
-              [language]: {
-                "@astryx.textInput.clearLabel": t("fixtures.clearSearch"),
-                "@astryx.inputClearButton.tooltip": t("fixtures.clearSearch"),
-              },
-            }}>
-              <TextInput
-                type="search"
-                enterKeyHint="search"
-                size="lg"
-                controlClassName="catalog-search-control"
-                label={t("fixtures.find")}
-                isLabelHidden
-                placeholder={t("fixtures.searchPlaceholder")}
-                startIcon={<Icon name="search"/>}
-                value={query}
-                onChange={setQuery}
-                hasClear
-              />
-            </InternationalizationProvider>
-          </Theme>
+          <InternationalizationProvider locale={language} overrides={{
+            [language]: {
+              "@astryx.textInput.clearLabel": t("fixtures.clearSearch"),
+              "@astryx.inputClearButton.tooltip": t("fixtures.clearSearch"),
+            },
+          }}>
+            <TextInput
+              type="search"
+              enterKeyHint="search"
+              size="lg"
+              controlClassName="catalog-search-control"
+              label={t("fixtures.find")}
+              isLabelHidden
+              placeholder={t("fixtures.searchPlaceholder")}
+              startIcon={<Icon name="search"/>}
+              value={query}
+              onChange={setQuery}
+              hasClear
+            />
+          </InternationalizationProvider>
         </div>
         <Action disabled={!filtered.some(f=>!f.missing)} onClick={()=>onSelectAll(filtered.filter(f=>!f.missing).map(f=>f.id))}>{t("fixtures.selectAll")}</Action>
       </div>

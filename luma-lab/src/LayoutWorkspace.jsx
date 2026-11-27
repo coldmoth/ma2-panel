@@ -13,9 +13,6 @@ import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { Theme } from "@astryxdesign/core/theme";
-import { lumaTheme } from "./theme/luma.js";
-import "./theme/luma.css";
 import { Icon } from "./Icons.jsx";
 import Stage from './Stage.jsx';
 import {bridge} from './client.mjs';
@@ -167,19 +164,26 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
   const message=busy?t("common.saving"):error?t("layout.saveFailed"):preview || geometryDirty || fixtureDirty?t("layout.unsaved"):status==='saved'?t("common.saved"):t("layout.localPlan");
   return <div className="layout-workspace">
     <div className="layout-toolbar">
-      <div className="layout-history"><button aria-label={t("layout.undo")} disabled={!ready || busy || !!preview || geometryDirty || fixtureDirty || !history.past.length} onClick={undo} title="Ctrl/⌘+Z">↶ {t("layout.undo")}</button><button aria-label={t("layout.redo")} disabled={!ready || busy || !!preview || geometryDirty || fixtureDirty || !history.future.length} onClick={redo} title="Ctrl/⌘+Shift+Z">↷ {t("layout.redo")}</button></div>
+      <div className="layout-history">
+        <button type="button" aria-label={t("layout.undo")} disabled={!ready || busy || !!preview || geometryDirty || fixtureDirty || !history.past.length} onClick={undo} title="Ctrl/⌘+Z">
+          <Icon name="undo" size={14} />
+          <span>{t("layout.undo")}</span>
+        </button>
+        <button type="button" aria-label={t("layout.redo")} disabled={!ready || busy || !!preview || geometryDirty || fixtureDirty || !history.future.length} onClick={redo} title="Ctrl/⌘+Shift+Z">
+          <Icon name="redo" size={14} />
+          <span>{t("layout.redo")}</span>
+        </button>
+      </div>
       <div className="layout-toolbar-right">
         <span className={`layout-status ${error?'error':''}`} role="status" aria-live="polite">{message}</span>
-        <Theme theme={lumaTheme} mode="dark">
-          <Button
-            label={t("layout.ma2Xml")}
-            variant="secondary"
-            size="sm"
-            icon={<Icon name="layout" size={14} />}
-            isDisabled={busy}
-            onClick={() => setXmlModalOpen(true)}
-          />
-        </Theme>
+        <Button
+          label={t("layout.ma2Xml")}
+          variant="secondary"
+          size="sm"
+          icon={<Icon name="layout" size={14} />}
+          isDisabled={busy}
+          onClick={() => setXmlModalOpen(true)}
+        />
       </div>
     </div>
     {error && <div className="layout-error" role="alert">{t("layout.saveFailedHint", { error: errorMessage(error, t) })}</div>}
@@ -509,7 +513,6 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
   }));
 
   return (
-    <Theme theme={lumaTheme} mode="dark">
       <InternationalizationProvider
         locale={language}
         overrides={{ "@astryx.dialog.close": t("common.close") }}
@@ -716,6 +719,5 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
           </div>
         </Dialog>
       </InternationalizationProvider>
-    </Theme>
   );
 }

@@ -8,9 +8,6 @@ import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { Switch } from "@astryxdesign/core/Switch";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { Theme } from "@astryxdesign/core/theme";
-import { lumaTheme } from "./theme/luma.js";
-import "./theme/luma.css";
 import { Action, ErrorDetails } from "./ui.jsx";
 import { Icon } from "./Icons.jsx";
 import { useLanguage } from "./Language.jsx";
@@ -111,7 +108,6 @@ function ClassicFallbackTools({ withEmbedded = false }) {
     { href: `${LEGACY_BASE}/log.html`, label: t("settings.proClassicLog"), desc: t("settings.proClassicLogDesc") },
   ];
   return (
-    <Theme theme={lumaTheme} mode="dark">
       <Card variant="muted" padding={3} className="classic-tools-card">
         <Collapsible trigger={t("settings.backupClassicTools")} defaultIsOpen={false}>
           <div className="classic-tools-body">
@@ -151,7 +147,6 @@ function ClassicFallbackTools({ withEmbedded = false }) {
           </div>
         </Collapsible>
       </Card>
-    </Theme>
   );
 }
 
@@ -431,84 +426,82 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }
             </label>
           </section>
 
-          <Theme theme={lumaTheme} mode="dark">
-            <section className="settings-section hall-view-settings">
-              <div className="settings-section-title">
-                <Icon name="power" />
-                <div>
-                  <h3>{t("settings.safetyTitle")}</h3>
-                  <p>{t("settings.safetyHint")}</p>
-                </div>
+          <section className="settings-section hall-view-settings">
+            <div className="settings-section-title">
+              <Icon name="power" />
+              <div>
+                <h3>{t("settings.safetyTitle")}</h3>
+                <p>{t("settings.safetyHint")}</p>
               </div>
-              <div className="safety-mode-cards" role="radiogroup" aria-label={t("settings.safetyMode")}>
-                {SAFETY_PRESETS.map((preset) => {
-                  const selected = draft.mode === preset.id;
-                  return (
-                    <SelectableCard
-                      key={preset.id}
-                      label={t(`settings.preset.${preset.id}.title`)}
-                      isSelected={selected}
-                      isDisabled={saving}
-                      padding={3}
-                      className="safety-mode-card"
-                      onChange={(isSelected) => {
-                        if (isSelected) {
-                          setDraft((d) => ({
-                            ...d,
-                            mode: preset.id,
-                            flags: { ...preset.flags },
-                          }));
-                        }
-                      }}
-                    >
-                      <div className="safety-card-head">
-                        <strong>{t(`settings.preset.${preset.id}.title`)}</strong>
-                        <Badge
-                          variant={preset.badgeVariant}
-                          label={t(`settings.preset.${preset.id}.badge`)}
-                        />
-                      </div>
-                      <p className="safety-card-desc">{t(`settings.preset.${preset.id}.desc`)}</p>
-                    </SelectableCard>
-                  );
-                })}
-              </div>
-              {draft.mode === "full" && (
-                <div className="safety-full-banner">
-                  <Banner
-                    status="warning"
-                    title={t("settings.fullModeBannerTitle")}
-                    description={t("settings.fullModeWarning")}
-                  />
-                </div>
-              )}
-              <Collapsible
-                trigger={t("settings.fineGrainedPermissions")}
-                defaultIsOpen={false}
-                className="safety-collapsible"
-              >
-                <div className="safety-flags-grid">
-                  {SAFETY_FLAGS.map((flag) => (
-                    <div className="settings-row" key={flag}>
-                      <div>
-                        <b>{t(`settings.flag.${flag}`)}</b>
-                        <small>{t(`settings.flagDesc.${flag}`)}</small>
-                      </div>
-                      <Switch
-                        value={Boolean(draft.flags[flag])}
-                        label={t(`settings.flag.${flag}`)}
-                        isLabelHidden
-                        isDisabled={saving}
-                        onChange={(value) =>
-                          setDraft((d) => ({ ...d, flags: { ...d.flags, [flag]: value } }))
-                        }
+            </div>
+            <div className="safety-mode-cards" role="radiogroup" aria-label={t("settings.safetyMode")}>
+              {SAFETY_PRESETS.map((preset) => {
+                const selected = draft.mode === preset.id;
+                return (
+                  <SelectableCard
+                    key={preset.id}
+                    label={t(`settings.preset.${preset.id}.title`)}
+                    isSelected={selected}
+                    isDisabled={saving}
+                    padding={3}
+                    className="safety-mode-card"
+                    onChange={(isSelected) => {
+                      if (isSelected) {
+                        setDraft((d) => ({
+                          ...d,
+                          mode: preset.id,
+                          flags: { ...preset.flags },
+                        }));
+                      }
+                    }}
+                  >
+                    <div className="safety-card-head">
+                      <strong>{t(`settings.preset.${preset.id}.title`)}</strong>
+                      <Badge
+                        variant={preset.badgeVariant}
+                        label={t(`settings.preset.${preset.id}.badge`)}
                       />
                     </div>
-                  ))}
-                </div>
-              </Collapsible>
-            </section>
-          </Theme>
+                    <p className="safety-card-desc">{t(`settings.preset.${preset.id}.desc`)}</p>
+                  </SelectableCard>
+                );
+              })}
+            </div>
+            {draft.mode === "full" && (
+              <div className="safety-full-banner">
+                <Banner
+                  status="warning"
+                  title={t("settings.fullModeBannerTitle")}
+                  description={t("settings.fullModeWarning")}
+                />
+              </div>
+            )}
+            <Collapsible
+              trigger={t("settings.fineGrainedPermissions")}
+              defaultIsOpen={false}
+              className="safety-collapsible"
+            >
+              <div className="safety-flags-grid">
+                {SAFETY_FLAGS.map((flag) => (
+                  <div className="settings-row" key={flag}>
+                    <div>
+                      <b>{t(`settings.flag.${flag}`)}</b>
+                      <small>{t(`settings.flagDesc.${flag}`)}</small>
+                    </div>
+                    <Switch
+                      value={Boolean(draft.flags[flag])}
+                      label={t(`settings.flag.${flag}`)}
+                      isLabelHidden
+                      isDisabled={saving}
+                      onChange={(value) =>
+                        setDraft((d) => ({ ...d, flags: { ...d.flags, [flag]: value } }))
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            </Collapsible>
+          </section>
 
           {saveError && <div className="record-scene-err" role="alert">{saveError}</div>}
           {saveNotice && <div className="inline-notice" role="status">{saveNotice}</div>}
@@ -597,8 +590,9 @@ function DiagnosticsSection({ state }) {
             <Icon name="search" size={14} />
             {linkTesting ? t("settings.linkTesting") : t("settings.testLink")}
           </Action>
-          <a className="help-button" href="/api/diag.zip" download>
-            {t("settings.diagDownloadZip")}
+          <a className="diag-download-btn" href="/api/diag.zip" download>
+            <Icon name="download" size={14} />
+            <span>{t("settings.diagDownloadZip")}</span>
           </a>
         </div>
       </div>
@@ -787,7 +781,7 @@ function PreparationSection({ state }) {
   const fadeChanged = Number(fadeDraft) !== Number(state.config?.scene_fade ?? 0);
 
   return (
-    <Theme theme={lumaTheme} mode="dark">
+    <>
       <div className="section-heading">
         <div>
           <h2>{t("common.preparation")}</h2>
@@ -1034,7 +1028,7 @@ function PreparationSection({ state }) {
       </Card>
 
       <ClassicFallbackTools withEmbedded />
-    </Theme>
+    </>
   );
 }
 
@@ -1127,55 +1121,53 @@ export default function Settings({
                 <p>{t("settings.workspaceHint")}</p>
               </div>
             </div>
-            <section className="settings-section">{languagePicker}</section>
-            <Theme theme={lumaTheme} mode="dark">
-              <section className="settings-section hall-view-settings">
-                <div className="settings-section-title">
-                  <Icon name="hall" />
-                  <div>
-                    <h3>{t("hall.plan")}</h3>
-                    <p>{t("settings.viewsHint")}</p>
-                  </div>
+            <section className="settings-section hall-view-settings">{languagePicker}</section>
+            <section className="settings-section hall-view-settings">
+              <div className="settings-section-title">
+                <Icon name="hall" />
+                <div>
+                  <h3>{t("hall.plan")}</h3>
+                  <p>{t("settings.viewsHint")}</p>
                 </div>
-                <div className="settings-row">
-                  <div>
-                    <b>{t("settings.defaultPerspective")}</b>
-                    <small>{t("settings.perspectiveHint")}</small>
-                  </div>
-                  <Switch
-                    value={!top}
-                    onChange={(v) => setTop(!v)}
-                    label={t("settings.perspectiveView")}
-                    isLabelHidden
-                  />
+              </div>
+              <div className="settings-row">
+                <div>
+                  <b>{t("settings.defaultPerspective")}</b>
+                  <small>{t("settings.perspectiveHint")}</small>
                 </div>
-                <div className="settings-row">
-                  <div>
-                    <b>{t("settings.lightBeams")}</b>
-                    <small>{t("settings.beamsHint")}</small>
-                  </div>
-                  <Switch
-                    value={beams}
-                    onChange={setBeams}
-                    label={t("settings.lightBeams")}
-                    isLabelHidden
-                  />
+                <Switch
+                  value={!top}
+                  onChange={(v) => setTop(!v)}
+                  label={t("settings.perspectiveView")}
+                  isLabelHidden
+                />
+              </div>
+              <div className="settings-row">
+                <div>
+                  <b>{t("settings.lightBeams")}</b>
+                  <small>{t("settings.beamsHint")}</small>
                 </div>
-                <div className="settings-row">
-                  <div>
-                    <b>{t("settings.fixtureNumbers")}</b>
-                    <small>{t("settings.idsHint")}</small>
-                  </div>
-                  <Switch
-                    value={ids}
-                    onChange={setIds}
-                    label={t("settings.fixtureNumbers")}
-                    isLabelHidden
-                  />
+                <Switch
+                  value={beams}
+                  onChange={setBeams}
+                  label={t("settings.lightBeams")}
+                  isLabelHidden
+                />
+              </div>
+              <div className="settings-row">
+                <div>
+                  <b>{t("settings.fixtureNumbers")}</b>
+                  <small>{t("settings.idsHint")}</small>
                 </div>
-              </section>
-            </Theme>
-            <section className="settings-section">
+                <Switch
+                  value={ids}
+                  onChange={setIds}
+                  label={t("settings.fixtureNumbers")}
+                  isLabelHidden
+                />
+              </div>
+            </section>
+            <section className="settings-section hall-view-settings">
               <div className="settings-section-title">
                 <Icon name="sun" />
                 <div>
@@ -1197,7 +1189,7 @@ export default function Settings({
                 ))}
               </div>
             </section>
-            <section className="settings-section shortcut-setting">
+            <section className="settings-section hall-view-settings shortcut-setting">
               <div className="settings-section-title">
                 <Icon name="keyboard" />
                 <div>
