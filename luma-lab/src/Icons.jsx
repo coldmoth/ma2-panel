@@ -23,17 +23,26 @@ const paths = {
   link: "M10 13a5 5 0 0 0 7 0l4-4a4 4 0 0 0-6-6l-2 2 M14 11a5 5 0 0 0-7 0l-4 4a4 4 0 0 0 6 6l2-2",
   layers: "m12 3 10 6-10 6L2 9z M2 13l10 6 10-6 M2 17l10 6 10-6",
   info: "M12 10v7 M12 6v1 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
-  move: "M12 2v20 M2 12h20 m-13-7 3-3 3 3 m-10 4-3 3 3 3 m14-6 3 3-3 3 m-10 4 3 3 3-3",
+  move: "M12 3v18 M3 12h18 M9 6l3-3 3 3 M9 18l3 3 3-3 M6 9l-3 3 3 3 M18 9l3 3-3 3",
+  stop: "M6.5 6.5h11v11h-11z",
+  play: "M8 5.5v13l10.5-6.5z",
+  chevronUp: "m6 15 6-6 6 6",
+  chevronDown: "m6 9 6 6 6-6",
+  undo: "M4 9h10a5 5 0 1 1 0 10H10 M8 5 4 9l4 4",
+  redo: "M20 9H10a5 5 0 1 0 0 10h4 M16 5l4 4-4 4",
+  download: "M12 3v12 M7 10l5 5 5-5 M4 19h16",
 };
+const FILLED_ICONS = new Set(["stop", "play"]);
 export function Icon({ name, size = 18, ...props }) {
+  const filled = FILLED_ICONS.has(name);
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
-      strokeWidth="1.5"
+      strokeWidth={filled ? "1.2" : "1.65"}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

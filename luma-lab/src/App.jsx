@@ -606,7 +606,7 @@ export default function App() {
                   return true;
                 }}
               />
-              <LiveSceneBar state={state} slots={slotIds} />
+              {!quickScenes && <LiveSceneBar state={state} slots={slotIds} />}
               <div inert={!!draft} className={`quick-scenes ${quickScenes ? "open" : ""}`} data-shortcut-layer={quickScenes ? "" : undefined}>
                 {quickScenes && <div className="quick-scenes-content" id="quick-scenes-content">
                   <div className="quick-scenes-head">
@@ -618,7 +618,7 @@ export default function App() {
                   <SceneCards state={state} slots={slotIds} />
                 </div>}
                 <button className="quick-scenes-toggle" data-shortcut-dismiss aria-expanded={quickScenes} aria-controls="quick-scenes-content" onClick={()=>setQuickScenes(v=>!v)}>
-                  <Icon name="scenes" size={16}/><span>{t("scenes.quick")}</span><small>{scenes.length}</small><span className="quick-scenes-caret">{quickScenes ? "⌄" : "⌃"}</span>
+                  <Icon name="scenes" size={16}/><span>{t("scenes.quick")}</span><small>{scenes.length}</small><Icon name={quickScenes ? "chevronDown" : "chevronUp"} size={16} className="quick-scenes-caret" />
                 </button>
               </div>
             </>
