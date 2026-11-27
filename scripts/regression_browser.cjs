@@ -138,6 +138,7 @@ const headers={'x-ma2-test':process.env.MA2_TEST_TOKEN};
     });
     await check('scene-fade-intermediate-output',async()=>{
      await page.getByRole('button',{name:'2 с',exact:true}).click();
+     await page.waitForFunction(() => state.config.scene_fade === 2);
      await go(a);
      await page.waitForFunction(()=>state.simulation[1].dim>50.1&&state.simulation[1].dim<99.9);
      await output(1,100,[100,0,0]);

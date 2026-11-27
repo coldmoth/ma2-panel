@@ -236,7 +236,7 @@ def test_fixture_export_is_found_in_the_fixtures_folder(bridge_cfg, tmp_path):
     # hall 2026-10-18: MA2 3.9.60 wrote the file to <install>\\fixtures while the bridge only watched <install>\\importexport
     export, fixtures = tmp_path / "importexport", tmp_path / "fixtures"
     export.mkdir(), fixtures.mkdir()
-    with bridge_cfg(settings=export_settings(export_dir=str(export))) as (ws, mock, path):
+    with bridge_cfg(settings=export_settings(export_dir=str(export), export_wait=2)) as (ws, mock, path):
         mock.export_dir, mock.fixture_dir = str(export), str(fixtures)
         result = confirm_fixture_import(ws, ask(ws, {"a": "fixtures_fetch"}))
         assert result["ok"] and result["total"] >= 4
