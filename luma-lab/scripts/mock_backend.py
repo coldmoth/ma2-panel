@@ -70,8 +70,11 @@ def main():
         mock.cues={s['exec']:{1:{}} for s in cfg['scenes']}
         if readback:
             from ma2panel.commands import absolute
+            type_list_path = RUNTIME / 'tests' / 'list_fixturetype_3.9.60.txt'
             orig_answer = mock._answer
             def answer_with_dmx(text):
+                if text == 'List FixtureType' and type_list_path.exists():
+                    return f"Executing : {text}\r\n" + type_list_path.read_text(encoding='utf-8').replace('\n', '\r\n') + "[Channel]>"
                 if 'PANELDMX' in text:
                     live_cfg = json.loads(config_path.read_text())
                     dmx_map = live_cfg.get('dmx_map', {})
