@@ -25,7 +25,7 @@ READINESS_ACTIONS = {
     "view": {"show_status", "shows_list"},
     "plan": {"group_save", "group_delete", "layout_save", "hall_save", "fixture_flag", "scene_fade",
              "preset_save", "preset_delete", "show_bind", "show_open_plan", "plan_copy", "plan_editing",
-             "edit_begin", "edit_end"},
+             "edit_begin", "edit_end", "fixtures_fetch", "scenes_import", "scene_delete"},
     "light": PLAN_WRITES | {"scene_slot_find", "highlight"},
     "general": {"master", "blackout", "page_go", "clear"},
     "recovery": {"halt", "resume", "link_connect", "link_drop", "show_identify", "highlight_off",

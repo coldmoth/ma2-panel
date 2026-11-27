@@ -848,6 +848,12 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 return binding
             if a == "scene_slot_find":
                 return link_block()
+            if a == "fixtures_fetch":
+                if safety["allow_fixture_read"] is not True:
+                    return reason("safety_denied", "получение приборов заблокировано: allow_fixture_read")
+                return link_block()
+            if a == "scenes_import":
+                return link_block()
             if a == "blackout":
                 return blackout_block()
 

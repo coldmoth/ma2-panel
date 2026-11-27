@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useId, useState } from "react";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { Switch } from "@astryxdesign/core/Switch";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { Theme } from "@astryxdesign/core/theme";
 import { lumaTheme } from "./theme/luma.js";
 import "./theme/luma.css";
@@ -52,6 +60,40 @@ const SAFETY_FLAGS = [
   "allow_rdm",
 ];
 
+const SAFETY_PRESETS = [
+  {
+    id: "test",
+    badgeVariant: "success",
+    flags: Object.fromEntries(SAFETY_FLAGS.map((k) => [k, false])),
+  },
+  {
+    id: "store",
+    badgeVariant: "info",
+    flags: {
+      ...Object.fromEntries(SAFETY_FLAGS.map((k) => [k, false])),
+      allow_fixture_read: true,
+      allow_highlight: true,
+      allow_group_store: true,
+    },
+  },
+  {
+    id: "full",
+    badgeVariant: "warning",
+    flags: {
+      allow_master: true,
+      allow_page_change: true,
+      allow_fixture_read: true,
+      allow_highlight: true,
+      allow_group_store: true,
+      allow_layout_import: true,
+      allow_show_load: true,
+      allow_show_save: true,
+      allow_patch: true,
+      allow_rdm: true,
+    },
+  },
+];
+
 const sections = [
   ["interface", "settings.interface", "layers"],
   ["system", "settings.system", "link"],
@@ -59,8 +101,9 @@ const sections = [
   ["preparation", "common.preparation", "layout"],
 ];
 
-function ProToolLinks() {
+function ClassicFallbackTools({ withEmbedded = false }) {
   const { t } = useLanguage();
+  const [embedOpen, setEmbedOpen] = useState(false);
   const links = [
     { href: `${LEGACY_BASE}/index.html`, label: t("settings.proClassicPanel"), desc: t("settings.proClassicPanelDesc") },
     { href: `${LEGACY_BASE}/settings.html`, label: t("settings.proClassicSettings"), desc: t("settings.proClassicSettingsDesc") },
@@ -68,32 +111,47 @@ function ProToolLinks() {
     { href: `${LEGACY_BASE}/log.html`, label: t("settings.proClassicLog"), desc: t("settings.proClassicLogDesc") },
   ];
   return (
-    <section className="settings-section">
-      <div className="settings-section-title">
-        <Icon name="layout" />
-        <div>
-          <h3>{t("settings.proTools")}</h3>
-          <p>{t("settings.proToolsHint")}</p>
-        </div>
-      </div>
-      <div className="pro-tools-grid">
-        {links.map((item) => (
-          <a
-            key={item.href}
-            className="pro-tool-card"
-            href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div>
-              <b>{item.label}</b>
-              <small>{item.desc}</small>
+    <Theme theme={lumaTheme} mode="dark">
+      <Card variant="muted" padding={3} className="classic-tools-card">
+        <Collapsible trigger={t("settings.backupClassicTools")} defaultIsOpen={false}>
+          <div className="classic-tools-body">
+            <p className="muted">{t("settings.proToolsHint")}</p>
+            <div className="pro-tools-grid">
+              {links.map((item) => (
+                <a
+                  key={item.href}
+                  className="pro-tool-card"
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <div>
+                    <b>{item.label}</b>
+                    <small>{item.desc}</small>
+                  </div>
+                  <Icon name="arrow" size={14} />
+                </a>
+              ))}
             </div>
-            <Icon name="arrow" size={14} />
-          </a>
-        ))}
-      </div>
-    </section>
+            {withEmbedded && (
+              <Collapsible
+                trigger={t("settings.openEmbeddedClassic")}
+                isOpen={embedOpen}
+                onOpenChange={setEmbedOpen}
+                className="classic-embed-collapsible"
+              >
+                {embedOpen && (
+                  <div className="classic-embed-wrap">
+                    <p className="muted">{t("settings.legacy")}</p>
+                    <LegacyFrame page="index.html" title={t("settings.legacy")} />
+                  </div>
+                )}
+              </Collapsible>
+            )}
+          </div>
+        </Collapsible>
+      </Card>
+    </Theme>
   );
 }
 
@@ -103,7 +161,6 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }
   const portId = useId();
   const userId = useId();
   const passId = useId();
-  const modeId = useId();
 
   const [draft, setDraft] = useState(null);
   const [password, setPassword] = useState("");
@@ -383,43 +440,73 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }
                   <p>{t("settings.safetyHint")}</p>
                 </div>
               </div>
-              <div className="settings-row">
-                <div>
-                  <label htmlFor={modeId}><b>{t("settings.safetyMode")}</b></label>
-                  <small>{t(`settings.modeDesc.${draft.mode}`)}</small>
-                </div>
-                <select
-                  id={modeId}
-                  disabled={saving}
-                  value={draft.mode}
-                  onChange={(e) => setDraft((d) => ({ ...d, mode: e.target.value }))}
-                >
-                  <option value="test">{t("settings.mode.test")}</option>
-                  <option value="store">{t("settings.mode.store")}</option>
-                  <option value="full">{t("settings.mode.full")}</option>
-                </select>
+              <div className="safety-mode-cards" role="radiogroup" aria-label={t("settings.safetyMode")}>
+                {SAFETY_PRESETS.map((preset) => {
+                  const selected = draft.mode === preset.id;
+                  return (
+                    <SelectableCard
+                      key={preset.id}
+                      label={t(`settings.preset.${preset.id}.title`)}
+                      isSelected={selected}
+                      isDisabled={saving}
+                      padding={3}
+                      className="safety-mode-card"
+                      onChange={(isSelected) => {
+                        if (isSelected) {
+                          setDraft((d) => ({
+                            ...d,
+                            mode: preset.id,
+                            flags: { ...preset.flags },
+                          }));
+                        }
+                      }}
+                    >
+                      <div className="safety-card-head">
+                        <strong>{t(`settings.preset.${preset.id}.title`)}</strong>
+                        <Badge
+                          variant={preset.badgeVariant}
+                          label={t(`settings.preset.${preset.id}.badge`)}
+                        />
+                      </div>
+                      <p className="safety-card-desc">{t(`settings.preset.${preset.id}.desc`)}</p>
+                    </SelectableCard>
+                  );
+                })}
               </div>
               {draft.mode === "full" && (
-                <p className="safety-full-warn">{t("settings.fullModeWarning")}</p>
+                <div className="safety-full-banner">
+                  <Banner
+                    status="warning"
+                    title={t("settings.fullModeBannerTitle")}
+                    description={t("settings.fullModeWarning")}
+                  />
+                </div>
               )}
-              <div className="safety-flags-grid">
-                {SAFETY_FLAGS.map((flag) => (
-                  <div className="settings-row" key={flag}>
-                    <div>
-                      <b>{t(`settings.flag.${flag}`)}</b>
-                      <small>{flag}</small>
+              <Collapsible
+                trigger={t("settings.fineGrainedPermissions")}
+                defaultIsOpen={false}
+                className="safety-collapsible"
+              >
+                <div className="safety-flags-grid">
+                  {SAFETY_FLAGS.map((flag) => (
+                    <div className="settings-row" key={flag}>
+                      <div>
+                        <b>{t(`settings.flag.${flag}`)}</b>
+                        <small>{t(`settings.flagDesc.${flag}`)}</small>
+                      </div>
+                      <Switch
+                        value={Boolean(draft.flags[flag])}
+                        label={t(`settings.flag.${flag}`)}
+                        isLabelHidden
+                        isDisabled={saving}
+                        onChange={(value) =>
+                          setDraft((d) => ({ ...d, flags: { ...d.flags, [flag]: value } }))
+                        }
+                      />
                     </div>
-                    <Switch
-                      value={Boolean(draft.flags[flag])}
-                      label={t(`settings.flag.${flag}`)}
-                      isLabelHidden
-                      onChange={(value) =>
-                        setDraft((d) => ({ ...d, flags: { ...d.flags, [flag]: value } }))
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </Collapsible>
             </section>
           </Theme>
 
@@ -436,7 +523,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }
         </form>
       )}
 
-      <ProToolLinks />
+      <ClassicFallbackTools />
     </>
   );
 }
@@ -609,8 +696,345 @@ function DiagnosticsSection({ state }) {
         </details>
       </section>
 
-      <ProToolLinks />
+      <ClassicFallbackTools />
     </>
+  );
+}
+
+function PreparationSection({ state }) {
+  const { t } = useLanguage();
+  const [busyAction, setBusyAction] = useState("");
+  const [notice, setNotice] = useState("");
+  const [err, setErr] = useState("");
+  const [fadeDraft, setFadeDraft] = useState(state.config?.scene_fade ?? 0);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  useEffect(() => {
+    setFadeDraft(state.config?.scene_fade ?? 0);
+  }, [state.config?.scene_fade]);
+
+  const deskShow = state.status?.readiness?.show?.name || null;
+  const showState = state.status?.readiness?.show?.state || "pending";
+  const planShow = state.config?.show || "—";
+  const fixtures = state.config?.fixtures || [];
+  const scenes = state.config?.scenes || [];
+
+  const identifyBlock = bridge.blockReason("show_identify");
+  const bindBlock = bridge.blockReason("show_bind");
+  const fetchBlock = bridge.blockReason("fixtures_fetch");
+  const importScenesBlock = bridge.blockReason("scenes_import");
+  const fadeBlock = bridge.blockReason("scene_fade");
+  const renameBlock = bridge.blockReason("scene_rename");
+  const deleteBlock = bridge.blockReason("scene_delete");
+
+  async function runPrep(key, payload, successMessage) {
+    if (busyAction) return;
+    setBusyAction(key);
+    setNotice("");
+    setErr("");
+    try {
+      const res = await bridge.action(payload);
+      if (typeof successMessage === "function") {
+        setNotice(successMessage(res));
+      } else if (successMessage) {
+        setNotice(successMessage);
+      }
+      return res;
+    } catch (e) {
+      setErr(e.err || errorMessage(e, t) || e.message || String(e));
+      return null;
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function saveRename(scene) {
+    const trimmed = renameDraft.trim();
+    if (!trimmed) return;
+    if (trimmed.includes('"')) {
+      setErr(t("scenes.recordNoQuotes"));
+      return;
+    }
+    const ok = await runPrep(
+      `rename:${scene.id}`,
+      { a: "scene_rename", id: scene.id, label: trimmed },
+      t("settings.prepSceneRenamed", { name: trimmed }),
+    );
+    if (ok) {
+      setRenamingId(null);
+      setRenameDraft("");
+    }
+  }
+
+  async function confirmDelete(scene) {
+    const ok = await runPrep(
+      `delete:${scene.id}`,
+      { a: "scene_delete", id: scene.id, desk: false },
+      t("settings.prepSceneDeleted", { name: scene.label || scene.exec }),
+    );
+    if (ok) setConfirmDeleteId(null);
+  }
+
+  const showBadgeVariant = showState === "matched" ? "success" : showState === "pending" ? "warning" : "error";
+  const showBadgeLabel = showState === "matched"
+    ? t("shell.showMatched")
+    : showState === "pending"
+      ? t("settings.statusShowPending")
+      : t("settings.prepShowMismatch");
+  const alreadyBound = Boolean(deskShow && deskShow === state.config?.show);
+  const fadeChanged = Number(fadeDraft) !== Number(state.config?.scene_fade ?? 0);
+
+  return (
+    <Theme theme={lumaTheme} mode="dark">
+      <div className="section-heading">
+        <div>
+          <h2>{t("common.preparation")}</h2>
+          <p>{t("settings.prepHint")}</p>
+        </div>
+      </div>
+
+      {notice && <Banner status="success" title={notice} className="prep-banner" />}
+      {err && <Banner status="error" title={err} className="prep-banner" />}
+
+      <Card variant="default" padding={4} className="prep-card">
+        <div className="prep-card-head">
+          <div className="settings-section-title">
+            <Icon name="fixtures" />
+            <div>
+              <h3>{t("settings.prepShowCardTitle")}</h3>
+              <p>{t("settings.prepShowCardHint")}</p>
+            </div>
+          </div>
+          <Badge variant={showBadgeVariant} label={showBadgeLabel} />
+        </div>
+
+        <div className="native-status-grid">
+          <div className="native-status-card">
+            <small>{t("settings.statusShow")}</small>
+            <strong className={showState === "matched" ? "badge-ok" : "badge-warn"}>
+              {deskShow || t("settings.statusShowPending")}
+            </strong>
+            <span>{t(bridge.connectionKey())}</span>
+          </div>
+          <div className="native-status-card">
+            <small>{t("settings.prepLocalPlanLabel")}</small>
+            <strong>{planShow}</strong>
+            <span>{t("settings.prepFixturesCount", { count: fixtures.length })}</span>
+          </div>
+          <div className="native-status-card">
+            <small>{t("nav.scenes")}</small>
+            <strong>{t("settings.prepScenesCount", { count: scenes.length })}</strong>
+            <span>{t("settings.prepFadeSummary", { fade: state.config?.scene_fade ?? 0 })}</span>
+          </div>
+        </div>
+
+        <div className="prep-actions-row">
+          <Button
+            label={t("settings.prepCheckShow")}
+            variant="secondary"
+            size="sm"
+            isDisabled={Boolean(busyAction) || Boolean(identifyBlock)}
+            isLoading={busyAction === "show_identify"}
+            tooltip={errorMessage(identifyBlock, t) || undefined}
+            onClick={() => runPrep("show_identify", { a: "show_identify" }, t("settings.prepShowChecked"))}
+          />
+          <Button
+            label={t("settings.prepBindPlan")}
+            variant="secondary"
+            size="sm"
+            isDisabled={Boolean(busyAction) || Boolean(bindBlock) || !deskShow || alreadyBound}
+            isLoading={busyAction === "show_bind"}
+            tooltip={
+              errorMessage(bindBlock, t) ||
+              (alreadyBound ? t("shell.showMatched") : !deskShow ? t("settings.statusShowPending") : undefined)
+            }
+            onClick={() =>
+              runPrep(
+                "show_bind",
+                { a: "show_bind", name: deskShow, confirm: true },
+                t("settings.prepPlanBound", { show: deskShow }),
+              )
+            }
+          />
+          <Button
+            label={t("settings.prepFetchFixtures")}
+            variant="primary"
+            size="sm"
+            isDisabled={Boolean(busyAction) || Boolean(fetchBlock)}
+            isLoading={busyAction === "fixtures_fetch"}
+            tooltip={errorMessage(fetchBlock, t) || undefined}
+            onClick={() =>
+              runPrep("fixtures_fetch", { a: "fixtures_fetch" }, (res) =>
+                t("settings.prepFixturesFetched", { count: res?.count ?? fixtures.length }),
+              )
+            }
+          />
+        </div>
+      </Card>
+
+      <Card variant="default" padding={4} className="prep-card">
+        <div className="prep-card-head">
+          <div className="settings-section-title">
+            <Icon name="scenes" />
+            <div>
+              <h3>{t("settings.prepScenesCardTitle")}</h3>
+              <p>{t("settings.prepScenesCardHint")}</p>
+            </div>
+          </div>
+          <Badge variant="neutral" label={String(scenes.length)} />
+        </div>
+
+        <div className="prep-scenes-toolbar">
+          <Button
+            label={t("settings.prepImportScenes")}
+            variant="primary"
+            size="sm"
+            isDisabled={Boolean(busyAction) || Boolean(importScenesBlock)}
+            isLoading={busyAction === "scenes_import"}
+            tooltip={errorMessage(importScenesBlock, t) || undefined}
+            onClick={() =>
+              runPrep("scenes_import", { a: "scenes_import" }, (res) =>
+                t("settings.prepScenesImported", {
+                  added: res?.added ?? 0,
+                  total: res?.total ?? scenes.length,
+                }),
+              )
+            }
+          />
+          <div className="prep-fade-control">
+            <NumberInput
+              label={t("scenes.fade")}
+              value={fadeDraft}
+              min={0}
+              max={30}
+              step={0.5}
+              units={t("common.secondsUnit")}
+              size="sm"
+              width={140}
+              isDisabled={Boolean(busyAction) || Boolean(fadeBlock)}
+              onChange={(value) => setFadeDraft(Math.max(0, Math.min(30, Number(value) || 0)))}
+            />
+            <Button
+              label={t("common.apply")}
+              variant="secondary"
+              size="sm"
+              isDisabled={Boolean(busyAction) || Boolean(fadeBlock) || !fadeChanged}
+              isLoading={busyAction === "scene_fade"}
+              tooltip={errorMessage(fadeBlock, t) || undefined}
+              onClick={() =>
+                runPrep(
+                  "scene_fade",
+                  { a: "scene_fade", fade: Number(fadeDraft) || 0 },
+                  t("settings.prepFadeSaved", { fade: Number(fadeDraft) || 0 }),
+                )
+              }
+            />
+          </div>
+        </div>
+
+        {scenes.length === 0 ? (
+          <p className="muted prep-empty">{t("settings.prepNoScenes")}</p>
+        ) : (
+          <div className="prep-scenes-list">
+            {scenes.map((scene, index) => {
+              const label = scene.label || t("scenes.unnamed", { index: index + 1 });
+              const isRenaming = renamingId === scene.id;
+              const isConfirmingDelete = confirmDeleteId === scene.id;
+              return (
+                <div className="prep-scene-row" key={scene.id}>
+                  <div className="prep-scene-main">
+                    <Badge variant="neutral" label={scene.exec} />
+                    {isRenaming ? (
+                      <div className="prep-scene-rename">
+                        <TextInput
+                          label={t("scenes.recordName")}
+                          isLabelHidden
+                          size="sm"
+                          value={renameDraft}
+                          onChange={setRenameDraft}
+                          onEnter={() => saveRename(scene)}
+                          isDisabled={Boolean(busyAction)}
+                        />
+                        <Button
+                          label={t("common.save")}
+                          variant="primary"
+                          size="sm"
+                          isDisabled={Boolean(busyAction) || !renameDraft.trim()}
+                          isLoading={busyAction === `rename:${scene.id}`}
+                          onClick={() => saveRename(scene)}
+                        />
+                        <Button
+                          label={t("common.cancel")}
+                          variant="ghost"
+                          size="sm"
+                          isDisabled={Boolean(busyAction)}
+                          onClick={() => {
+                            setRenamingId(null);
+                            setRenameDraft("");
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <strong className="prep-scene-label">{label}</strong>
+                    )}
+                  </div>
+                  {!isRenaming && (
+                    <div className="prep-scene-actions">
+                      {isConfirmingDelete ? (
+                        <>
+                          <Button
+                            label={t("settings.prepDeleteConfirm")}
+                            variant="destructive"
+                            size="sm"
+                            isDisabled={Boolean(busyAction) || Boolean(deleteBlock)}
+                            isLoading={busyAction === `delete:${scene.id}`}
+                            onClick={() => confirmDelete(scene)}
+                          />
+                          <Button
+                            label={t("common.cancel")}
+                            variant="ghost"
+                            size="sm"
+                            isDisabled={Boolean(busyAction)}
+                            onClick={() => setConfirmDeleteId(null)}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            label={t("settings.prepRename")}
+                            variant="ghost"
+                            size="sm"
+                            isDisabled={Boolean(busyAction) || Boolean(renameBlock)}
+                            tooltip={errorMessage(renameBlock, t) || undefined}
+                            onClick={() => {
+                              setConfirmDeleteId(null);
+                              setRenamingId(scene.id);
+                              setRenameDraft(scene.label || "");
+                            }}
+                          />
+                          <Button
+                            label={t("settings.prepDelete")}
+                            variant="ghost"
+                            size="sm"
+                            isDisabled={Boolean(busyAction) || Boolean(deleteBlock)}
+                            tooltip={errorMessage(deleteBlock, t) || undefined}
+                            onClick={() => setConfirmDeleteId(scene.id)}
+                          />
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <ClassicFallbackTools withEmbedded />
+    </Theme>
   );
 }
 
@@ -805,20 +1229,7 @@ export default function Settings({
         ) : section === "diagnostics" ? (
           <DiagnosticsSection state={state} />
         ) : (
-          <>
-            <div className="section-heading">
-              <div>
-                <h2>{t("common.preparation")}</h2>
-                <p>{t("settings.classicPanelHint")}</p>
-              </div>
-            </div>
-            <ProToolLinks />
-            <details className="diag-raw-details">
-              <summary>{t("settings.openEmbeddedClassic")}</summary>
-              <p className="muted" style={{ marginTop: 10 }}>{t("settings.legacy")}</p>
-              <LegacyFrame page="index.html" title={t("settings.legacy")} />
-            </details>
-          </>
+          <PreparationSection state={state} />
         )}
         {section === "interface" && settings && (
           <p className="settings-port-note">
