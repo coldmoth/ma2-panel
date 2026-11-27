@@ -7,11 +7,11 @@ const paths = {
   scenes: "m9 5 11 7-11 7z M4 5v14",
   layout: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
   settings:
-    "M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z",
   collapse: "m14 6-6 6 6 6",
   expand: "m10 6 6 6-6 6",
-  power: "M12 2v10 M5 5a9 9 0 1 0 14 0",
-  sun: "M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5.6 5.6 1.4 1.4 M17 17l1.4 1.4 M5.6 18.4 1.4-1.4 M17 7l1.4-1.4 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
+  power: "M12 2.5v9.5 M6.34 5.64a8.5 8.5 0 1 0 11.32 0",
+  sun: "M12 3v2.2 M12 18.8V21 M3 12h2.2 M18.8 12H21 M5.64 5.64l1.56 1.56 M16.8 16.8l1.56 1.56 M5.64 18.36l1.56-1.56 M16.8 7.2l1.56-1.56 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
   keyboard: "M2 6h20v12H2z M5 9h1 M9 9h1 M13 9h1 M17 9h2 M6 14h12",
   plus: "M12 5v14 M5 12h14",
   minus: "M5 12h14",
@@ -54,5 +54,5 @@ export function Icon({ name, size = 18, ...props }) {
 }
 export function FixtureGlyph({kind="head",size=32,color="currentColor"}) {
   const compact = kind === "par" ? size*.75 : size;
-  return <DesignGlyph kind={kind} variant="B" context="catalog" width={kind === "bar" ? size : compact} height={kind === "bar" ? Math.max(6,size*.22) : compact} style={{color,"--dl-solid":"#262635","--dl-surface":"#171923","--optic":color}} />;
+  return <DesignGlyph kind={kind} variant="B" context="catalog" width={kind === "bar" ? size : compact} height={kind === "bar" ? Math.max(6,size*.22) : compact} style={{color,"--dl-solid":"#222638","--dl-surface":"#131620","--optic":color}} />;
 }

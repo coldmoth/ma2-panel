@@ -3,9 +3,6 @@ import { errorMessage } from "./errors.mjs";
 import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { ButtonGroup } from "@astryxdesign/core/ButtonGroup";
-import { Theme } from "@astryxdesign/core/theme";
-import { lumaTheme } from "./theme/luma.js";
-import "./theme/luma.css";
 import { Action, EvidenceDot, Range, useStored } from "./ui.jsx";
 import { FixtureGlyph, Icon } from "./Icons.jsx";
 import { bridge } from "./client.mjs";
@@ -70,10 +67,10 @@ function DimmerControl({ state, values, selectionSerial, send }) {
   return (
     <section className="dimmer-control" aria-label={t("tool.dim")}
       title={errorMessage(bridge.blockReason("dim"), t)}>
-      <div className="field-top">
+      <div className="field-top dimmer-head">
         <span>{t("tool.dim")}</span>
         <span className="field-value-group">
-          <output>
+          <output className="dimmer-readout">
             {shownDim === "mixed" ? t("common.mixed")
               : shownDim === null ? "—" : `${shownDim}%`}
           </output>
@@ -85,26 +82,24 @@ function DimmerControl({ state, values, selectionSerial, send }) {
       )}
       <Range label={t("tool.dim")} value={sliderValue} disabled={disabled}
         showCaption={false} onCommit={(value) => apply(Math.round(value))} />
-      <Theme theme={lumaTheme} mode="dark">
-        <ButtonGroup
-          className="dimmer-presets"
-          label={t("inspector.dimPresets")}
-          size="sm"
-          isDisabled={disabled}
-        >
-          {[0, 25, 50, 75, 100].map((preset) => (
-            <Button
-              key={preset}
-              label={`${preset}%`}
-              variant={shownDim === preset ? "primary" : "secondary"}
-              size="sm"
-              isDisabled={disabled}
-              aria-pressed={shownDim === preset}
-              onClick={() => apply(preset)}
-            />
-          ))}
-        </ButtonGroup>
-      </Theme>
+      <ButtonGroup
+        className="dimmer-presets"
+        label={t("inspector.dimPresets")}
+        size="sm"
+        isDisabled={disabled}
+      >
+        {[0, 25, 50, 75, 100].map((preset) => (
+          <Button
+            key={preset}
+            label={`${preset}%`}
+            variant={shownDim === preset ? "primary" : "secondary"}
+            size="sm"
+            isDisabled={disabled}
+            aria-pressed={shownDim === preset}
+            onClick={() => apply(preset)}
+          />
+        ))}
+      </ButtonGroup>
     </section>
   );
 }

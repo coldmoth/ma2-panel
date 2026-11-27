@@ -376,7 +376,7 @@ export default function Stage({
         <div><b>{t("hall.groups")}</b><button data-shortcut-dismiss aria-label={t("common.close")} onClick={() => {
           setGroupsOpen(false);
           groupToggle.current?.focus();
-        }}>×</button></div>
+        }}><Icon name="close" size={16} /></button></div>
         <div className="hall-group-list">{groupOptions.map(group => {
           const available = availableGroupIds(group, fixtures).length;
           const total = group.fixtures?.length || 0;
@@ -396,7 +396,7 @@ export default function Stage({
       {candidates?.length > 0 && <div ref={detailsPanel} className={`local-detail ${editing ? "" : "hall-popup hall-candidates"}`}
         data-shortcut-layer="local-area" role="region" aria-label={t(editing ? "hall.zoomedArea" : "hall.chooseFixture")}>
         <div><b>{t(editing ? "hall.preciseSelection" : "hall.chooseFixture")}</b><button data-shortcut-dismiss aria-label={t("hall.closeArea")}
-          onClick={() => closeDetail()}>×</button></div>
+          onClick={() => closeDetail()}><Icon name="close" size={16} /></button></div>
         <div className="detail-fixtures">{candidates.map(f => <button key={f.id}
           aria-label={editing ? t("hall.pickFixtureId", { id: f.id }) : `${f.label || f.id}, ID ${f.id}`}
           aria-pressed={selection.includes(f.id)} disabled={!editing && (busy || !selectable)}
