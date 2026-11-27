@@ -24,7 +24,7 @@ function statusFor({ma2 = "logged_in", mock = true, name = "Mock show", showStat
       show: {state: showState, name},
       actions: {
         view: {show_status: null}, plan: {group_save: null, edit_begin: null, edit_end: null},
-        light: {select_fixtures: blocked, dim: blocked, jog: blocked, aim: blocked, scene_go: blocked, scene_off: blocked, scene_slot_find: blocked, scene_create: blocked, highlight: blocked},
+        light: {select_fixtures: blocked, dim: blocked, color: blocked, jog: blocked, aim: blocked, scene_go: blocked, scene_off: blocked, scene_slot_find: blocked, scene_create: blocked, highlight: blocked},
         general: {clear: null, master, blackout}, recovery: {halt: null, undo: null, scene_slot_cancel: null, highlight_off: null, highlight_ping: null},
       },
     },
@@ -230,13 +230,46 @@ test('relative prediction uses each fixture origin and inversion; a zero axis re
  assert(Math.abs(c.state.history[2].pan.value-(60+100/540))<1e-8);
  assert.equal(c.state.history[1].tilt.quality,'confirmed');
 });
-test('unknown and stale positions are not invented by jog; rejection cannot stay pending',async()=>{
+test('in-flight stale DMX readback cannot bounce pending dim/rgb back to old value; matching readback confirms immediately', async()=>{
+ const c=connected();c.state.selected=[1];
+ c.receive({live:{1:{dim:0,rgb:[100,100,100]}},values_meta:{live:{source:'ma2',freshness:'fresh',updated_at:1}}});
+ assert.equal(c.state.history[1].dim.value,0);
+ const pDim=c.control({a:'dim',v:50});
+ // Pre-ACK in-flight readback with newer updated_at must not bounce dim back to 0.
+ c.receive({live:{1:{dim:0}},values_meta:{live:{source:'ma2',freshness:'fresh',updated_at:2}}});
+ assert.equal(c.state.history[1].dim.value,50);
+ assert.equal(c.state.history[1].dim.quality,'pending');
+ c.receive({request_id:c.socket.sent.at(-1).request_id,ok:true,a:'dim'});
+ await pDim;
+ // Immediate post-ACK stale DMX sample with old value is ignored during grace window.
+ c.receive({live:{1:{dim:0}},values_meta:{live:{source:'ma2',freshness:'fresh',updated_at:3}}});
+ assert.equal(c.state.history[1].dim.value,50);
+ assert.equal(c.state.history[1].dim.quality,'pending');
+ // Quantized 8-bit DMX match (49.8% for 50%) confirms immediately.
+ c.receive({live:{1:{dim:49.8}},values_meta:{live:{source:'ma2',freshness:'fresh',updated_at:4}}});
+ assert.equal(c.state.history[1].dim.value,49.8);
+ assert.equal(c.state.history[1].dim.quality,'confirmed');
+ // Same protection for RGB color.
+ const pCol=c.control({a:'color',r:100,g:0,b:50});
+ c.receive({request_id:c.socket.sent.at(-1).request_id,ok:true,a:'color'});
+ await pCol;
+ c.receive({live:{1:{rgb:[100,100,100]}},values_meta:{live:{source:'ma2',freshness:'fresh',updated_at:5}}});
+ assert.deepEqual(c.state.history[1].rgb.value,[100,0,50]);
+ assert.equal(c.state.history[1].rgb.quality,'pending');
+ c.receive({live:{1:{rgb:[100,0,49.8]}},values_meta:{live:{source:'ma2',freshness:'fresh',updated_at:6}}});
+ assert.deepEqual(c.state.history[1].rgb.value,[100,0,49.8]);
+ assert.equal(c.state.history[1].rgb.quality,'confirmed');
+});
+test('jog starts from 50 when unknown, continues from stale positions, and rejection cannot stay pending',async()=>{
  const c=positionClient();await ack(c,c.control({a:'jog',pan:1,tilt:1}));
- assert.equal(displayValues(c.state,1).pan,undefined);
+ assert(Math.abs(displayValues(c.state,1).pan-(50+100/540))<1e-8);
+ assert(Math.abs(displayValues(c.state,1).tilt-(50+100/270))<1e-8);
  c.receive({live:{1:{pan:30}},values_meta:{live:{source:'ma2',freshness:'fresh',updated_at:1}}});
  c.expireEvidence(Date.now()+7000);
+ assert.equal(c.state.history[1].pan.quality,'last');
  await ack(c,c.control({a:'jog',pan:1,tilt:0}));
- assert.equal(c.state.history[1].pan.value,30);assert.equal(c.state.history[1].pan.quality,'last');
+ assert(Math.abs(c.state.history[1].pan.value-(30+100/540))<1e-8);
+ assert.equal(c.state.history[1].pan.quality,'pending');
  c.receive({live:{1:{pan:31}},values_meta:{live:{source:'ma2',freshness:'fresh',updated_at:2}}});
  await ack(c,c.control({a:'jog',pan:1,tilt:0}),false);
  assert.notEqual(c.state.history[1].pan.quality,'pending');

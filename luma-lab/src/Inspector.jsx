@@ -1,7 +1,12 @@
 import { useLanguage } from "./Language.jsx";
 import { errorMessage } from "./errors.mjs";
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Action, Range, useStored } from "./ui.jsx";
+import React, { useEffect, useRef, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { ButtonGroup } from "@astryxdesign/core/ButtonGroup";
+import { Theme } from "@astryxdesign/core/theme";
+import { lumaTheme } from "./theme/luma.js";
+import "./theme/luma.css";
+import { Action, EvidenceDot, Range, useStored } from "./ui.jsx";
 import { FixtureGlyph, Icon } from "./Icons.jsx";
 import { bridge } from "./client.mjs";
 import {
@@ -28,35 +33,37 @@ const SWATCHES = [
 ];
 function DimmerControl({ state, values, selectionSerial, send }) {
   const { t } = useLanguage();
-  const [draft, setDraft] = useState("");
-  const target = useRef(null);
-  const targetId = useId();
   const current = currentDimmer(state);
   const count = dimmerSupportCount(state);
   const total = state.selected.length;
   const disabled = state.selecting || count !== total || !bridge.ready("dim");
-  const last = state.dimSent?.selectionSerial === selectionSerial ? state.dimSent.value : null;
-  const historyDim = commonValue(values, "dim");
-  const sliderValue = current ?? historyDim ?? last ?? null;
+  const roundedValues = values.map((v) => (typeof v.dim === "number" ? Math.round(v.dim) : null));
+  const knownRounded = roundedValues.filter((v) => v !== null);
+  const shownDim = current === "mixed"
+    ? "mixed"
+    : typeof current === "number"
+      ? Math.round(current)
+      : knownRounded.length === 0
+        ? null
+        : new Set(knownRounded).size > 1 || knownRounded.length !== values.length
+          ? "mixed"
+          : knownRounded[0];
+  const sliderValue = typeof shownDim === "number" ? shownDim : shownDim === "mixed" ? "mixed" : null;
   const evidence = typeof current === "number" || current === "mixed"
     ? "confirmed"
     : values.some((v) => v.quality.dim === "pending")
       ? "pending"
       : values.some((v) => v.quality.dim === "unconfirmed")
         ? "unconfirmed"
-        : sliderValue !== null
+        : shownDim !== null
           ? "last"
           : "unknown";
-  const number = draft.trim().replace(",", ".");
-  const value = /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(number) ? Number(number) : NaN;
-  const valid = Number.isFinite(value) && value >= 0 && value <= 100;
 
   function apply(value) {
     const latest = bridge.state;
     if (bridge.selectionSerial !== selectionSerial || latest.selecting ||
         !latest.selected.length || dimmerSupportCount(latest) !== latest.selected.length ||
         !bridge.ready("dim")) return;
-    setDraft("");
     send({ a: "dim", v: value });
   }
 
@@ -65,43 +72,39 @@ function DimmerControl({ state, values, selectionSerial, send }) {
       title={errorMessage(bridge.blockReason("dim"), t)}>
       <div className="field-top">
         <span>{t("tool.dim")}</span>
-        <output>
-          {t("inspector.dimCurrent", { value: current === "mixed" ? t("common.mixed")
-            : current === null ? t("evidence.unknown") : `${current}%` })}
-        </output>
-        <small className={`evidence ${evidence}`}>{t(`evidence.${evidence}`)}</small>
+        <span className="field-value-group">
+          <output>
+            {shownDim === "mixed" ? t("common.mixed")
+              : shownDim === null ? "—" : `${shownDim}%`}
+          </output>
+          <EvidenceDot evidence={evidence} />
+        </span>
       </div>
-      {last !== null && <p className="dimmer-sent">{t("inspector.dimSent", { value: last })}</p>}
       {count !== total && (
         <p className="capability-note">{t("inspector.dimUnavailable", { count, total })}</p>
       )}
       <Range label={t("tool.dim")} value={sliderValue} disabled={disabled}
-        showCaption={false} onCommit={(value) => apply(value)} />
-      <div className="dimmer-presets" role="group" aria-label={t("inspector.dimPresets")}>
-        {[0, 25, 50, 75, 100].map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            className={current === preset ? "active" : ""}
-            aria-pressed={current === preset}
-            disabled={disabled}
-            onClick={() => apply(preset)}
-          >
-            {preset}%
-          </button>
-        ))}
-      </div>
-      <form onSubmit={(event) => {
-        event.preventDefault();
-        if (valid && !disabled) apply(value);
-      }}>
-        <label htmlFor={targetId}>{t("inspector.dimTarget")}</label>
-        <input id={targetId} ref={target} inputMode="decimal" autoComplete="off"
-          value={draft} disabled={disabled} onChange={(event) => setDraft(event.target.value)} />
-        <button type="submit" className="text-button" disabled={disabled || !valid}>
-          {t("common.apply")}
-        </button>
-      </form>
+        showCaption={false} onCommit={(value) => apply(Math.round(value))} />
+      <Theme theme={lumaTheme} mode="dark">
+        <ButtonGroup
+          className="dimmer-presets"
+          label={t("inspector.dimPresets")}
+          size="sm"
+          isDisabled={disabled}
+        >
+          {[0, 25, 50, 75, 100].map((preset) => (
+            <Button
+              key={preset}
+              label={`${preset}%`}
+              variant={shownDim === preset ? "primary" : "secondary"}
+              size="sm"
+              isDisabled={disabled}
+              aria-pressed={shownDim === preset}
+              onClick={() => apply(preset)}
+            />
+          ))}
+        </ButtonGroup>
+      </Theme>
     </section>
   );
 }
@@ -138,8 +141,9 @@ function ColorControl({ value, disabled, send, fade, evidence, title }) {
     <section className="color-control" title={title}>
       <div className="field-top">
         <span>{t("tool.color")}</span>
-        <span className="value-muted">
-          {value ? `${value.toUpperCase()} · ${t(`evidence.${evidence}`)}` : t("evidence.unknown")}
+        <span className="field-value-group">
+          <output>{value ? value.toUpperCase() : "—"}</output>
+          <EvidenceDot evidence={value ? evidence : "unknown"} />
         </span>
       </div>
       <div className="swatches">
@@ -404,6 +408,13 @@ export default function Inspector({
     hex = Array.isArray(rgb) ? rgbToHex(rgb) : null,
     kind = visuals[f.id] || fixtureKind(f),
     fresh = values.every((v) => v.source === "readback"),
+    headerEvidence = fresh
+      ? "confirmed"
+      : values.some((v) => v.source === "pending")
+        ? "pending"
+        : values.some((v) => v.source === "last")
+          ? "last"
+          : "unknown",
     source = fresh
       ? t("inspector.sourceFresh")
       : values.some((v) => v.source === "pending")
@@ -436,10 +447,7 @@ export default function Inspector({
               : t("inspector.sharedControls", { count: selected.length })}
           </p>
         </div>
-      </div>
-      <div className="source-line">
-        <i className={fresh ? "fresh" : ""} />
-        {source}
+        <EvidenceDot evidence={headerEvidence} label={source} className="inspect-status-dot" />
       </div>
       {bridge.blockReason("dim") && (
         <p className="capability-note" role="status">{errorMessage(bridge.blockReason("dim"), t)}</p>

@@ -1286,6 +1286,15 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             remember(a, action, ids, values, s)
             if a in ("scene_go", "scene_off", "blackout"):
                 poll_wake.set()
+                fade = float(action.get("fade") or 0)
+                if fade > 0:
+                    loop = asyncio.get_running_loop()
+                    if a == "scene_off":
+                        loop.call_later(fade + 0.15, poll_wake.set)
+                    loop.call_later(fade + 0.15, dmx_wake.set)
+            if a in ("dim", "color", "aim", "jog", "zoom", "focus", "strobe", "scene_go", "scene_off", "blackout", "master"):
+                state["last_light_at"] = time.monotonic()
+                dmx_wake.set()
             if before is not None:
                 changed = light_diff(before)
                 if inverse is not None:
@@ -1763,6 +1772,10 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 async with action_lock:
                     if epoch != state["plan_epoch"] or gen != link._gen or state["loading"] or not link.ready:
                         return dmx_seconds
+                    if state.get("last_light_at", 0) > sampled_at:
+                        # A light command executed after this DMX sample was taken; discard stale bytes and re-read promptly.
+                        dmx_cycle["index"] = (dmx_cycle["index"] - 1) % len(chunks)
+                        return 0.05
                     ok, listvar = await link.send("ListVar", quiet=True, gen=gen)
                     # ListVar retains other chunks indefinitely; only this chunk is evidence for this poll.
                     dmx = parse_dmx(listvar, span=span, nonce=nonce) if ok else {}

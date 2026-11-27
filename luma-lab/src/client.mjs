@@ -324,17 +324,34 @@ export class BridgeClient {
         const meta = merged.values_meta?.[`sent:${id}:${key}`];
         if (!meta || !this.newObservation(`sent:${id}:${key}`,meta,value)) continue;
         if (patch.history[id]?.[key]?.intent === "jog") continue;
-        patch.history[id] = {...patch.history[id], [key]: {value, quality:online && meta.freshness === "fresh" ? "pending" : "unconfirmed",sentAt:Date.now(),basisAt:Date.now(),intent:"absolute",requestId:patch.history[id]?.[key]?.requestId}};
+        const prevEntry = patch.history[id]?.[key];
+        patch.history[id] = {...patch.history[id], [key]: {value, quality:online && meta.freshness === "fresh" ? "pending" : "unconfirmed",sentAt:prevEntry?.sentAt ?? Date.now(),basisAt:Date.now(),intent:"absolute",requestId:prevEntry?.requestId,ackAt:prevEntry?.ackAt,ackReadbackAt:prevEntry?.ackReadbackAt}};
       }
     }
     if (patch.live && merged.values_meta?.live?.source === "ma2") {
+      const liveMeta = merged.values_meta.live;
       for (const [id,attrs] of Object.entries(patch.live))
         for (const [key,value] of Object.entries(attrs)) {
-          if (key === "dim" && !(merged.values_meta.live.updated_at > this.dimReadbackFloor)) continue;
-          if (!this.newObservation(`live:${id}:${key}`,merged.values_meta.live,value)) continue;
+          if (key === "dim" && !(liveMeta.updated_at > this.dimReadbackFloor)) continue;
+          const cur = patch.history[id]?.[key];
+          if (cur?.quality === "pending") {
+            const at = this.receipts.values_meta.get("live")?.at ?? 0;
+            if (!online || liveMeta.freshness !== "fresh" || Date.now() - at > 6000) continue;
+            // Ignore readback captured before our in-flight command was ACKed.
+            if (cur.requestId && this.pending.has(cur.requestId)) continue;
+            if (Number.isFinite(cur.ackReadbackAt) && !(liveMeta.updated_at > cur.ackReadbackAt)) continue;
+            // Short grace window after ACK for dim/rgb so an already-in-flight pre-command DMX sample cannot bounce the slider back.
+            if ((key === "dim" || key === "rgb") && Date.now() - (cur.ackAt ?? cur.sentAt ?? 0) < 1800) {
+              const matches = key === "dim"
+                ? typeof value === "number" && typeof cur.value === "number" && Math.abs(value - cur.value) <= 1.5
+                : Array.isArray(value) && Array.isArray(cur.value) && value.length === 3 &&
+                  value.every((c, i) => Math.abs(c - cur.value[i]) <= 2);
+              if (!matches) continue;
+            }
+          }
+          if (!this.newObservation(`live:${id}:${key}`, liveMeta, value)) continue;
           const at=this.receipts.values_meta.get("live")?.at ?? 0;
-          if (patch.history[id]?.[key]?.quality === "pending" && (!online || merged.values_meta.live.freshness !== "fresh" || Date.now()-at>6000)) continue;
-          patch.history[id] = {...patch.history[id], [key]: {value, quality:online && merged.values_meta.live.freshness === "fresh" && Date.now()-at<=6000 ? "confirmed" : "last",confirmedAt:at}};
+          patch.history[id] = {...patch.history[id], [key]: {value, quality:online && liveMeta.freshness === "fresh" && Date.now()-at<=6000 ? "confirmed" : "last",confirmedAt:at}};
         }
     }
     const masterMeta = merged.values_meta?.master;
@@ -358,6 +375,7 @@ export class BridgeClient {
         }
       }
       if (!message.ok || uncertain) this.invalidateRequest(message.request_id);
+      else this.markAckedRequest(message.request_id);
       if (!message.ok || uncertain) {
         const code = message.code ?? message.reason?.code ?? (message.conflict ? "plan_revision" : undefined) ??
           (message.outcome === "unknown" || (message.command_evidence || []).includes("unknown") ? "command_unknown"
@@ -428,15 +446,15 @@ export class BridgeClient {
               const ordered=this.state.config.fixtures.filter(f=>this.state.selected.includes(f.id)).sort((a,b)=>(a.x??.5)-(b.x??.5)||a.id-b.id);
               const mirror=key==="pan" && action.mirror===true && ordered.slice(0,Math.floor(ordered.length/2)).some(f=>f.id===id);
               if ((f?.[`flip_${key}`]===true) !== mirror) delta=-delta;
-              if (!spec || typeof prior?.value!=="number" || !["confirmed","pending"].includes(prior.quality)) continue;
-              if (Date.now()-(prior.confirmedAt??prior.basisAt??0)>6000) continue;
-              value=Math.max(0,Math.min(100,prior.value+delta*100/(spec.max-spec.min)));
+              if (!spec || !(spec.max > spec.min)) continue;
+              const base = typeof prior?.value === "number" ? prior.value : 50;
+              value=Math.max(0,Math.min(100,base+delta*100/(spec.max-spec.min)));
             }
             if (action.a === "aim" && action[key] != null) {
               const spec = this.state.config.attrs?.[key];
               value = spec ? (action[key]-spec.min)/(spec.max-spec.min)*100 : undefined;
             }
-            if (value !== undefined) history[id] = {...history[id],[key]:{value,quality:"pending",sentAt:Date.now(),basisAt:action.a === "jog" ? history[id]?.[key]?.basisAt : Date.now(),requestId:request.request_id,intent:action.a === "jog" ? "jog" : "absolute",confirmedAt:action.a === "jog" ? history[id]?.[key]?.confirmedAt : undefined}};
+            if (value !== undefined) history[id] = {...history[id],[key]:{value,quality:"pending",sentAt:Date.now(),basisAt:action.a === "jog" ? (history[id]?.[key]?.basisAt ?? Date.now()) : Date.now(),requestId:request.request_id,intent:action.a === "jog" ? "jog" : "absolute",confirmedAt:action.a === "jog" ? history[id]?.[key]?.confirmedAt : undefined}};
           }
           const dimSent = action.a === "dim"
             ? { value: action.v, selectionSerial: this.selectionSerial }
@@ -536,6 +554,20 @@ export class BridgeClient {
   staleHistory(stale = true) {
     return Object.fromEntries(Object.entries(this.state.history || {}).map(([id,attrs]) => [id,
       Object.fromEntries(Object.entries(attrs).map(([key,entry]) => [key,{...entry, quality:stale ? (["pending","unconfirmed"].includes(entry.quality) ? "unconfirmed" : "last") : entry.quality}]))]));
+  }
+  markAckedRequest(requestId) {
+    const history = this.staleHistory(false);
+    let changed = false;
+    const ackAt = Date.now();
+    const ackReadbackAt = this.lastReadbackAt;
+    for (const attrs of Object.values(history))
+      for (const entry of Object.values(attrs))
+        if (entry.requestId === requestId && entry.quality === "pending") {
+          entry.ackAt = ackAt;
+          entry.ackReadbackAt = ackReadbackAt;
+          changed = true;
+        }
+    if (changed) this.publish({ history });
   }
   invalidateRequest(requestId) {
     const history=this.staleHistory(false);

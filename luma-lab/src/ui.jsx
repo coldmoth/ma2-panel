@@ -1,8 +1,32 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Icon } from "./Icons.jsx";
 import { useLanguage } from "./Language.jsx";
 import { errorDetails } from "./errors.mjs";
+
+const EVIDENCE_VARIANT = {
+  confirmed: "success",
+  pending: "warning",
+  unconfirmed: "warning",
+  last: "accent",
+  unknown: "neutral",
+};
+
+export function EvidenceDot({ evidence = "unknown", label, className = "" }) {
+  const { t } = useLanguage();
+  const text = label || t(`evidence.${evidence}`);
+  return (
+    <span className={`evidence-dot ${evidence} ${className}`.trim()} title={text}>
+      <StatusDot
+        variant={EVIDENCE_VARIANT[evidence] || "neutral"}
+        label={text}
+        tooltip={text}
+        isPulsing={evidence === "pending"}
+      />
+    </span>
+  );
+}
 export function useStored(key, initial) {
   const [value, set] = useState(() => {
     try {
@@ -82,8 +106,10 @@ export function Range({
     <label className={`range-field ${disabled ? "disabled" : ""}`} title={title}>
       {showCaption && <span className="field-top">
         <span>{label}</span>
-        <output>{text}</output>
-        {evidence && <small className={`evidence ${evidence}`}>{t(`evidence.${evidence}`)}</small>}
+        <span className="field-value-group">
+          <output>{text}</output>
+          {evidence && <EvidenceDot evidence={evidence} />}
+        </span>
       </span>}
       <input
         ref={inputRef}

@@ -396,12 +396,19 @@ class MockMA2:
             self.transitions[ex] = (self.clock(), seconds, origin, copy.deepcopy(self.cues.get(ex, {}).get(1, {})), False, len(self.received))
         if m := re.fullmatch(r'Off Executor (\d+\.\d+)', text):
             ex = m[1]
+            self.output(suppressed=False)
             if ex in self.running:
-                origin = self.output(suppressed=False)
-                target = {fid: {k: 0 if k == 'dim' else v for k, v in attrs.items()}
-                          for fid, attrs in self.cues.get(ex, {}).get(1, {}).items()}
-                self.transitions[ex] = (self.clock(), self.off_times.get(ex, 0), origin, target, True, -1)
-                if not self.off_times.get(ex, 0): self.running.discard(ex)
+                existing = self.transitions.get(ex)
+                if existing and existing[4]:
+                    # Already releasing: second Off completes immediately instead of restarting the fade timer.
+                    self.running.discard(ex)
+                    self.transitions.pop(ex, None)
+                else:
+                    origin = self.output(suppressed=False)
+                    target = {fid: {k: 0 if k == 'dim' else v for k, v in attrs.items()}
+                              for fid, attrs in self.cues.get(ex, {}).get(1, {}).items()}
+                    self.transitions[ex] = (self.clock(), self.off_times.get(ex, 0), origin, target, True, -1)
+                    if not self.off_times.get(ex, 0): self.running.discard(ex)
         if m := re.match(r"Delete Executor (\S+)", text):
             self.rows.pop(m[1], None)
         if text == "Off Executor 0.1.1 Thru Fade 0":

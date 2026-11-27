@@ -66,12 +66,12 @@ export default function Stage({
   useLayoutEffect(() => {
     let disposed = false;
     function fit() {
-      if (disposed) return;
+      if (disposed || !viewport.current) return;
       const { width, height } = viewport.current.getBoundingClientRect();
-      const base = stageViewBox(hall, top, []).split(" ").map(Number);
-      const b = editing ? {x:base[0],y:base[1],width:base[2],height:base[3]} : geometry.current.getBBox();
+      const base = stageViewBox(hall, top, editing ? [] : positioned).split(" ").map(Number);
+      const b = { x: base[0], y: base[1], width: base[2], height: base[3] };
       if (width <= 40 || height <= 40 || !b.width || !b.height) return;
-      // A single native SVG scale, based on rendered room/fixtures/beams/labels.
+      // A single native SVG scale based on static room + fixtures + ID bounds (never dynamic beams).
       // Keep margins in CSS pixels, independent of projection and window size.
       const margin = editing ? 76 : 36;
       const scale = Math.min((width - margin) / b.width, (height - margin) / b.height);
@@ -85,7 +85,7 @@ export default function Stage({
     // Text bounds can change when the UI font finishes loading.
     document.fonts.ready.then(fit);
     return () => { disposed = true; observer.disconnect(); };
-  }, [editing, hall, top, fixtures, ids, beams, visuals, state.history, state.simulation]);
+  }, [editing, hall, top, fixtures, ids]);
   function values(f) {
     return state.status?.mock === true && state.simulation?.[f.id] && deskOnline(state.status) && state.status.readiness?.show?.state === "matched" ? {
       ...state.simulation[f.id],

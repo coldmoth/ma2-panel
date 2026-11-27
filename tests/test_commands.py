@@ -233,3 +233,34 @@ def test_hall_local_stage_geometry():
     for patch in ({"stageWidth": 19}, {"stageOffset": 1.1}, {"stageWidth": True}):
         with pytest.raises(ActionError):
             validate_hall({**hall, **patch})
+
+
+def test_mock_scene_off_fade_and_repeated_off():
+    from ma2panel.mock import MockMA2
+    now = [100.0]
+    mock = MockMA2("Remote", None)
+    mock.clock = lambda: now[0]
+    mock.rows = {"1.101": "Pianist"}
+    mock.cues = {"1.101": {1: {12: {"dim": 80}}}}
+    mock._answer("Goto Cue 1 Executor 1.101 Fade 0")
+    assert "1.101" in mock.running
+    mock._answer("Masterfade 1.5 Executor 1.101")
+    mock._answer("Off Executor 1.101")
+    # Still releasing mid-fade
+    now[0] = 100.5
+    assert "Running" in mock._answer("List Executor 1.101")
+    # Once fade finishes, List Executor reports Off
+    now[0] = 101.6
+    assert "Off" in mock._answer("List Executor 1.101")
+    assert "1.101" not in mock.running
+
+    # Second Off Executor during active release finishes immediately instead of resetting timer
+    now[0] = 200.0
+    mock._answer("Goto Cue 1 Executor 1.101 Fade 0")
+    mock._answer("Masterfade 1.5 Executor 1.101")
+    mock._answer("Off Executor 1.101")
+    now[0] = 200.5
+    assert "1.101" in mock.running
+    mock._answer("Off Executor 1.101")
+    assert "1.101" not in mock.running
+    assert "Off" in mock._answer("List Executor 1.101")

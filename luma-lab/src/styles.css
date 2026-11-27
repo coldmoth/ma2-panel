@@ -1357,9 +1357,26 @@ h1 {
   margin-bottom: 11px;
 }
 .field-top output {
-  font-size: 10px;
-  color: #ccb6db;
+  font-size: 11px;
+  color: #e4d8f2;
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.field-value-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.evidence-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+.inspect-status-dot {
+  margin-left: auto;
+  flex: none;
+  padding: 4px;
 }
 .range-field {
   display: block;
@@ -1372,69 +1389,17 @@ h1 {
   margin-bottom: 23px;
 }
 .dimmer-control .range-field {
-  margin: 14px 0 10px;
+  margin: 10px 0 12px;
 }
 .dimmer-presets {
+  width: 100%;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 5px;
-  margin: 0 0 12px;
 }
-.dimmer-presets button {
+.dimmer-presets > button {
   min-width: 0;
-  min-height: 32px;
-  padding: 0 4px;
-  border-radius: 6px;
-  border: 1px solid #3c2e48;
-  background: #1b1624;
-  color: #cbb8db;
-  font-size: 10px;
-  font-weight: 500;
-}
-.dimmer-presets button:hover:not(:disabled) {
-  border-color: #7a5896;
-  background: #281e36;
-  color: #f0e3fb;
-}
-.dimmer-presets button.active {
-  border-color: #b48dd4;
-  background: #3d2852;
-  color: #ffffff;
-}
-.dimmer-presets button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.dimmer-sent {
-  color: #ccb6db;
-  font-size: 11px;
-  margin: 0 0 8px;
-}
-.dimmer-control form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px 8px;
-  align-items: center;
-}
-.dimmer-control form label {
-  grid-column: 1 / -1;
-  color: #c1aecf;
-  font-size: 11px;
-}
-.dimmer-control form input,
-.dimmer-control form button {
-  min-width: 0;
-  min-height: 44px;
-  border-radius: 6px;
-  padding: 0 9px;
-}
-.dimmer-control form input {
-  color: #e4c9f5;
-  background: #1e1727;
-}
-.dimmer-control form button:disabled {
-  opacity: .5;
-  cursor: not-allowed;
+  padding-inline: 4px;
+  justify-content: center;
 }
 input[type="range"] {
   appearance: none;
@@ -2844,7 +2809,19 @@ input[type="range"]:disabled {
 .page-hall .stage-viewport { flex:1; height:auto; min-height:0; max-height:none; aspect-ratio:auto; }
 .page-hall .stage-viewport > svg { position:absolute; inset:0; }
 .page-hall .error-banner,.page-hall .arm-banner { flex:none; }
-.quick-scenes { flex:none; position:relative; z-index:2; }
+.page-hall > .live-scenes-bar {
+  position: absolute;
+  bottom: 50px;
+  right: 20px;
+  max-width: calc(100% - 40px);
+  margin: 0;
+  padding: 5px 9px;
+  z-index: 2;
+  background: linear-gradient(90deg, #152522ee, #181726ee 65%);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px #00000070;
+}
+.quick-scenes { flex:none; position:relative; z-index:3; }
 .quick-scenes-toggle { width:100%; height:40px; display:flex; align-items:center; gap:10px; padding:0 13px; color:#cbbcdf; background:#1b1825; border:1px solid #393144; border-radius:0 0 8px 8px; text-align:left; font-size:11px; }
 .quick-scenes-toggle small { color:#9c8bae; }
 .quick-scenes-caret { margin-left:auto; font-size:18px; }
