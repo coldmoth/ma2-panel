@@ -1,6 +1,22 @@
 import { useLanguage } from "./Language.jsx";
 import { errorMessage } from "./errors.mjs";
 import React, {useEffect, useRef, useState} from 'react';
+import { Badge } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { InternationalizationProvider } from "@astryxdesign/core/i18n";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { Selector } from "@astryxdesign/core/Selector";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { Theme } from "@astryxdesign/core/theme";
+import { lumaTheme } from "./theme/luma.js";
+import "./theme/luma.css";
+import { Icon } from "./Icons.jsx";
 import Stage from './Stage.jsx';
 import {bridge} from './client.mjs';
 import {fixtureAngle, fixtureKind, FIXTURE_KINDS, DEFAULT_HALL} from './model.mjs';
@@ -21,6 +37,7 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
   const saving=useRef(false), current=useRef(state.config);
   const hlPing=useRef(null), hlEditing=useRef(false), hlOwned=useRef(false);
   const [hlBusy,setHlBusy]=useState(false), [hlError,setHlError]=useState('');
+  const [xmlModalOpen, setXmlModalOpen] = useState(false);
   current.current=state.config;
   const fixtures=state.config?.fixtures || [], hall=state.config?.hall ?? DEFAULT_HALL,
     fixture=fixtures.find(f=>f.id===selection.at(-1)), busy=status==='saving';
@@ -151,7 +168,19 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
   return <div className="layout-workspace">
     <div className="layout-toolbar">
       <div className="layout-history"><button aria-label={t("layout.undo")} disabled={!ready || busy || !!preview || geometryDirty || fixtureDirty || !history.past.length} onClick={undo} title="Ctrl/⌘+Z">↶ {t("layout.undo")}</button><button aria-label={t("layout.redo")} disabled={!ready || busy || !!preview || geometryDirty || fixtureDirty || !history.future.length} onClick={redo} title="Ctrl/⌘+Shift+Z">↷ {t("layout.redo")}</button></div>
-      <span className={`layout-status ${error?'error':''}`} role="status" aria-live="polite">{message}</span>
+      <div className="layout-toolbar-right">
+        <span className={`layout-status ${error?'error':''}`} role="status" aria-live="polite">{message}</span>
+        <Theme theme={lumaTheme} mode="dark">
+          <Button
+            label={t("layout.ma2Xml")}
+            variant="secondary"
+            size="sm"
+            icon={<Icon name="layout" size={14} />}
+            isDisabled={busy}
+            onClick={() => setXmlModalOpen(true)}
+          />
+        </Theme>
+      </div>
     </div>
     {error && <div className="layout-error" role="alert">{t("layout.saveFailedHint", { error: errorMessage(error, t) })}</div>}
     <div className="layout-canvas">
@@ -163,7 +192,6 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
       <details className="layout-geometry"><summary>{t("layout.geometry")} <span>{t("layout.roomStage")}</span></summary>
         <HallGeometry hall={hall} ready={hallReady&&!busy} onDirty={setGeometryDirty} onSave={after=>write({kind:'hall',before:copy(hall),after})}/>
       </details>
-      <Ma2LayoutXmlPanel state={state} disabled={busy} />
       {fixture && (
         <HighlightPanel
           fixture={fixture}
@@ -182,6 +210,13 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
       <details className="layout-fixture-list"><summary>{t("shell.allFixtures")} · {t("shell.number", { value: fixtures.length })}</summary><div>{fixtures.map(f=><button key={f.id} aria-pressed={selection.includes(f.id)} onClick={e=>select(f.id,e.shiftKey)}>#{f.id} <span>{f.label}</span></button>)}</div></details>
       <p className="layout-hint">{t("layout.rotationHint")}</p>
     </aside>
+    {xmlModalOpen && (
+      <Ma2LayoutXmlModal
+        state={state}
+        disabled={busy}
+        onClose={() => setXmlModalOpen(false)}
+      />
+    )}
   </div>;
 }
 
@@ -301,191 +336,386 @@ function HallGeometry({hall,ready,onSave,onDirty}) {
   </form>;
 }
 
-function Ma2LayoutXmlPanel({state,disabled}) {
-  const { t } = useLanguage();
+function Ma2LayoutXmlModal({ state, disabled, onClose }) {
+  const { t, language } = useLanguage();
   const current = state.config?.ma2_layout || null;
-  const [open,setOpen]=useState(false);
-  const [files,setFiles]=useState([]), [selectedFile,setSelectedFile]=useState('');
-  const [hasTemplate,setHasTemplate]=useState(Boolean(current?.template_file));
-  const [previewData,setPreviewData]=useState(null);
-  const [fileName,setFileName]=useState('');
-  const [slot,setSlot]=useState(99), [confirmImport,setConfirmImport]=useState(false);
-  const [working,setWorking]=useState(false), [notice,setNotice]=useState(''), [err,setErr]=useState('');
+  const fileInputRef = useRef(null);
+  const [tab, setTab] = useState("import");
+  const [files, setFiles] = useState([]);
+  const [selectedFile, setSelectedFile] = useState("");
+  const [hasTemplate, setHasTemplate] = useState(Boolean(current?.template_file));
+  const [previewData, setPreviewData] = useState(null);
+  const [fileName, setFileName] = useState(current?.name || state.config?.show || "luma_layout");
+  const [slot, setSlot] = useState(99);
+  const [confirmImport, setConfirmImport] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [err, setErr] = useState("");
 
-  useEffect(()=>{
+  useEffect(() => {
     setHasTemplate(Boolean(current?.template_file));
-    if(!fileName && (current?.name || state.config?.show)) setFileName(current?.name || state.config?.show || 'luma_layout');
-  },[current?.template_file,current?.name,state.config?.show]);
+    if (!fileName && (current?.name || state.config?.show)) {
+      setFileName(current?.name || state.config?.show || "luma_layout");
+    }
+  }, [current?.template_file, current?.name, state.config?.show]);
 
   async function refreshFiles() {
     try {
-      const res = await fetch('/api/layout/ma2/files');
+      const res = await fetch("/api/layout/ma2/files");
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        setErr(data.err || `HTTP ${res.status}`);
         return;
       }
-      setErr('');
-      setFiles(data.files || []);
+      const list = data.files || [];
+      setFiles(list);
       setHasTemplate(Boolean(data.has_template));
-      if ((data.files || []).length && !selectedFile) setSelectedFile(`${data.files[0].folder_index}:${data.files[0].name}`);
-    } catch (e) {
-      setErr(e.message || String(e));
-    }
+      if (list.length && !selectedFile) {
+        setSelectedFile(`${list[0].folder_index}:${list[0].name}`);
+      }
+    } catch {}
   }
 
-  useEffect(()=>{ if(open) refreshFiles(); },[open]);
+  useEffect(() => {
+    refreshFiles();
+  }, []);
 
   async function runPreview(payload) {
-    setWorking(true); setErr(''); setNotice('');
+    setWorking(true);
+    setErr("");
+    setNotice("");
     try {
-      const res = await fetch('/api/layout/ma2/preview', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload),
+      const res = await fetch("/api/layout/ma2/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.err || `HTTP ${res.status}`);
       setPreviewData(data);
-    } catch(e) { setErr(e.message || String(e)); setPreviewData(null); }
-    finally { setWorking(false); }
+    } catch (e) {
+      setErr(e.message || String(e));
+      setPreviewData(null);
+    } finally {
+      setWorking(false);
+    }
   }
 
   async function onUpload(e) {
     const file = e.target.files?.[0];
-    e.target.value = '';
+    e.target.value = "";
     if (!file) return;
     const xml = await file.text();
-    await runPreview({xml, filename:file.name});
+    await runPreview({ xml, filename: file.name });
   }
 
   async function onPreviewFolderFile() {
     if (!selectedFile) return;
-    const sep = selectedFile.indexOf(':');
+    const sep = selectedFile.indexOf(":");
     const folder_index = Number(selectedFile.slice(0, sep));
     const file = selectedFile.slice(sep + 1);
-    await runPreview({file, folder_index});
+    await runPreview({ file, folder_index });
   }
 
   async function onApply() {
     if (!previewData?.preview_token) return;
-    setWorking(true); setErr(''); setNotice('');
+    setWorking(true);
+    setErr("");
+    setNotice("");
     try {
-      const res = await fetch('/api/layout/ma2/apply', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({preview_token:previewData.preview_token}),
+      const res = await fetch("/api/layout/ma2/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preview_token: previewData.preview_token }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.err || `HTTP ${res.status}`);
-      setNotice(t("layout.ma2Applied", {count:data.applied}));
+      setNotice(t("layout.ma2Applied", { count: data.applied }));
       setPreviewData(null);
       setHasTemplate(true);
       if (data.layout?.name) setFileName(data.layout.name);
-    } catch(e) { setErr(e.message || String(e)); }
-    finally { setWorking(false); }
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setWorking(false);
+    }
   }
 
   async function onExport(mode) {
-    setWorking(true); setErr(''); setNotice('');
+    setWorking(true);
+    setErr("");
+    setNotice("");
     try {
-      const body = {mode, filename:fileName.trim() || undefined};
-      if (mode === 'import_to_ma2') {
+      const body = { mode, filename: fileName.trim() || undefined };
+      if (mode === "import_to_ma2") {
         body.slot = Number(slot);
         body.confirm_import = confirmImport;
       }
-      const res = await fetch('/api/layout/ma2/export', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body),
+      const res = await fetch("/api/layout/ma2/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-      if (mode === 'download') {
+      if (mode === "download") {
         if (!res.ok) {
-          const fail = await res.json().catch(()=>({}));
+          const fail = await res.json().catch(() => ({}));
           throw new Error(fail.err || `HTTP ${res.status}`);
         }
         const blob = await res.blob();
-        const disp = res.headers.get('content-disposition') || '';
+        const disp = res.headers.get("content-disposition") || "";
         const match = disp.match(/filename="([^"]+)"/);
-        const dlName = match ? match[1] : `${fileName.trim() || 'luma_layout'}.xml`;
+        const dlName = match ? match[1] : `${fileName.trim() || "luma_layout"}.xml`;
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = dlName; document.body.appendChild(a); a.click(); a.remove();
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = dlName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
         URL.revokeObjectURL(url);
-        const modeLabel = res.headers.get('x-luma-layout-mode') === 'patch' ? t("layout.ma2ModePatch") : t("layout.ma2ModeNew");
-        const updated = res.headers.get('x-luma-layout-updated') || '0';
-        setNotice(t("layout.ma2Downloaded", {filename:dlName, mode:modeLabel, updated}));
+        const modeLabel = res.headers.get("x-luma-layout-mode") === "patch" ? t("layout.ma2ModePatch") : t("layout.ma2ModeNew");
+        const updated = res.headers.get("x-luma-layout-updated") || "0";
+        setNotice(t("layout.ma2Downloaded", { filename: dlName, mode: modeLabel, updated }));
         return;
       }
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.err || `HTTP ${res.status}`);
-      const modeLabel = data.summary?.mode === 'patch' ? t("layout.ma2ModePatch") : t("layout.ma2ModeNew");
+      const modeLabel = data.summary?.mode === "patch" ? t("layout.ma2ModePatch") : t("layout.ma2ModeNew");
       const updated = String(data.summary?.updated_ids?.length ?? 0);
-      if (mode === 'save_importexport') {
-        setNotice(t("layout.ma2SavedFile", {filename:data.filename, mode:modeLabel, updated}));
+      if (mode === "save_importexport") {
+        setNotice(t("layout.ma2SavedFile", { filename: data.filename, mode: modeLabel, updated }));
         refreshFiles();
       } else {
-        setNotice(t("layout.ma2Imported", {slot:data.slot, filename:data.filename}));
+        setNotice(t("layout.ma2Imported", { slot: data.slot, filename: data.filename }));
         setConfirmImport(false);
         refreshFiles();
       }
-    } catch(e) { setErr(e.message || String(e)); }
-    finally { setWorking(false); }
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setWorking(false);
+    }
   }
 
   const allowImport = state.status?.safety?.allow_layout_import === true;
-  const ma2Ready = state.status?.ma2 === 'logged_in' && !state.status?.halted;
-  const importBlockReason = !allowImport ? t("layout.ma2BlockedFlag") : !ma2Ready ? t("layout.ma2BlockedLink") : '';
-  const summaryBadge = hasTemplate && current?.name ? t("layout.ma2PatchMode", {name:current.name}) : t("layout.ma2NewMode");
+  const ma2Ready = state.status?.ma2 === "logged_in" && !state.status?.halted;
+  const importBlockReason = !allowImport
+    ? t("layout.ma2BlockedFlag")
+    : !ma2Ready
+      ? t("layout.ma2BlockedLink")
+      : "";
+  const fileOptions = files.map((f) => ({
+    value: `${f.folder_index}:${f.name}`,
+    label: f.name,
+  }));
 
-  return <details className="layout-ma2-xml" open={open} onToggle={e=>setOpen(e.currentTarget.open)}>
-    <summary>{t("layout.ma2Xml")} <span>{summaryBadge}</span></summary>
-    <div className="layout-ma2-body">
-      {notice && <div className="layout-ma2-notice" role="status">{notice}</div>}
-      {err && <div className="layout-ma2-err" role="alert">{err}</div>}
+  return (
+    <Theme theme={lumaTheme} mode="dark">
+      <InternationalizationProvider
+        locale={language}
+        overrides={{ "@astryx.dialog.close": t("common.close") }}
+      >
+        <Dialog
+          isOpen
+          onOpenChange={(open) => {
+            if (!open) onClose();
+          }}
+          width={520}
+          purpose="form"
+          className="ma2-xml-dialog"
+        >
+          <DialogHeader
+            title={t("layout.ma2Xml")}
+            subtitle={t("layout.ma2ModalSubtitle")}
+            onOpenChange={(open) => {
+              if (!open) onClose();
+            }}
+            hasDivider
+          />
+          <div className="ma2-xml-modal-body">
+            <SegmentedControl
+              value={tab}
+              onChange={(next) => {
+                setTab(next);
+                setErr("");
+                setNotice("");
+              }}
+              label={t("layout.ma2Xml")}
+              layout="fill"
+              size="md"
+            >
+              <SegmentedControlItem value="import" label={t("layout.ma2TabImport")} />
+              <SegmentedControlItem value="export" label={t("layout.ma2TabExport")} />
+            </SegmentedControl>
 
-      <div className="layout-ma2-section">
-        <h4>{t("layout.ma2ImportTitle")}</h4>
-        <label className="layout-ma2-file-btn">
-          {t("layout.ma2UploadFile")}
-          <input type="file" accept=".xml,application/xml,text/xml" disabled={disabled || working} onChange={onUpload} />
-        </label>
-        <label>{t("layout.ma2FromFolder")}
-          <div className="layout-ma2-row">
-            <select aria-label={t("layout.ma2FromFolder")} disabled={disabled || working || !files.length} value={selectedFile} onChange={e=>setSelectedFile(e.target.value)}>
-              {files.length ? files.map(f=><option key={`${f.folder_index}:${f.name}`} value={`${f.folder_index}:${f.name}`}>{f.name}</option>) : <option value="">{t("layout.ma2NoFiles")}</option>}
-            </select>
-            <button type="button" disabled={disabled || working} onClick={refreshFiles}>{t("layout.ma2RefreshFiles")}</button>
+            {notice && <Banner status="success" title={notice} />}
+            {err && <Banner status="error" title={err} />}
+
+            {tab === "import" ? (
+              <div className="ma2-xml-pane">
+                <p className="ma2-xml-intro">{t("layout.ma2ImportIntro")}</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xml,application/xml,text/xml"
+                  hidden
+                  disabled={disabled || working}
+                  onChange={onUpload}
+                />
+                <Button
+                  label={t("layout.ma2ChooseFile")}
+                  variant="primary"
+                  size="md"
+                  width="100%"
+                  isDisabled={disabled || working}
+                  isLoading={working && !previewData}
+                  onClick={() => fileInputRef.current?.click()}
+                />
+
+                {files.length > 0 && (
+                  <Card variant="muted" padding={3} className="ma2-xml-folder-card">
+                    <div className="ma2-xml-folder-head">
+                      <span>{t("layout.ma2FromFolder")}</span>
+                      <Button
+                        label={t("layout.ma2RefreshFiles")}
+                        variant="ghost"
+                        size="sm"
+                        isDisabled={disabled || working}
+                        onClick={refreshFiles}
+                      />
+                    </div>
+                    <div className="ma2-xml-folder-row">
+                      <Selector
+                        label={t("layout.ma2FromFolder")}
+                        isLabelHidden
+                        options={fileOptions}
+                        value={selectedFile}
+                        onChange={setSelectedFile}
+                        isDisabled={disabled || working}
+                        size="sm"
+                      />
+                      <Button
+                        label={t("layout.ma2PreviewFile")}
+                        variant="secondary"
+                        size="sm"
+                        isDisabled={disabled || working || !selectedFile}
+                        onClick={onPreviewFolderFile}
+                      />
+                    </div>
+                  </Card>
+                )}
+
+                {previewData && (
+                  <Card variant="default" padding={4} className="ma2-xml-preview-card">
+                    <div className="ma2-xml-preview-head">
+                      <strong>{previewData.layout_name || previewData.source_name || "Layout XML"}</strong>
+                      <Badge
+                        variant={previewData.matched_count > 0 ? "success" : "warning"}
+                        label={t("layout.ma2MatchedBadge", { matched: previewData.matched_count })}
+                      />
+                    </div>
+                    <p className="ma2-xml-preview-summary">
+                      {t("layout.ma2PreviewSummary", {
+                        found: previewData.xml_fixture_count,
+                        matched: previewData.matched_count,
+                      })}
+                    </p>
+                    {previewData.unmatched_xml_ids?.length > 0 && (
+                      <small className="ma2-xml-preview-meta">
+                        {t("layout.ma2UnmatchedIds", {
+                          ids: previewData.unmatched_xml_ids.slice(0, 10).map((id) => `#${id}`).join(", "),
+                        })}
+                      </small>
+                    )}
+                    <div className="ma2-xml-preview-actions">
+                      <Button
+                        label={t("layout.ma2Apply")}
+                        variant="primary"
+                        size="md"
+                        isDisabled={disabled || working || !previewData.matched_count}
+                        isLoading={working}
+                        onClick={onApply}
+                      />
+                      <Button
+                        label={t("common.cancel")}
+                        variant="ghost"
+                        size="md"
+                        isDisabled={working}
+                        onClick={() => setPreviewData(null)}
+                      />
+                    </div>
+                  </Card>
+                )}
+              </div>
+            ) : (
+              <div className="ma2-xml-pane">
+                <p className="ma2-xml-intro">
+                  {hasTemplate ? t("layout.ma2ExportPatchSimple") : t("layout.ma2ExportNewSimple")}
+                </p>
+                <TextInput
+                  label={t("layout.ma2FileName")}
+                  value={fileName}
+                  onChange={setFileName}
+                  placeholder="luma_layout"
+                  isDisabled={disabled || working}
+                  size="md"
+                />
+                <Button
+                  label={t("layout.ma2DownloadForMa2")}
+                  variant="primary"
+                  size="md"
+                  width="100%"
+                  isDisabled={disabled || working}
+                  isLoading={working}
+                  onClick={() => onExport("download")}
+                />
+
+                <Collapsible
+                  trigger={t("layout.ma2DirectSendTitle")}
+                  defaultIsOpen={false}
+                  className="ma2-xml-collapsible"
+                >
+                  <div className="ma2-xml-direct">
+                    <Button
+                      label={t("layout.ma2SaveImportExport")}
+                      variant="secondary"
+                      size="sm"
+                      width="100%"
+                      isDisabled={disabled || working}
+                      onClick={() => onExport("save_importexport")}
+                    />
+                    <NumberInput
+                      label={t("layout.ma2Slot")}
+                      value={slot}
+                      min={1}
+                      max={999}
+                      step={1}
+                      isIntegerOnly
+                      size="sm"
+                      isDisabled={disabled || working}
+                      onChange={(value) => setSlot(Math.max(1, Math.min(999, Math.round(value || 99))))}
+                    />
+                    <CheckboxInput
+                      label={t("layout.ma2ConfirmImport", { slot })}
+                      value={confirmImport}
+                      isDisabled={disabled || working || Boolean(importBlockReason)}
+                      onChange={setConfirmImport}
+                    />
+                    {importBlockReason && <Banner status="warning" title={importBlockReason} />}
+                    <Button
+                      label={t("layout.ma2ImportBtn")}
+                      variant="secondary"
+                      size="sm"
+                      width="100%"
+                      isDisabled={disabled || working || Boolean(importBlockReason) || !confirmImport}
+                      onClick={() => onExport("import_to_ma2")}
+                    />
+                  </div>
+                </Collapsible>
+              </div>
+            )}
           </div>
-        </label>
-        {files.length > 0 && <button type="button" disabled={disabled || working || !selectedFile} onClick={onPreviewFolderFile}>{t("layout.ma2PreviewFile")}</button>}
-        {previewData && <div className="layout-ma2-preview">
-          <b>{t("layout.ma2PreviewTitle", {name:previewData.layout_name || previewData.source_name || 'Layout XML'})}</b>
-          <ul>
-            <li>{t("layout.ma2MatchedCount", {matched:previewData.matched_count, total:previewData.xml_fixture_count})}</li>
-            {previewData.unmatched_xml_ids?.length > 0 && <li>{t("layout.ma2UnmatchedIds", {ids:previewData.unmatched_xml_ids.slice(0,12).map(id=>`#${id}`).join(', ')})}</li>}
-            <li>{t("layout.ma2UnplacedPlan", {count:previewData.unplaced_plan_ids?.length ?? 0})}</li>
-            <li>{t("layout.ma2PreservedExtra", {count:previewData.extra_elements ?? 0})}</li>
-          </ul>
-          <div className="layout-form-actions">
-            <button type="button" disabled={disabled || working || !previewData.matched_count} onClick={onApply}>{t("layout.ma2Apply")}</button>
-            <button type="button" disabled={working} onClick={()=>setPreviewData(null)}>{t("common.cancel")}</button>
-          </div>
-        </div>}
-      </div>
-
-      <div className="layout-ma2-section">
-        <h4>{t("layout.ma2ExportTitle")}</h4>
-        <small>{hasTemplate ? t("layout.ma2ExportPatchHint") : t("layout.ma2ExportNewHint")}</small>
-        <label>{t("layout.ma2FileName")}<input type="text" disabled={disabled || working} value={fileName} onChange={e=>setFileName(e.target.value)} placeholder="luma_layout" /></label>
-        <div className="layout-ma2-actions">
-          <button type="button" className="layout-ma2-primary" disabled={disabled || working} onClick={()=>onExport('download')}>{t("layout.ma2DownloadXml")}</button>
-          <button type="button" disabled={disabled || working} onClick={()=>onExport('save_importexport')}>{t("layout.ma2SaveImportExport")}</button>
-        </div>
-        <small>{t("layout.ma2ManualOnlyHint")}</small>
-      </div>
-
-      <div className="layout-ma2-section">
-        <h4>{t("layout.ma2SendTitle")}</h4>
-        <label>{t("layout.ma2Slot")}<input type="number" min="1" max="999" step="1" disabled={disabled || working} value={slot} onChange={e=>setSlot(Math.max(1, Math.min(999, Number(e.target.value) || 99)))} /></label>
-        <label className="layout-ma2-check"><input type="checkbox" disabled={disabled || working || Boolean(importBlockReason)} checked={confirmImport} onChange={e=>setConfirmImport(e.target.checked)} /><span>{t("layout.ma2ConfirmImport", {slot})}</span></label>
-        <button type="button" disabled={disabled || working || Boolean(importBlockReason) || !confirmImport} onClick={()=>onExport('import_to_ma2')}>{t("layout.ma2ImportBtn")}</button>
-        {importBlockReason && <small>{importBlockReason}</small>}
-      </div>
-    </div>
-  </details>;
+        </Dialog>
+      </InternationalizationProvider>
+    </Theme>
+  );
 }
