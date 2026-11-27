@@ -44,7 +44,7 @@ export function LegacyFrame({
   );
 }
 
-const SAFETY_FLAGS = [
+export const SAFETY_FLAGS = [
   "allow_master",
   "allow_page_change",
   "allow_fixture_read",
@@ -57,7 +57,7 @@ const SAFETY_FLAGS = [
   "allow_rdm",
 ];
 
-const SAFETY_PRESETS = [
+export const SAFETY_PRESETS = [
   {
     id: "test",
     badgeVariant: "success",
@@ -150,7 +150,7 @@ function ClassicFallbackTools({ withEmbedded = false }) {
   );
 }
 
-function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }) {
+function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, onOpenWizard }) {
   const { t } = useLanguage();
   const hostId = useId();
   const portId = useId();
@@ -177,6 +177,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }
       host: ma2.host ?? "127.0.0.1",
       port: ma2.port ?? 30000,
       user: ma2.user ?? "Remote",
+      auto_launch: ma2.auto_launch !== false,
       mode: safety.mode ?? "test",
       flags: Object.fromEntries(SAFETY_FLAGS.map((k) => [k, Boolean(safety[k])])),
     });
@@ -230,7 +231,13 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }
     setSaveError("");
     try {
       const next = structuredClone(settingsData.settings);
-      next.ma2 = { ...(next.ma2 || {}), host: draft.host.trim(), port: Number(draft.port), user: draft.user };
+      next.ma2 = {
+        ...(next.ma2 || {}),
+        host: draft.host.trim(),
+        port: Number(draft.port),
+        user: draft.user,
+        auto_launch: Boolean(draft.auto_launch),
+      };
       next.safety = { ...(next.safety || {}), mode: draft.mode, ...draft.flags };
       const body = { settings: next, clear_password: clearPassword };
       if (passwordTouched && password) body.password = password;
@@ -265,6 +272,14 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }
           <h2>{t("settings.system")}</h2>
           <p>{t("settings.nativeSystemHint")}</p>
         </div>
+        {onOpenWizard && (
+          <Button
+            label={t("settings.openWizard")}
+            variant="primary"
+            size="sm"
+            onClick={onOpenWizard}
+          />
+        )}
       </div>
       {state.status?.mock && <div className="inline-notice">{t("settings.mockHint")}</div>}
 
@@ -424,6 +439,19 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved }
               />
               <span>{t("settings.clearPassword")}</span>
             </label>
+            <div className="settings-row settings-autolaunch-row">
+              <div>
+                <b>{t("settings.ma2AutoLaunch")}</b>
+                <small>{t("settings.ma2AutoLaunchDesc")}</small>
+              </div>
+              <Switch
+                value={Boolean(draft.auto_launch)}
+                label={t("settings.ma2AutoLaunch")}
+                isLabelHidden
+                isDisabled={saving}
+                onChange={(value) => setDraft((d) => ({ ...d, auto_launch: value }))}
+              />
+            </div>
           </section>
 
           <section className="settings-section hall-view-settings">
@@ -1043,6 +1071,7 @@ export default function Settings({
   ids,
   setIds,
   onShortcuts,
+  onOpenWizard,
 }) {
   const { t, language, changeLanguage } = useLanguage();
   const [section, setSection] = useState("interface");
@@ -1217,6 +1246,7 @@ export default function Settings({
             settingsData={settingsData}
             settingsError={settingsError}
             onSaved={loadSettings}
+            onOpenWizard={onOpenWizard}
           />
         ) : section === "diagnostics" ? (
           <DiagnosticsSection state={state} />

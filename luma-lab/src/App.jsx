@@ -9,6 +9,7 @@ import Inspector from "./Inspector.jsx";
 import InspectorDock, { useInspectorSize } from "./InspectorDock.jsx";
 import Scenes, { LiveSceneBar, RecordSceneModal, SceneCards } from "./Scenes.jsx";
 import Settings, { LegacyFrame } from "./Settings.jsx";
+import OnboardingWizard from "./OnboardingWizard.jsx";
 import useHotkeys from "./useHotkeys.jsx";
 import { FIXTURE_KINDS, fixtureKind } from "./model.mjs";
 import { useLanguage } from "./Language.jsx";
@@ -43,12 +44,43 @@ export default function App() {
     [quickScenes, setQuickScenes] = useState(false),
     [hallDraft, setHallDraft] = useState(null),
     [undoing, setUndoing] = useState(false),
-    [releasingHighlight, setReleasingHighlight] = useState(false);
-  const selectedGroup = useRef(null), announcedPlan = useRef(null);
+    [releasingHighlight, setReleasingHighlight] = useState(false),
+    [wizardOpen, setWizardOpen] = useState(() => {
+      try {
+        return new URLSearchParams(window.location.search).get("setup") === "1";
+      } catch {
+        return false;
+      }
+    }),
+    [wizardDismissed, setWizardDismissed] = useState(false);
+  const selectedGroup = useRef(null), announcedPlan = useRef(null), autoWizardChecked = useRef(false);
   useEffect(() => {
     bridge.connect();
     return () => bridge.disconnect();
   }, []);
+  useEffect(() => {
+    if (wizardOpen || wizardDismissed || autoWizardChecked.current) return;
+    if (!state.status) return;
+    if (state.status.mock === true) {
+      autoWizardChecked.current = true;
+      return;
+    }
+    const isLocal = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(window.location.hostname);
+    if (!isLocal) {
+      autoWizardChecked.current = true;
+      return;
+    }
+    autoWizardChecked.current = true;
+    fetch("/api/settings", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const host = String(data?.settings?.ma2?.host ?? "").trim();
+        if (!host || host === "ma2-unconfigured.invalid") {
+          setWizardOpen(true);
+        }
+      })
+      .catch(() => {});
+  }, [state.status, wizardOpen, wizardDismissed]);
   const config = state.config,
     fixtures = config?.fixtures || [],
     groups = config?.groups || [],
@@ -129,7 +161,7 @@ export default function App() {
     invalidSlots,
     onArm: setArmed,
     onHelp: () => setModal("shortcuts"),
-    enabled: page !== "settings" && page !== "layout",
+    enabled: !wizardOpen && page !== "settings" && page !== "layout",
     movementEnabled: tools.pos !== false,
   });
   function action(a) {
@@ -651,6 +683,7 @@ export default function App() {
                 setIds,
               }}
               onShortcuts={() => setModal("shortcuts")}
+              onOpenWizard={() => setWizardOpen(true)}
             />
           )}
         </main>
@@ -778,6 +811,25 @@ export default function App() {
             )}
           </Modal>
         )}
+      {wizardOpen && (
+        <OnboardingWizard
+          state={state}
+          onClose={() => {
+            setWizardOpen(false);
+            setWizardDismissed(true);
+          }}
+          onOpenHall={() => {
+            setWizardOpen(false);
+            setWizardDismissed(true);
+            setPage("hall");
+          }}
+          onOpenLayout={() => {
+            setWizardOpen(false);
+            setWizardDismissed(true);
+            setPage("layout");
+          }}
+        />
+      )}
     </div>
   );
 }
