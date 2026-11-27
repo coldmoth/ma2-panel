@@ -78,7 +78,7 @@ const assert = require('node:assert/strict');
       });
       await page.setViewportSize({width: 1440, height: 900});
       await page.goto(base + '/');
-      await page.getByText(rc, { exact: true }).waitFor();
+      await page.locator('.sidebar-version').getByText(rc.split('+')[0], { exact: true }).waitFor();
       const connect = page.getByRole('button', { name: 'Connect to MA2', exact: true });
       await connect.waitFor();
       assert.equal(statuses.at(-1)?.mock, false);
@@ -92,14 +92,21 @@ const assert = require('node:assert/strict');
       assert.equal(statuses.at(-1)?.login?.USER, 'luma-ci');
       await page.locator('[data-fixture="1"]').click();
       const dimmer = page.getByRole('region', {name: 'Dimmer', exact: true});
-      const target = dimmer.getByRole('textbox', {name: 'Target brightness (%)', exact: true});
-      await target.fill('58');
-      await dimmer.getByRole('button', {name: 'Apply', exact: true}).click();
+      const slider = dimmer.getByRole('slider', {name: 'Dimmer', exact: true});
+      await slider.waitFor();
+      assert.equal(await slider.getAttribute('aria-valuetext'), 'Unknown value');
+      const sentBeforeArrow = sent.length;
+      await slider.press('ArrowUp');
+      assert.deepEqual(sent.slice(sentBeforeArrow), [], 'Unknown brightness must not send a command');
+      const deskBeforePreset = deskCommands().length;
+      await dimmer.getByRole('button', {name: '50%', exact: true}).click();
       const deadline = Date.now() + 5000;
-      while (!deskCommands().includes('At 58') && Date.now() < deadline) {
+      const intensityCommands = () => deskCommands().slice(deskBeforePreset).filter(command => /^At /.test(command));
+      while (!intensityCommands().length && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      assert(deskCommands().includes('At 58'), 'Dimmer command must reach the isolated external peer');
+      assert.deepEqual(intensityCommands(), ['At 50'], 'One explicit dimmer command must reach the isolated external peer');
+      assert.deepEqual(sent.filter(({a}) => a === 'dim').map(({v}) => v), [50]);
       const classic = page.getByRole('link', {name: 'Classic panel', exact: true});
       assert.equal(await classic.getAttribute('href'), '/index.html');
       assert.deepEqual(errors, []);

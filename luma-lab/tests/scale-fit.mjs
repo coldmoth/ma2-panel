@@ -20,7 +20,6 @@ const metrics = page => page.locator('.page-hall .stage-viewport > svg').evaluat
     viewFillsAvailableSpace: Math.abs(
       rect(s.closest('main')).height - rect(s.parentElement).height -
       rect(document.querySelector('.stage-heading')).height -
-      rect(document.querySelector('.inspector-strip')).height -
       rect(document.querySelector('.page-hall > .live-scenes-bar')).height -
       rect(document.querySelector('.quick-scenes')).height
     ) <= 10,

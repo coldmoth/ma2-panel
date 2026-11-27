@@ -84,6 +84,7 @@ try {
  }, roomWidth);
  await page.getByLabel('Поворот, °',{exact:true}).fill('37.5');await nav('Сохранить');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).rot===37.5);
  await page.getByLabel('Иконка прибора', { exact: true }).selectOption('profile');await nav('Сохранить');await wait(b=>b.state.config.fixtures.find(f=>f.id===9).icon==='profile');
+ await page.locator('.layout-geometry summary').click();
  await page.getByLabel('Ширина помещения, м',{exact:true}).fill('20');await page.getByLabel('Длина помещения, м',{exact:true}).fill('26');
  await page.getByLabel('Ширина сцены, м',{exact:true}).fill('10');await page.getByLabel('Глубина сцены, м',{exact:true}).fill('4');
  await page.getByLabel('Положение вдоль стены, %',{exact:true}).fill('25');await page.getByLabel('Сцена у стены',{exact:true}).selectOption('left');
@@ -98,7 +99,7 @@ try {
  await page.getByLabel('Закрыть участок',{exact:true}).click();
  await page.evaluate(async fixtures=>{const {bridge:b}=await import(performance.getEntriesByType('resource').find(e=>/\/src\/client\.mjs/.test(e.name)).name);await b.action({a:'layout_save',pos:fixtures.filter(f=>[15,16,17].includes(f.id)).map(({id,x,y})=>({id,x,y}))});},initial.fixtures);
  results.push('dense local magnifier selects each PAR independently');
- await page.reload();await wait(b=>b.ready());await nav('Расстановка');assert.equal(await page.getByLabel('Ширина помещения, м',{exact:true}).inputValue(),'20');
+ await page.reload();await wait(b=>b.ready());await nav('Расстановка');await page.locator('.layout-geometry summary').click();assert.equal(await page.getByLabel('Ширина помещения, м',{exact:true}).inputValue(),'20');
  await page.locator('[data-fixture="9"]').click();assert.equal(await page.getByLabel('Поворот, °',{exact:true}).inputValue(),'37.5');
  // Restore only fields changed by this verification, using isolated mock config.
  await state(async b=>{await b.action({a:'layout_save',pos:[{id:9,x:.12,y:.22}]});await b.action({a:'fixture_flag',id:9,rot:0});await b.action({a:'fixture_flag',id:9,icon:'head'});});

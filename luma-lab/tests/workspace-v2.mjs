@@ -111,7 +111,7 @@ try {
    }
  }
  results.push({test:'adaptive hall, no clipping or page overflow',layouts});
- await page.setViewportSize({width:1440,height:900});await page.waitForFunction(()=>document.querySelector('[role="separator"]').getAttribute('aria-valuemax')==='640');await handle.focus();await page.keyboard.press('Home');assert.equal(Number(await handle.getAttribute('aria-valuenow')),280);
+ await page.setViewportSize({width:1440,height:900});await page.waitForFunction(()=>document.querySelector('[role="separator"]')?.getAttribute('aria-valuemax')==='640');await handle.focus();await page.keyboard.press('Home');assert.equal(Number(await handle.getAttribute('aria-valuenow')),280);
  await page.keyboard.press('End');assert.equal(Number(await handle.getAttribute('aria-valuenow')),640);
  await page.keyboard.press('ArrowRight');assert.equal(Number(await handle.getAttribute('aria-valuenow')),620);
  results.push({test:'keyboard resize supports bounds and steps'});
