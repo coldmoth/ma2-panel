@@ -192,6 +192,18 @@ const headers={'x-ma2-test':process.env.MA2_TEST_TOKEN};
     });
    }
    await check('passive-diagnostics-preview-and-download',async()=>{
+    if (profile === 'synthetic') {
+     // The bridge restarted above and discovers types in the background,
+     // independently of the diagnostics page. Establish the baseline after discovery.
+     await page.waitForFunction(async testHeaders => {
+      const response = await fetch('/__quality/control', {headers: testHeaders});
+      if (!response.ok) return false;
+      const {received} = await response.json();
+      return [1, 2, 3].every(id => received.some(command => command.startsWith('Export FixtureType '+id+' ')));
+     }, headers, {timeout: 20000, polling: 250});
+     await page.waitForFunction(() => Object.keys(state.config.dmx_map||{}).length===3 &&
+      Object.values(state.config.dmx_map).every(map => !map.stale));
+    }
     const before=(await control()).received.filter(c=>!c.startsWith('List'));
     await page.goto(url+'/diag.html');await page.locator('#quality-checks li').first().waitFor();
     await page.locator('#testing-preview').click();await page.locator('#testing-download').waitFor({state:'visible'});
