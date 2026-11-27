@@ -46,6 +46,11 @@ def main():
     if readback:
         settings['dmx_seconds'] = 1
         settings.setdefault('safety', {})['allow_layout_import'] = True
+        cfg_live = json.loads(config_path.read_text())
+        for f in cfg_live.get('fixtures', []):
+            if f.get('channels') and f.get('footprint', 0) < f['channels']:
+                f['footprint'] = f['channels']
+        config_path.write_text(json.dumps(cfg_live, ensure_ascii=False, indent=2))
     settings_path.write_text(json.dumps(settings,ensure_ascii=False,indent=2))
     allowed=set();sys.addaudithook(network_guard(allowed))
     original_start=bridge.start_mock
