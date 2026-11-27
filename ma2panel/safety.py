@@ -37,7 +37,8 @@ DEFAULT_MA2 = {"listshows_regex": r'(?im)"([^"\r\n]+?)"(?:\.show(?:\.gz)?)?|^\s*
                "export_cmd": 'Export Fixture 1 Thru 9999 "panel_fixtures"',
                "export_wait": 5, "export_search": ["C:/ProgramData/MA Lighting Technologies/grandma/*/importexport"],
                "showfile_regex": r'(?im)\$?SHOWFILE[ \t]*[=:][ \t]*"?([^"\r\n]+?)"?\s*$',
-               "host": "127.0.0.1", "port": 30000, "user": "Remote", "require_prompt": True}
+               "host": "127.0.0.1", "port": 30000, "user": "Remote", "require_prompt": True,
+               "auto_launch": True, "exe_path": ""}
 # MA2 3.9.60.68 (hall 2026-10-18): "Group 1 1    HEAD STAGE", "Color 4.1 4.1  red      Normal" (columns 2+ spaces apart),
 # empty: "WARNING, NO OBJECTS FOUND FOR LIST". The older quoted form Group n "Name" / Preset t.n "Name" still parses.
 DEFAULT_MA2.update({
@@ -349,6 +350,10 @@ def validate_settings(value):
         if key in value.get("safety", {}) and type(value["safety"][key]) is not bool:
             raise ValueError(f"safety.{key}: требуется bool")
     ma2 = value.get("ma2", {})
+    if "auto_launch" in ma2 and type(ma2["auto_launch"]) is not bool:
+        raise ValueError("ma2.auto_launch: требуется bool")
+    if "exe_path" in ma2 and (not isinstance(ma2["exe_path"], str) or any(c in ma2["exe_path"] for c in "\r\n\0")):
+        raise ValueError("ma2.exe_path: требуется строка пути без переносов строки")
     for label, obj in (("port", value), ("ma2.port", ma2)):
         if "port" in obj and (type(obj["port"]) is not int or not 1 <= obj["port"] <= 65535):
             raise ValueError(f"{label}: требуется целое число от 1 до 65535")

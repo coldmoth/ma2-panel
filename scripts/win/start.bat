@@ -7,6 +7,21 @@ if not exist "python\python.exe" (
   exit /b 1
 )
 set "OPEN_PAGE=--open-browser"
+set "LAUNCH_MA2=1"
+set "BRIDGE_ARGS="
+:parse_args
+if "%~1"=="" goto args_done
+if /i "%~1"=="--no-ma2" (
+  set "LAUNCH_MA2=0"
+) else (
+  set "BRIDGE_ARGS=%BRIDGE_ARGS% %1"
+)
+shift
+goto parse_args
+:args_done
+if "%LAUNCH_MA2%"=="1" (
+  "%~dp0python\python.exe" -m ma2panel.launcher --settings "%~dp0settings.json"
+)
 :run_bridge
 if exist "%~dp0.updates\recovery.py" (
   "%~dp0python\python.exe" "%~dp0.updates\recovery.py" --recover "%~dp0."
@@ -16,7 +31,7 @@ if exist "%~dp0.updates\recovery.py" (
     exit /b 1
   )
 )
-"%~dp0python\python.exe" "%~dp0bridge.py" %OPEN_PAGE% %*
+"%~dp0python\python.exe" "%~dp0bridge.py" %OPEN_PAGE% %BRIDGE_ARGS%
 if %errorlevel%==3 (
   set "OPEN_PAGE="
   echo Restarting the bridge with new settings...
