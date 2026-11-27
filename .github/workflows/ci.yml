@@ -240,11 +240,13 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm test --prefix luma-lab
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $version = (Get-Content ma2panel/VERSION -Raw).Trim()
-          $commit = git rev-parse --short HEAD
-          $env:LUMA_HALL_VERSION = "$version+$commit"
+          $env:LUMA_HALL_VERSION = (Get-Content ma2panel/VERSION -Raw).Trim()
           npm run build --prefix luma-lab -- --outDir ../static/luma --emptyOutDir
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          git diff --exit-code -- static/luma
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $untracked = git ls-files --others -- static/luma
+          if ($untracked) { throw "Uncommitted LUMA assets: $untracked" }
           uv run --no-sync python -m scripts.build_windows --hall-trial --verify-reproducible
       - name: Verify the exact LUMA ZIP first run and opt-in upgrade with an external peer
         if: inputs.luma_hall_trial
