@@ -27,8 +27,10 @@ const [url,,output]=process.argv.slice(2),results=[];
    assert.equal(frames.filter(a=>a.a==='scene_go').at(-1).fade,5);
 
    // New scene: select fixtures, then real slot offer/token and output Store from mock backend.
+   await page.evaluate(()=>{lightUI.tab='plan';go('light');});
    await page.locator('.live-plan .fx[data-id="1"]').tap();
    await page.waitForFunction(()=>state.selection.includes(1)&&!busy('select_fixtures'));
+   await page.evaluate(()=>go('scenes'));
    await page.getByRole('button',{name:'Сохранить сцену',exact:true}).first().tap();
    await page.getByLabel('Название',{exact:true}).fill('Сцена '+engine);
    await page.getByRole('button',{name:'Найти место',exact:true}).tap();
@@ -50,7 +52,7 @@ const [url,,output]=process.argv.slice(2),results=[];
    await page.evaluate(()=>{
     const cfg=JSON.parse(JSON.stringify(state.config));
     cfg.fixtures=[{id:1,label:'Фронт',type:'RGB head',color:'rgb',moves:true,x:.35,y:.4,params:['Dimmer','ColorRGB_Red','ColorRGB_Green','ColorRGB_Blue','Pan','Tilt','Zoom','Focus','Strobe']}];
-    receive({config:cfg});selectFixtures([1]);
+    receive({config:cfg});lightUI.tab='plan';go('light');selectFixtures([1]);
    });
    await page.waitForFunction(()=>!busy('select_fixtures'));
    await page.getByRole('button',{name:'Красный',exact:true}).tap();
@@ -58,7 +60,7 @@ const [url,,output]=process.argv.slice(2),results=[];
    assert.equal(frames.filter(a=>a.a==='color').at(-1).fade,5,'same Fade applies to colour');
    const lightConfig=await page.evaluate(()=>JSON.parse(JSON.stringify(state.config)));
    async function measured(dim,rgb=[100,0,0],freshness='fresh'){
-    await page.evaluate(({dim,rgb,freshness})=>receive({live:{1:{dim,rgb}},values_meta:{live:{source:'ma2',freshness,updated_at:Date.now()/1000}}}),{dim,rgb,freshness});
+    await page.evaluate(({dim,rgb,freshness})=>receive({simulation:{},live:{1:{dim,rgb}},values_meta:{live:{source:'ma2',freshness,updated_at:Date.now()/1000}}}),{dim,rgb,freshness});
    }
    await measured(20);
    assert(await page.locator('.live-plan .fx.lit').count(),'fresh measured light is visible');
@@ -88,11 +90,12 @@ const [url,,output]=process.argv.slice(2),results=[];
    await page.evaluate(config=>receive({config}),lightConfig);
 
    // A text draft remains in its dialog while the rest of the UI updates.
+   await page.evaluate(()=>go('scenes'));
    await page.getByRole('button',{name:'Сохранить сцену',exact:true}).first().tap();
    const name=page.getByLabel('Название',{exact:true});await name.fill('Не терять имя');
    await measured(35,[0,100,0]);
    assert.equal(await name.inputValue(),'Не терять имя');
-   assert(await page.locator('.live-plan .fx.lit').count());
+   assert.equal(await page.evaluate(()=>state.live[1].dim),35);
    // Inject an unknown outcome tied to a genuine pending request, with no write sent.
    await page.evaluate(()=>{
     const button=document.querySelector('#dlg button');const id='test:unknown';
@@ -131,7 +134,7 @@ const [url,,output]=process.argv.slice(2),results=[];
     for(const id of ['halt','blackout']){const r=await page.locator('#'+id).boundingBox();assert(r.x>=0&&r.y>=0&&r.x+r.width<=width+1&&r.y+r.height<=height+1,id+' accessible');}
     const r=await page.locator('.tile').first().boundingBox();assert(r.width>=44&&r.height>=44);
     assert(r.y>=0&&r.y<height,'first scene remains visible beside the plan '+width);
-    const planBox=await page.locator('.live-plan').boundingBox();assert(planBox && planBox.width>200 && planBox.y<height,'working plan is visible '+width);
+    assert(await page.getByRole('button',{name:'Выбрать',exact:true}).isVisible(),'fixture picker is available from scenes '+width);
     await page.locator('.scene-list').evaluate(el=>el.scrollTop=100);
     const scrollBefore=await page.locator('.scene-list').evaluate(el=>el.scrollTop);
     await page.evaluate(()=>{selectFixtures([]);selectFixtures([1]);});
@@ -139,7 +142,8 @@ const [url,,output]=process.argv.slice(2),results=[];
     await page.locator('.scene-list').evaluate(el=>el.scrollTop=0);
     await page.screenshot({path:path.join(output,engine+'-'+width+'x'+height+'.png'),fullPage:true});
     await page.locator('#rail [data-sec=light]').tap();
-    assert(await page.locator('.live-plan').count());
+    await page.locator('#light-selection').getByRole('button',{name:'План',exact:true}).tap();
+    const planBox=await page.locator('.live-plan').boundingBox();assert(planBox && planBox.width>200 && planBox.y<height,'working plan is visible '+width);
     assert(await page.evaluate(()=>document.querySelector('#page').scrollWidth<=document.querySelector('#page').clientWidth+1));
     results.push({engine,width,height,layout:'pass'});
    }

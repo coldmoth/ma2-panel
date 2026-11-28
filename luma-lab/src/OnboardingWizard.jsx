@@ -446,6 +446,8 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
   const fixtures = state.config?.fixtures || [];
   const scenes = state.config?.scenes || [];
   const ma2Layout = state.config?.ma2_layout || null;
+  const connectBlock = bridge.blockReason("link_connect");
+  const canConnectMa2 = connectBlock === null;
 
   useEffect(() => {
     if (!autoConnectPending) return;
@@ -453,18 +455,17 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
       setAutoConnectPending(false);
       return;
     }
-    if (state.connected && isManualOff && !bridge.blockReason("link_connect")) {
+    if (isManualOff && canConnectMa2) {
       setAutoConnectPending(false);
       bridge.action({ a: "link_connect" }).catch(() => {});
     }
-  }, [autoConnectPending, state.connected, isManualOff, ma2Ready]);
+  }, [autoConnectPending, canConnectMa2, isManualOff, ma2Ready]);
 
   const identifyBlock = bridge.blockReason("show_identify");
   const bindBlock = bridge.blockReason("show_bind");
   const openPlanBlock = bridge.blockReason("show_open_plan");
   const fetchBlock = bridge.blockReason("fixtures_fetch");
   const importScenesBlock = bridge.blockReason("scenes_import");
-  const connectBlock = bridge.blockReason("link_connect");
 
   const canCreatePlan = planDecision?.code === "plan_missing" && Boolean(deskShow) && !openPlanBlock;
   const canBindPlan = Boolean(deskShow) && deskShow !== state.config?.show && !bindBlock && !canCreatePlan;

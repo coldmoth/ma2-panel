@@ -30,7 +30,7 @@ async function check(engine) {
     }
     await page.goto(base);
     await page.waitForFunction(() => connected());
-    await page.locator('[data-sec="shows"]').click();
+    await page.evaluate(() => go('shows'));
     const card = page.locator('#show-files-card');
     await card.getByRole('button', {name: 'Скачать шоу', exact: true}).click();
     await card.getByRole('link', {name: 'Скачать файл .show.gz'}).waitFor();
@@ -52,10 +52,13 @@ async function check(engine) {
     await card.locator('input[type=file]').setInputFiles({name: 'School.show.gz', mimeType: 'application/octet-stream', buffer: data});
     await busyBoth();
     await page.waitForFunction(() => showFileUI.operation && showFileUI.operation.kind === 'load' && showFileUI.operation.state === 'done');
+    await page.waitForFunction(() => state.config?.show === state.show?.name && /^School_panel_/.test(state.show.name));
+    await page.evaluate(() => send({a:'fixtures_fetch'}));
+    await page.waitForFunction(() => !state.recovering && !busy('fixtures_fetch'));
     await teacher.waitForFunction(() => !document.getElementById('blackout').disabled);
     await page.reload();
     await page.waitForFunction(() => showFileUI.operation && showFileUI.operation.state === 'done');
-    await page.locator('[data-sec="shows"]').click();
+    await page.evaluate(() => go('shows'));
     await page.screenshot({path: path.join(output, engine + '-loaded.png'), fullPage: true});
     await page.setViewportSize({width: 390, height: 844});
     await page.screenshot({path: path.join(output, engine + '-phone.png'), fullPage: true});
@@ -74,6 +77,8 @@ async function check(engine) {
     console.log('PASS ' + engine + ': upload, confirmation/cancel, saved download, save/backup, reload, corrupt file, offline/recovery, phone');
   } catch (error) {
     await page.screenshot({path: path.join(output, engine + '-failure.png'), fullPage: true});
+    const simple = context.pages()[0] === page ? context.pages()[1] : context.pages()[0];
+    if (simple) await fs.writeFile(path.join(output, engine + '-teacher-failure.txt'), await simple.locator('body').innerText());
     throw error;
   } finally { await browser.close(); }
 }
