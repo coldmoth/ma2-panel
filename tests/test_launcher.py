@@ -181,7 +181,89 @@ def test_start_bat_is_ascii_crlf_and_invokes_launcher():
     assert b"\n" not in raw.replace(b"\r\n", b"")
     text = raw.decode("ascii")
     assert "-m ma2panel.launcher --settings" in text
+    assert "SETTINGS_PATH" in text
     assert "--no-ma2" in text
     assert ":run_bridge" in text
     assert "if %errorlevel%==3" in text
     assert text.index("ma2panel.launcher") < text.index(":run_bridge")
+
+
+def test_update_usb_bat_strips_quotes_and_pauses_on_error():
+    root = Path(__file__).resolve().parents[1]
+    raw = (root / "scripts/win/update-usb.bat").read_bytes()
+    raw.decode("ascii")
+    assert b"\r\n" in raw
+    assert b"\n" not in raw.replace(b"\r\n", b"")
+    text = raw.decode("ascii")
+    assert 'set "TARGET=%~1"' in text
+    assert 'TARGET:"=' in text
+    assert 'not exist "%TARGET%\\python\\python.exe"' in text
+    err_block = text[text.index('not exist "%TARGET%\\python\\python.exe"'):text.index('update.py')]
+    assert "pause" in err_block and "exit /b 1" in err_block
+
+
+def test_windows_default_starter_uses_shellexecutew_with_exe_parent_cwd(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    pf = tmp_path / "Program Files"
+    exe = _make_onpc(pf, "3.9.60.68")
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"ma2": {"host": "127.0.0.1"}}), encoding="utf-8")
+
+    calls = []
+    fake_shell32 = SimpleNamespace(ShellExecuteW=lambda *args: (calls.append(args), 42)[1])
+    monkeypatch.setattr(launcher, "_get_windows_shell32", lambda: fake_shell32)
+    status = launcher.launch_if_needed(
+        settings,
+        platform="win32",
+        program_dirs=[pf],
+        runner=_tasklist_output("explorer.exe"),
+        out=io.StringIO(),
+    )
+    assert status == "launched"
+    assert calls == [(None, "open", str(exe), None, str(exe.parent), 1)]
+
+    # Return code <= 32 reports launch_error
+    fail_shell32 = SimpleNamespace(ShellExecuteW=lambda *args: 5)
+    monkeypatch.setattr(launcher, "_get_windows_shell32", lambda: fail_shell32)
+    assert launcher.launch_if_needed(
+        settings,
+        platform="win32",
+        program_dirs=[pf],
+        runner=_tasklist_output("explorer.exe"),
+        out=io.StringIO(),
+    ) == "launch_error"
+
+
+def test_probe_passes_custom_regex_and_timeout_to_ma2link(tmp_path, monkeypatch):
+    import asyncio
+    from ma2panel import bridge
+
+    captured = {}
+
+    class FakeLink:
+        def __init__(self, host, port, user, password, on_state, guard, require_prompt, prompt_re=None, login_ok_re=None, timeout=2.0):
+            captured.update(host=host, port=port, prompt_re=prompt_re, login_ok_re=login_ok_re, timeout=timeout)
+            self.ready = False
+            self.state = "login_failed"
+
+        async def run(self):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(bridge, "MA2Link", FakeLink)
+    monkeypatch.setattr(bridge, "HERE", tmp_path)
+    settings = {
+        "ma2": {
+            "host": "127.0.0.1",
+            "port": 30000,
+            "prompt_regex": r"\[Custom\]>",
+            "login_ok_regex": r"Welcome Custom",
+            "timeout": 7.5,
+        }
+    }
+    asyncio.run(bridge.probe({}, settings=settings))
+    assert captured["prompt_re"].pattern == rb"\[Custom\]>"
+    assert captured["login_ok_re"].pattern == r"Welcome Custom"
+    assert captured["timeout"] == 7.5

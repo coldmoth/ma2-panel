@@ -4091,7 +4091,10 @@ async def probe(cfg: dict, settings: dict | None = None, password: str = "") -> 
     m = {**DEFAULT_MA2, **cfg.get("ma2", {}), **(settings or {}).get("ma2", {})}
     link = MA2Link(m["host"], m["port"], m["user"], password or m.get("password", ""), lambda state: None,
                    make_guard({**effective_safety(settings or {}), "mode": "test", "allowed_fixtures": [], "allowed_scenes": []}),
-                   m["require_prompt"])
+                   m["require_prompt"],
+                   re.compile(m["prompt_regex"].encode()) if m.get("prompt_regex") else PROMPT,
+                   re.compile(m["login_ok_regex"]) if m.get("login_ok_regex") else LOGIN_OK,
+                   float(m.get("timeout", 2)))
     task = asyncio.create_task(link.run())
     for _ in range(100):
         if link.ready or link.state == "login_failed":

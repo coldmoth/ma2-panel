@@ -358,19 +358,21 @@ class StatusRelay:
                 if host not in ('localhost', '127.0.0.1', '::1'):
                     self.send_error(403)
                     return
-                if self.path == '/api/update/status':
+                req_path = urllib.parse.urlsplit(self.path).path
+                if req_path == '/api/update/status':
                     data = status(relay.root)
                     body = json.dumps({'ok': True, 'current': update.version(relay.root), **data}).encode()
                     mime = 'application/json'
                     if data['phase'] in TERMINAL:
                         relay.delivered.set()
-                elif self.path in ('/', '/settings.html'):
+                elif req_path in ('/', '/settings.html', '/luma', '/luma/'):
+                    dest = '/' if (relay.root / 'ma2panel' / 'HALL_TRIAL').is_file() else '/settings.html'
                     body = ("<!doctype html><html lang='ru'><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
                             "<title>Обновление MA2</title><body style='background:#111;color:#eee;font:20px system-ui;padding:24px'>"
                             "<h1>Обновление программы</h1><p id='s' role='status'>Ожидаем результат…</p>"
                             "<p>При ошибке запуска подробности сохранены в .updates/startup.log на ПК моста.</p>"
                             "<script>async function poll(){try{let d=await(await fetch('/api/update/status')).json();"
-                            "document.getElementById('s').textContent=(d.error||d.phase);if(d.phase==='completed'||d.phase==='rolled_back')location.href='/settings.html';"
+                            f"document.getElementById('s').textContent=(d.error||d.phase);if(d.phase==='completed'||d.phase==='rolled_back')location.href='{dest}';"
                             "}catch(e){}setTimeout(poll,1500)}poll()</script></body></html>").encode()
                     mime = 'text/html; charset=utf-8'
                 else:

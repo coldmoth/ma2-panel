@@ -182,6 +182,27 @@ def test_status_relay_reports_failure_while_bridge_is_down(tmp_path):
         relay.stop()
 
 
+def test_status_relay_serves_luma_path_and_redirects_by_hall_trial(tmp_path):
+    from urllib.request import urlopen
+    bu.progress(tmp_path, '5' * 32, 'installing')
+    relay = bu.StatusRelay(tmp_path, 0)
+    try:
+        relay.start()
+        # Classic installation: /luma/ serves progress page and redirects to /settings.html
+        with urlopen(f'http://127.0.0.1:{relay.port}/luma/') as resp:
+            body = resp.read().decode('utf-8')
+            assert resp.status == 200 and "location.href='/settings.html'" in body
+        # HALL_TRIAL installation: / and /luma/ redirect to / (LUMA)
+        (tmp_path / 'ma2panel').mkdir()
+        (tmp_path / 'ma2panel' / 'HALL_TRIAL').write_text('Controlled LUMA hall trial\n')
+        for path in ('/', '/luma/'):
+            with urlopen(f'http://127.0.0.1:{relay.port}{path}') as resp:
+                body = resp.read().decode('utf-8')
+                assert resp.status == 200 and "location.href='/'" in body
+    finally:
+        relay.stop()
+
+
 def test_real_worker_update_restart_and_both_ports(tmp_path):
     """Real detached worker/HTTP restart; only GitHub transport is replaced by localhost."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

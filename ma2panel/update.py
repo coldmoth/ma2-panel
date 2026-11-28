@@ -165,7 +165,7 @@ def local_archive(path, directory):
     return archive
 
 
-USER_DATA = ('config.json', 'settings.json', 'secret.env', 'highlight.json', 'blackout.json', 'rdm-search.json', 'update_url.txt', 'shows', 'diagnostic-upload.json', 'diag', 'field-data')
+USER_DATA = ('config.json', 'settings.json', 'secret.env', 'highlight.json', 'blackout.json', 'rdm-search.json', 'update_url.txt', 'shows', 'layout_templates', 'diagnostic-upload.json', 'diag', 'field-data')
 
 
 def user_data_names(root):

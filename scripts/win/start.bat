@@ -9,18 +9,29 @@ if not exist "python\python.exe" (
 set "OPEN_PAGE=--open-browser"
 set "LAUNCH_MA2=1"
 set "BRIDGE_ARGS="
+set "SETTINGS_PATH=%~dp0settings.json"
 :parse_args
 if "%~1"=="" goto args_done
 if /i "%~1"=="--no-ma2" (
   set "LAUNCH_MA2=0"
-) else (
-  set "BRIDGE_ARGS=%BRIDGE_ARGS% %1"
+  shift
+  goto parse_args
 )
+if /i "%~1"=="--settings" (
+  if not "%~2"=="" (
+    set "SETTINGS_PATH=%~2"
+    set "BRIDGE_ARGS=%BRIDGE_ARGS% %1 %2"
+    shift
+    shift
+    goto parse_args
+  )
+)
+set "BRIDGE_ARGS=%BRIDGE_ARGS% %1"
 shift
 goto parse_args
 :args_done
 if "%LAUNCH_MA2%"=="1" (
-  "%~dp0python\python.exe" -m ma2panel.launcher --settings "%~dp0settings.json"
+  "%~dp0python\python.exe" -m ma2panel.launcher --settings "%SETTINGS_PATH%"
 )
 :run_bridge
 if exist "%~dp0.updates\recovery.py" (

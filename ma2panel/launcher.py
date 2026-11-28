@@ -120,6 +120,29 @@ def _read_ma2_settings(settings_path: Path) -> dict:
     return ma2 if isinstance(ma2, dict) else {}
 
 
+def _get_windows_shell32():
+    import ctypes
+    windll = getattr(ctypes, "windll", None)
+    return getattr(windll, "shell32", None) if windll is not None else None
+
+
+def _start_windows_exe(exe: Path) -> None:
+    """Launch a Windows executable with exe.parent as working directory via ShellExecuteW, falling back to os.startfile."""
+    shell32 = _get_windows_shell32()
+    if shell32 is not None:
+        rc = shell32.ShellExecuteW(None, "open", str(exe), None, str(exe.parent), 1)
+        if rc <= 32:
+            raise OSError(f"ShellExecuteW failed with code {rc}")
+        return
+    startfile = getattr(os, "startfile", None)
+    if startfile is None:
+        raise RuntimeError("Windows start API unavailable")
+    try:
+        startfile(str(exe), cwd=str(exe.parent))
+    except TypeError:
+        startfile(str(exe))
+
+
 def launch_if_needed(
     settings_path: Path,
     *,
@@ -168,13 +191,15 @@ def launch_if_needed(
         say("[launcher] grandMA2 onPC not found; starting bridge only.")
         return "not_found"
 
-    start_fn = getattr(os, "startfile", None) if starter is None else starter
-    if start_fn is None:
-        say("[launcher] os.startfile is unavailable; skipping grandMA2 auto-launch.")
+    if starter is None and _get_windows_shell32() is None and getattr(os, "startfile", None) is None:
+        say("[launcher] Windows launcher API is unavailable; skipping grandMA2 auto-launch.")
         return "unsupported"
 
     try:
-        start_fn(str(exe))
+        if starter is not None:
+            starter(str(exe))
+        else:
+            _start_windows_exe(exe)
         say(f"[launcher] Started grandMA2 onPC: {exe}")
         return "launched"
     except Exception as exc:
