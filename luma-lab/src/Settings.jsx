@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -13,6 +13,49 @@ import { Icon } from "./Icons.jsx";
 import { useLanguage } from "./Language.jsx";
 import { bridge } from "./client.mjs";
 import { errorMessage } from "./errors.mjs";
+import {
+  formatExecRange,
+  formatFixtureRange,
+  parseExecRange,
+  parseFixtureRange,
+} from "./allowlist.mjs";
+
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+const RESTART_TIMEOUT_MS = 25000;
+const UPDATE_TERMINAL_PHASES = new Set(["idle", "completed", "rolled_back", "failed"]);
+const UPDATE_KNOWN_PHASES = new Set([
+  "idle",
+  "manual",
+  "downloading",
+  "validated",
+  "waiting",
+  "installing",
+  "starting",
+  "verifying",
+  "rolling_back",
+  "completed",
+  "rolled_back",
+  "failed",
+]);
+
+export function formatRawReply(row) {
+  if (typeof row === "string") return row;
+  if (!row || typeof row !== "object") return String(row ?? "");
+  if ("cmd" in row || "reply" in row || "status" in row) {
+    const timePart = row.t ? `[${row.t}]` : "[--:--:--]";
+    const statusPart = row.status ? `[${row.status}]` : "";
+    const cmdPart = row.cmd ? String(row.cmd) : "";
+    const cleanReply =
+      row.reply != null && String(row.reply).trim() !== ""
+        ? ` → ${String(row.reply).replace(/\r?\n+/g, " ⏎ ").trim()}`
+        : "";
+    return `${[timePart, statusPart, cmdPart].filter(Boolean).join(" ")}${cleanReply}`;
+  }
+  const timePart = row.t ? `[${row.t}]` : "";
+  const dirPart = row.dir ? `[${row.dir}]` : "";
+  const textPart = row.text || row.line || JSON.stringify(row);
+  return [timePart, dirPart, textPart].filter(Boolean).join(" ");
+}
 
 const FRAME_CSS = `:root{color-scheme:dark;--bg:#10121b;--panel:#171a26;--line:#303044;--text:#ece9f5;--muted:#a09aaf;--accent:#b29bee}body{background:#10121b!important;color:#ece9f5!important;font-family:Inter,system-ui,sans-serif!important}.sx{max-width:1100px!important;padding:20px!important}h1{font-size:22px!important}fieldset,.importbox{border:1px solid #343043!important;border-radius:14px!important;background:#151721!important;padding:18px!important}input,select,textarea{background:#1c1c2a!important;color:#f0eafc!important;border-color:#484155!important;border-radius:7px!important}.btn,button{border-radius:8px!important;background:#2a253d!important;color:#d6c9fa!important;border-color:#4e426c!important}.muted,.t,.lbl,legend{color:#b9b0c7!important}a{color:#c2a9ff!important}.toplinks{display:none!important}details{border-color:#393145!important}table{background:#151721!important}th,td{border-color:#393145!important}`;
 
@@ -150,7 +193,361 @@ function ClassicFallbackTools({ withEmbedded = false }) {
   );
 }
 
-function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, onOpenWizard }) {
+function ProgramUpdateCard({ state, bridgeVersion, isLocal }) {
+  const { t } = useLanguage();
+  const isMock = Boolean(state.status?.mock);
+
+  const [localOnly403, setLocalOnly403] = useState(false);
+  const [phase, setPhase] = useState("idle");
+  const [currentVersion, setCurrentVersion] = useState(
+    bridgeVersion || __LUMA_HALL_VERSION__ || "3.4.0",
+  );
+  const [phaseError, setPhaseError] = useState("");
+  const [message, setMessage] = useState("");
+  const [available, setAvailable] = useState(null);
+  const [compatibleInstallation, setCompatibleInstallation] = useState(false);
+  const [testUpdates, setTestUpdates] = useState(false);
+  const [channelReady, setChannelReady] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [channelSaving, setChannelSaving] = useState(false);
+
+  const mountedRef = useRef(true);
+  const pollTimerRef = useRef(null);
+  const pollInFlightRef = useRef(false);
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    if (bridgeVersion && !currentVersion) setCurrentVersion(bridgeVersion);
+  }, [bridgeVersion, currentVersion]);
+
+  const clearPoll = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const updateRequest = useCallback(async (url, post = false, body = undefined) => {
+    const res = await fetch(
+      url,
+      post
+        ? {
+            method: "POST",
+            headers: { "X-Update": "1", "Content-Type": "application/json" },
+            body: body === undefined ? undefined : JSON.stringify(body),
+          }
+        : { cache: "no-store" },
+    );
+    if (res.status === 403) {
+      const err = new Error(t("settings.updateLocalOnlyDesc"));
+      err.status = 403;
+      throw err;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      const err = new Error(data.err || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }, [t]);
+
+  const pollStatus = useCallback(async () => {
+    if (!mountedRef.current || pollInFlightRef.current) return;
+    pollInFlightRef.current = true;
+    try {
+      const data = await updateRequest("/api/update/status");
+      if (!mountedRef.current) return;
+      const nextPhase = UPDATE_KNOWN_PHASES.has(data.phase) ? data.phase : "idle";
+      const isBusy = !UPDATE_TERMINAL_PHASES.has(nextPhase);
+      busyRef.current = isBusy;
+      setPhase(nextPhase);
+      if (data.current) setCurrentVersion(data.current);
+      setPhaseError(data.error ? String(data.error) : "");
+      setMessage("");
+      if (UPDATE_TERMINAL_PHASES.has(nextPhase)) {
+        if (nextPhase !== "idle") setAvailable(null);
+      }
+      if (isBusy) {
+        clearPoll();
+        pollTimerRef.current = setTimeout(pollStatus, 1500);
+      }
+    } catch (error) {
+      if (!mountedRef.current) return;
+      if (error?.status === 403) {
+        setLocalOnly403(true);
+        busyRef.current = false;
+        clearPoll();
+        return;
+      }
+      if (busyRef.current) {
+        setMessage(t("settings.updateWaitingReconnect"));
+        clearPoll();
+        // Never repeat POST /api/update/start after a lost response; poll persisted status only.
+        pollTimerRef.current = setTimeout(pollStatus, 1500);
+      } else {
+        setPhaseError(error?.message || String(error));
+      }
+    } finally {
+      pollInFlightRef.current = false;
+    }
+  }, [clearPoll, t, updateRequest]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    if (!isLocal || isMock) {
+      return () => {
+        mountedRef.current = false;
+        clearPoll();
+      };
+    }
+    updateRequest("/api/update/channel")
+      .then((data) => {
+        if (!mountedRef.current) return;
+        setTestUpdates(data.test_updates === true);
+        setChannelReady(true);
+      })
+      .catch((error) => {
+        if (!mountedRef.current) return;
+        if (error?.status === 403) {
+          setLocalOnly403(true);
+        } else {
+          setPhaseError(error?.message || String(error));
+        }
+      });
+    pollStatus();
+    return () => {
+      mountedRef.current = false;
+      clearPoll();
+    };
+  }, [clearPoll, isLocal, isMock, pollStatus, updateRequest]);
+
+  const busy = !UPDATE_TERMINAL_PHASES.has(phase);
+  const canStartUpdate =
+    Boolean(compatibleInstallation) &&
+    Boolean(available?.version) &&
+    available.version !== currentVersion &&
+    !busy &&
+    !posting;
+
+  async function handleChannelChange(checked) {
+    if (busy || posting || !channelReady) return;
+    const prev = testUpdates;
+    setTestUpdates(checked);
+    setPosting(true);
+    setChannelSaving(true);
+    setAvailable(null);
+    setPhaseError("");
+    setMessage("");
+    try {
+      await updateRequest("/api/update/channel", true, { test_updates: checked });
+      if (!mountedRef.current) return;
+      setMessage(t("settings.updateChannelSaved"));
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setTestUpdates(prev);
+      if (error?.status === 403) {
+        setLocalOnly403(true);
+      } else {
+        setPhaseError(error?.message || String(error));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setPosting(false);
+        setChannelSaving(false);
+      }
+    }
+  }
+
+  async function handleCheckUpdates() {
+    if (busy || posting || !channelReady) return;
+    setPosting(true);
+    setChecking(true);
+    setPhaseError("");
+    setMessage("");
+    try {
+      const data = await updateRequest("/api/update/check", true);
+      if (!mountedRef.current) return;
+      if (data.current) setCurrentVersion(data.current);
+      const found = data.available || null;
+      const compatible = Boolean(data.compatible_installation);
+      setAvailable(found);
+      setCompatibleInstallation(compatible);
+      if (!found) {
+        setMessage(t("settings.updateUpToDate"));
+      } else if (found.version === data.current) {
+        setMessage(t("settings.updateUpToDate"));
+      } else if (compatible) {
+        setMessage(t("settings.updateReadyHint"));
+      } else {
+        setMessage(t("settings.updateIncompatibleHint"));
+      }
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setAvailable(null);
+      if (error?.status === 403) {
+        setLocalOnly403(true);
+      } else {
+        setPhaseError(error?.message || String(error));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setPosting(false);
+        setChecking(false);
+      }
+    }
+  }
+
+  async function handleStartUpdate() {
+    if (!canStartUpdate || !available?.version) return;
+    const chosenVersion = available.version;
+    setPosting(true);
+    setStarting(true);
+    busyRef.current = true;
+    setPhaseError("");
+    setMessage("");
+    try {
+      const data = await updateRequest("/api/update/start", true, { version: chosenVersion });
+      if (!mountedRef.current) return;
+      const nextPhase = UPDATE_KNOWN_PHASES.has(data.phase) ? data.phase : "downloading";
+      busyRef.current = !UPDATE_TERMINAL_PHASES.has(nextPhase);
+      setPhase(nextPhase);
+      if (data.current) setCurrentVersion(data.current);
+      if (data.error) setPhaseError(String(data.error));
+      if (busyRef.current) {
+        clearPoll();
+        pollTimerRef.current = setTimeout(pollStatus, 1500);
+      }
+    } catch (error) {
+      if (!mountedRef.current) return;
+      if (error?.status === 403) {
+        busyRef.current = false;
+        setLocalOnly403(true);
+      } else {
+        // Never retry POST /api/update/start — only poll GET /api/update/status.
+        setPhase("waiting");
+        setMessage(t("settings.updateLostResponse"));
+        clearPoll();
+        pollTimerRef.current = setTimeout(pollStatus, 1500);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setPosting(false);
+        setStarting(false);
+      }
+    }
+  }
+
+  const phaseBadgeVariant =
+    phase === "completed"
+      ? "success"
+      : phase === "failed"
+        ? "error"
+        : phase === "rolled_back" || phase === "rolling_back" || busy
+          ? "warning"
+          : "neutral";
+
+  const statusText = message || t(`settings.updatePhase.${phase}`);
+
+  return (
+    <Card variant="default" padding={4} className="update-program-card">
+      <div className="prep-card-head">
+        <div className="settings-section-title">
+          <Icon name="download" />
+          <div>
+            <h3>{t("settings.updateTitle")}</h3>
+            <p>{t("settings.updateHint")}</p>
+          </div>
+        </div>
+        <div className="update-card-badges">
+          <Badge variant="neutral" label={t("settings.updateInstalledVersion", { version: currentVersion })} />
+          {!isMock && isLocal && !localOnly403 && (
+            <Badge variant={phaseBadgeVariant} label={t(`settings.updatePhaseBadge.${phase}`)} />
+          )}
+        </div>
+      </div>
+
+      {!isLocal || localOnly403 ? (
+        <Banner
+          status="info"
+          title={t("settings.updateLocalOnlyTitle")}
+          description={t("settings.updateLocalOnlyDesc")}
+        />
+      ) : isMock ? (
+        <Banner
+          status="info"
+          title={t("settings.updateMockTitle")}
+          description={t("settings.updateMockDesc")}
+        />
+      ) : (
+        <div className="update-card-body">
+          <div className="settings-row update-channel-row">
+            <div>
+              <b>{t("settings.updateTestChannel")}</b>
+              <small>{t("settings.updateTestChannelDesc")}</small>
+            </div>
+            <Switch
+              label={t("settings.updateTestChannel")}
+              isLabelHidden
+              value={testUpdates}
+              isDisabled={busy || posting || !channelReady}
+              isLoading={channelSaving}
+              onChange={handleChannelChange}
+            />
+          </div>
+
+          <p className="update-status-line" role="status">
+            {statusText}
+          </p>
+
+          {phaseError && <Banner status="error" title={phaseError} />}
+
+          {available && (
+            <div className="update-available-box">
+              <div className="update-available-head">
+                <strong>{t("settings.updateAvailableVersion", { version: available.version })}</strong>
+                <Badge
+                  variant={available.version !== currentVersion ? "info" : "success"}
+                  label={
+                    available.version !== currentVersion
+                      ? t("settings.updateNewBadge")
+                      : t("settings.updateCurrentBadge")
+                  }
+                />
+              </div>
+              {available.notes && <p className="update-notes">{available.notes}</p>}
+            </div>
+          )}
+
+          <div className="prep-actions-row">
+            <Button
+              type="button"
+              label={t("settings.updateCheck")}
+              variant="secondary"
+              size="sm"
+              isLoading={checking}
+              isDisabled={busy || posting || !channelReady}
+              onClick={handleCheckUpdates}
+            />
+            <Button
+              type="button"
+              label={t("settings.updateStart")}
+              variant="primary"
+              size="sm"
+              isLoading={starting || busy}
+              isDisabled={!canStartUpdate}
+              onClick={handleStartUpdate}
+            />
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ConnectionSafetySection({ state, settingsData, settingsError, bridgeVersion, isLocal, onSaved, onOpenWizard }) {
   const { t } = useLanguage();
   const hostId = useId();
   const portId = useId();
@@ -164,10 +561,34 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
   const [saving, setSaving] = useState(false);
   const [saveNotice, setSaveNotice] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [restartNeeded, setRestartNeeded] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState("");
   const [linkTesting, setLinkTesting] = useState(false);
   const [linkTestResult, setLinkTestResult] = useState(null);
   const [linkTestError, setLinkTestError] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
+
+  const restartBaseRef = useRef(null);
+  const restartIntervalRef = useRef(null);
+  const restartTimeoutRef = useRef(null);
+  const restartInFlightRef = useRef(false);
+
+  const stopRestartWatch = useCallback(() => {
+    restartBaseRef.current = null;
+    restartInFlightRef.current = false;
+    if (restartIntervalRef.current) {
+      clearInterval(restartIntervalRef.current);
+      restartIntervalRef.current = null;
+    }
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
+    setRestarting(false);
+  }, []);
+
+  useEffect(() => () => stopRestartWatch(), [stopRestartWatch]);
 
   useEffect(() => {
     if (!settingsData?.settings) return;
@@ -180,6 +601,9 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
       auto_launch: ma2.auto_launch !== false,
       mode: safety.mode ?? "test",
       flags: Object.fromEntries(SAFETY_FLAGS.map((k) => [k, Boolean(safety[k])])),
+      allowed_fixtures_text: formatFixtureRange(safety.allowed_fixtures || []),
+      allowed_scenes_text: formatExecRange(safety.allowed_scenes || []),
+      store_execs_text: formatExecRange(safety.store_execs || []),
     });
     setPassword("");
     setPasswordTouched(false);
@@ -191,9 +615,21 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
   const deskShow = state.status?.readiness?.show?.name || null;
   const showState = state.status?.readiness?.show?.state || "pending";
   const planShow = state.config?.show || "—";
+  const fixtures = state.config?.fixtures || [];
+  const scenes = state.config?.scenes || [];
   const connectBlock = bridge.blockReason("link_connect");
   const dropBlock = bridge.blockReason("link_drop");
   const identifyBlock = bridge.blockReason("show_identify");
+
+  const fixturesCheck = draft ? parseFixtureRange(draft.allowed_fixtures_text) : { ok: true, values: [] };
+  const scenesCheck = draft ? parseExecRange(draft.allowed_scenes_text) : { ok: true, values: [] };
+  const storeCheck = draft ? parseExecRange(draft.store_execs_text) : { ok: true, values: [] };
+  const showAllowlists = draft && (draft.mode === "test" || draft.mode === "store");
+  const allowlistsHaveEmpty =
+    Boolean(showAllowlists) &&
+    ((fixturesCheck.ok && fixturesCheck.values.length === 0) ||
+      (scenesCheck.ok && scenesCheck.values.length === 0) ||
+      (draft.mode === "store" && storeCheck.ok && storeCheck.values.length === 0));
 
   async function runWsAction(payload) {
     setLinkBusy(true);
@@ -207,10 +643,14 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
   }
 
   async function runLinkTest() {
+    if (!isLocal) return;
     setLinkTesting(true);
     setLinkTestError("");
     try {
       const res = await fetch("/api/diag/link_test", { method: "POST" });
+      if (res.status === 403) {
+        throw new Error(t("settings.loopbackOnlyAction"));
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
         throw new Error(data.err || `HTTP ${res.status}`);
@@ -223,13 +663,80 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
     }
   }
 
+  async function restartBridge() {
+    if (!isLocal || restarting) return;
+    setRestartError("");
+    try {
+      const res = await fetch("/api/restart", {
+        method: "POST",
+        headers: { "X-Stop": "1" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.err || `HTTP ${res.status}`);
+      }
+      stopRestartWatch();
+      restartBaseRef.current = data.instance || "pending";
+      setRestarting(true);
+      setSaveNotice(t("settings.restartingBridge"));
+
+      const pollOnce = async () => {
+        if (restartInFlightRef.current || !restartBaseRef.current) return;
+        restartInFlightRef.current = true;
+        try {
+          const setupRes = await fetch("/api/setup", {
+            cache: "no-store",
+            signal: AbortSignal.timeout(4000),
+          });
+          if (!setupRes.ok) return;
+          const setupJson = await setupRes.json().catch(() => ({}));
+          if (setupJson.instance && setupJson.instance !== restartBaseRef.current) {
+            stopRestartWatch();
+            setRestartNeeded(false);
+            setSaveNotice(t("settings.bridgeRestarted"));
+            onSaved?.();
+          }
+        } catch {
+          // Bridge is restarting; keep polling until timeout.
+        } finally {
+          restartInFlightRef.current = false;
+        }
+      };
+
+      restartIntervalRef.current = setInterval(pollOnce, 1000);
+      restartTimeoutRef.current = setTimeout(() => {
+        stopRestartWatch();
+        setRestartNeeded(true);
+        setSaveNotice("");
+        setRestartError(t("wizard.step1.restartTimeout"));
+      }, RESTART_TIMEOUT_MS);
+    } catch (e) {
+      stopRestartWatch();
+      setRestartError(e.message || String(e));
+    }
+  }
+
   async function saveSettings(event) {
     event.preventDefault();
-    if (!draft || !settingsData?.settings || saving) return;
+    if (!draft || !settingsData?.settings || saving || restarting) return;
     setSaving(true);
     setSaveNotice("");
     setSaveError("");
+    setRestartError("");
     try {
+      const parsedFixtures = parseFixtureRange(draft.allowed_fixtures_text);
+      if (!parsedFixtures.ok) {
+        throw new Error(t("settings.allowlistInvalidFixtures", { token: parsedFixtures.invalid }));
+      }
+      const parsedScenes = parseExecRange(draft.allowed_scenes_text);
+      if (!parsedScenes.ok) {
+        throw new Error(t("settings.allowlistInvalidScenes", { token: parsedScenes.invalid }));
+      }
+      const parsedStore = parseExecRange(draft.store_execs_text);
+      if (!parsedStore.ok) {
+        throw new Error(t("settings.allowlistInvalidStore", { token: parsedStore.invalid }));
+      }
+
       const next = structuredClone(settingsData.settings);
       next.ma2 = {
         ...(next.ma2 || {}),
@@ -238,7 +745,14 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
         user: draft.user,
         auto_launch: Boolean(draft.auto_launch),
       };
-      next.safety = { ...(next.safety || {}), mode: draft.mode, ...draft.flags };
+      next.safety = {
+        ...(next.safety || {}),
+        mode: draft.mode,
+        ...draft.flags,
+        allowed_fixtures: parsedFixtures.values,
+        allowed_scenes: parsedScenes.values,
+        store_execs: parsedStore.values,
+      };
       const body = { settings: next, clear_password: clearPassword };
       if (passwordTouched && password) body.password = password;
       const res = await fetch("/api/settings", {
@@ -251,6 +765,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
         throw new Error(data.err || `HTTP ${res.status}`);
       }
       setSaveNotice(t("settings.savedRestartNeeded"));
+      setRestartNeeded(true);
       setPassword("");
       setPasswordTouched(false);
       setClearPassword(false);
@@ -262,7 +777,12 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
     }
   }
 
-  const ma2BadgeClass = ma2State === "logged_in" ? "ok" : ma2State === "tcp" ? "warn" : "bad";
+  const ma2BadgeClass =
+    ma2State === "logged_in"
+      ? "ok"
+      : ma2State === "tcp" || ma2State === "manual_off"
+        ? "warn"
+        : "bad";
   const showBadgeClass = showState === "matched" ? "ok" : showState === "pending" ? "warn" : "bad";
 
   return (
@@ -277,6 +797,8 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
             label={t("settings.openWizard")}
             variant="primary"
             size="sm"
+            isDisabled={!isLocal}
+            tooltip={!isLocal ? t("settings.loopbackOnlyAction") : undefined}
             onClick={onOpenWizard}
           />
         )}
@@ -294,7 +816,9 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
         <div className="native-status-grid">
           <div className="native-status-card">
             <small>{t("settings.statusTcpLogin")}</small>
-            <strong className={`badge-${ma2BadgeClass}`}>{t(bridge.connectionKey())}</strong>
+            <strong className={`badge-${ma2BadgeClass}`}>
+              {ma2State === "manual_off" ? t("wizard.step1.liveManualOffBadge") : t(bridge.connectionKey())}
+            </strong>
             <span>{draft ? `${draft.host}:${draft.port}` : "—"}</span>
           </div>
           <div className="native-status-card">
@@ -335,7 +859,12 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
           >
             {t("common.checkAgain")}
           </Action>
-          <Action type="button" disabled={linkTesting} onClick={runLinkTest}>
+          <Action
+            type="button"
+            disabled={linkTesting || !isLocal}
+            title={!isLocal ? t("settings.loopbackOnlyAction") : undefined}
+            onClick={runLinkTest}
+          >
             <Icon name="search" size={14} />
             {linkTesting ? t("settings.linkTesting") : t("settings.testLink")}
           </Action>
@@ -360,7 +889,10 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
 
       {settingsError ? (
         <section className="settings-section">
-          <div className="record-scene-alert" role="alert">{settingsError}</div>
+          <Banner
+            status={isLocal ? "warning" : "info"}
+            title={settingsError}
+          />
         </section>
       ) : draft && (
         <form onSubmit={saveSettings}>
@@ -379,7 +911,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
                   id={hostId}
                   type="text"
                   required
-                  disabled={saving}
+                  disabled={saving || restarting}
                   value={draft.host}
                   onChange={(e) => setDraft((d) => ({ ...d, host: e.target.value }))}
                 />
@@ -393,7 +925,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
                   max={65535}
                   step={1}
                   required
-                  disabled={saving}
+                  disabled={saving || restarting}
                   value={draft.port}
                   onChange={(e) => setDraft((d) => ({ ...d, port: e.target.value }))}
                 />
@@ -404,7 +936,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
                   id={userId}
                   type="text"
                   required
-                  disabled={saving}
+                  disabled={saving || restarting}
                   value={draft.user}
                   onChange={(e) => setDraft((d) => ({ ...d, user: e.target.value }))}
                 />
@@ -420,7 +952,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
                   id={passId}
                   type="password"
                   autoComplete="new-password"
-                  disabled={saving || clearPassword}
+                  disabled={saving || restarting || clearPassword}
                   placeholder={t("settings.ma2PasswordPlaceholder")}
                   value={password}
                   onChange={(e) => {
@@ -433,7 +965,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
             <label className="native-checkbox-row">
               <input
                 type="checkbox"
-                disabled={saving}
+                disabled={saving || restarting}
                 checked={clearPassword}
                 onChange={(e) => setClearPassword(e.target.checked)}
               />
@@ -448,7 +980,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
                 value={Boolean(draft.auto_launch)}
                 label={t("settings.ma2AutoLaunch")}
                 isLabelHidden
-                isDisabled={saving}
+                isDisabled={saving || restarting}
                 onChange={(value) => setDraft((d) => ({ ...d, auto_launch: value }))}
               />
             </div>
@@ -470,7 +1002,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
                     key={preset.id}
                     label={t(`settings.preset.${preset.id}.title`)}
                     isSelected={selected}
-                    isDisabled={saving}
+                    isDisabled={saving || restarting}
                     padding={3}
                     className="safety-mode-card"
                     onChange={(isSelected) => {
@@ -495,6 +1027,102 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
                 );
               })}
             </div>
+            {showAllowlists && (
+              <div className="access-scope-block">
+                <div className="access-scope-head">
+                  <strong>{t("settings.accessScopeTitle")}</strong>
+                  <small>{t("settings.accessScopeHint")}</small>
+                </div>
+                <div className="access-scope-grid">
+                  <div className="allowlist-field-group">
+                    <TextInput
+                      label={t("settings.allowedFixtures")}
+                      description={t("settings.allowedFixturesDesc")}
+                      value={draft.allowed_fixtures_text}
+                      onChange={(value) => setDraft((d) => ({ ...d, allowed_fixtures_text: value }))}
+                      placeholder="1-20, 25"
+                      isDisabled={saving || restarting}
+                      status={
+                        !fixturesCheck.ok
+                          ? { type: "error", message: t("settings.allowlistInvalidFixtures", { token: fixturesCheck.invalid }) }
+                          : undefined
+                      }
+                      size="md"
+                      width="100%"
+                    />
+                    <Button
+                      type="button"
+                      label={t("settings.fillAllFromPlan")}
+                      variant="secondary"
+                      size="sm"
+                      isDisabled={saving || restarting || fixtures.length === 0}
+                      onClick={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          allowed_fixtures_text: formatFixtureRange(fixtures.map((f) => f.id)),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="allowlist-field-group">
+                    <TextInput
+                      label={t("settings.allowedScenes")}
+                      description={t("settings.allowedScenesDesc")}
+                      value={draft.allowed_scenes_text}
+                      onChange={(value) => setDraft((d) => ({ ...d, allowed_scenes_text: value }))}
+                      placeholder="1.101-1.110, 2.1"
+                      isDisabled={saving || restarting}
+                      status={
+                        !scenesCheck.ok
+                          ? { type: "error", message: t("settings.allowlistInvalidScenes", { token: scenesCheck.invalid }) }
+                          : undefined
+                      }
+                      size="md"
+                      width="100%"
+                    />
+                    <Button
+                      type="button"
+                      label={t("settings.fillAllFromPlan")}
+                      variant="secondary"
+                      size="sm"
+                      isDisabled={saving || restarting || scenes.length === 0}
+                      onClick={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          allowed_scenes_text: formatExecRange(scenes.map((s) => s.exec)),
+                        }))
+                      }
+                    />
+                  </div>
+                  {draft.mode === "store" && (
+                    <div className="allowlist-field-group">
+                      <TextInput
+                        label={t("settings.storeExecs")}
+                        description={t("settings.storeExecsDesc")}
+                        value={draft.store_execs_text}
+                        onChange={(value) => setDraft((d) => ({ ...d, store_execs_text: value }))}
+                        placeholder="1.101-1.120"
+                        isDisabled={saving || restarting}
+                        status={
+                          !storeCheck.ok
+                            ? { type: "error", message: t("settings.allowlistInvalidStore", { token: storeCheck.invalid }) }
+                            : undefined
+                        }
+                        size="md"
+                        width="100%"
+                      />
+                    </div>
+                  )}
+                </div>
+                {allowlistsHaveEmpty && (
+                  <Banner
+                    status="warning"
+                    title={t("settings.allowlistEmptyTitle")}
+                    description={t("settings.allowlistEmptyDesc")}
+                  />
+                )}
+              </div>
+            )}
             {draft.mode === "full" && (
               <div className="safety-full-banner">
                 <Banner
@@ -520,7 +1148,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
                       value={Boolean(draft.flags[flag])}
                       label={t(`settings.flag.${flag}`)}
                       isLabelHidden
-                      isDisabled={saving}
+                      isDisabled={saving || restarting}
                       onChange={(value) =>
                         setDraft((d) => ({ ...d, flags: { ...d.flags, [flag]: value } }))
                       }
@@ -531,25 +1159,60 @@ function ConnectionSafetySection({ state, settingsData, settingsError, onSaved, 
             </Collapsible>
           </section>
 
-          {saveError && <div className="record-scene-err" role="alert">{saveError}</div>}
-          {saveNotice && <div className="inline-notice" role="status">{saveNotice}</div>}
+          {saveError && <Banner status="error" title={saveError} className="prep-banner" />}
+          {restartError && <Banner status="error" title={restartError} className="prep-banner" />}
+          {saveNotice && (
+            <Banner
+              status={restartNeeded ? "warning" : "success"}
+              title={saveNotice}
+              className="prep-banner"
+              endContent={
+                restartNeeded ? (
+                  <Button
+                    type="button"
+                    label={t("settings.restartBridge")}
+                    variant="primary"
+                    size="sm"
+                    isLoading={restarting}
+                    isDisabled={restarting || !isLocal}
+                    tooltip={!isLocal ? t("settings.loopbackOnlyAction") : undefined}
+                    onClick={restartBridge}
+                  />
+                ) : undefined
+              }
+            />
+          )}
 
           <div className="native-save-bar">
-            <Action type="submit" variant="primary" disabled={saving}>
+            <Action type="submit" variant="primary" disabled={saving || restarting}>
               <Icon name="check" size={14} />
               {saving ? t("common.saving") : t("settings.saveBridgeSettings")}
             </Action>
+            {restartNeeded && (
+              <Button
+                type="button"
+                label={t("settings.restartBridge")}
+                variant="secondary"
+                size="md"
+                isLoading={restarting}
+                isDisabled={restarting || !isLocal}
+                tooltip={!isLocal ? t("settings.loopbackOnlyAction") : undefined}
+                onClick={restartBridge}
+              />
+            )}
             {settingsData?.path && <small className="muted">{settingsData.path}</small>}
           </div>
         </form>
       )}
+
+      <ProgramUpdateCard state={state} bridgeVersion={bridgeVersion} isLocal={isLocal} />
 
       <ClassicFallbackTools />
     </>
   );
 }
 
-function DiagnosticsSection({ state }) {
+function DiagnosticsSection({ state, isLocal }) {
   const { t } = useLanguage();
   const [diag, setDiag] = useState(null);
   const [logEntries, setLogEntries] = useState([]);
@@ -585,9 +1248,13 @@ function DiagnosticsSection({ state }) {
   }, [refresh]);
 
   async function runLinkTest() {
+    if (!isLocal) return;
     setLinkTesting(true);
     try {
       const res = await fetch("/api/diag/link_test", { method: "POST" });
+      if (res.status === 403) {
+        throw new Error(t("settings.loopbackOnlyAction"));
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.err || `HTTP ${res.status}`);
       setLinkTestResult(data);
@@ -614,7 +1281,12 @@ function DiagnosticsSection({ state }) {
             <Icon name="reset" size={14} />
             {t("settings.diagRefresh")}
           </Action>
-          <Action type="button" disabled={linkTesting} onClick={runLinkTest}>
+          <Action
+            type="button"
+            disabled={linkTesting || !isLocal}
+            title={!isLocal ? t("settings.loopbackOnlyAction") : undefined}
+            onClick={runLinkTest}
+          >
             <Icon name="search" size={14} />
             {linkTesting ? t("settings.linkTesting") : t("settings.testLink")}
           </Action>
@@ -712,7 +1384,7 @@ function DiagnosticsSection({ state }) {
             <p className="muted">{t("settings.diagNoRaw")}</p>
           ) : (
             <pre className="diag-raw-pre">
-              {rawLines.map((row) => (typeof row === "string" ? row : `${row.t || ""} ${row.dir || ""} ${row.text || row.line || JSON.stringify(row)}`)).join("\n")}
+              {rawLines.map((row) => formatRawReply(row)).join("\n")}
             </pre>
           )}
         </details>
@@ -889,7 +1561,7 @@ function PreparationSection({ state }) {
             tooltip={errorMessage(fetchBlock, t) || undefined}
             onClick={() =>
               runPrep("fixtures_fetch", { a: "fixtures_fetch" }, (res) =>
-                t("settings.prepFixturesFetched", { count: res?.count ?? fixtures.length }),
+                t("settings.prepFixturesFetched", { count: res?.total ?? res?.added ?? fixtures.length }),
               )
             }
           />
@@ -1072,9 +1744,14 @@ export default function Settings({
   setIds,
   onShortcuts,
   onOpenWizard,
+  section: controlledSection,
+  onSectionChange,
 }) {
   const { t, language, changeLanguage } = useLanguage();
-  const [section, setSection] = useState("interface");
+  const isLocal = LOCAL_HOSTNAMES.has(window.location.hostname);
+  const [internalSection, setInternalSection] = useState("interface");
+  const section = controlledSection ?? internalSection;
+  const setSection = onSectionChange ?? setInternalSection;
   const [settingsData, setSettingsData] = useState(null);
   const [settingsError, setSettingsError] = useState("");
   const [bridgeVersion, setBridgeVersion] = useState("");
@@ -1124,7 +1801,7 @@ export default function Settings({
     return (
       <div className="settings-content">
         {languagePicker}
-        <div className="inline-notice">{t("settings.waitMock")}</div>
+        <div className="inline-notice">{t("settings.waitBridge")}</div>
       </div>
     );
   return (
@@ -1245,11 +1922,13 @@ export default function Settings({
             state={state}
             settingsData={settingsData}
             settingsError={settingsError}
+            bridgeVersion={bridgeVersion}
+            isLocal={isLocal}
             onSaved={loadSettings}
             onOpenWizard={onOpenWizard}
           />
         ) : section === "diagnostics" ? (
-          <DiagnosticsSection state={state} />
+          <DiagnosticsSection state={state} isLocal={isLocal} />
         ) : (
           <PreparationSection state={state} />
         )}
