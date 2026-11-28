@@ -1188,18 +1188,6 @@ function ConnectionSafetySection({ state, settingsData, settingsError, bridgeVer
               <Icon name="check" size={14} />
               {saving ? t("common.saving") : t("settings.saveBridgeSettings")}
             </Action>
-            {restartNeeded && (
-              <Button
-                type="button"
-                label={t("settings.restartBridge")}
-                variant="secondary"
-                size="md"
-                isLoading={restarting}
-                isDisabled={restarting || !isLocal}
-                tooltip={!isLocal ? t("settings.loopbackOnlyAction") : undefined}
-                onClick={restartBridge}
-              />
-            )}
             {settingsData?.path && <small className="muted">{settingsData.path}</small>}
           </div>
         </form>

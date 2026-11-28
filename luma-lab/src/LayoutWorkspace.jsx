@@ -92,6 +92,10 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
         }
       }, 3000);
     } catch (e) {
+      if (hlEditing.current && !hlOwned.current && bridge.state.connected && !bridge.blockReason("edit_end")) {
+        hlEditing.current = false;
+        bridge.action({ a: "edit_end" }).catch(() => {});
+      }
       setHlError(e.err || errorMessage(e, t) || e.message || String(e));
     } finally {
       setHlBusy(false);
@@ -147,9 +151,10 @@ export default function LayoutWorkspace({state,visuals,onVisualSaved}) {
   }
   useEffect(()=>{
     const key=e=>{
-      if(e.target.closest('input,textarea,select,[contenteditable=true]'))return;
-      if((e.ctrlKey || e.metaKey) && ['z','y'].includes(e.key.toLowerCase())){
-        e.preventDefault();if(e.key.toLowerCase()==='y' || e.shiftKey)redo();else undo();
+      if(document.querySelector('dialog[open]'))return;
+      if(e.target?.closest?.('input,textarea,select,[contenteditable="true"],[contenteditable=""]'))return;
+      if((e.ctrlKey || e.metaKey) && ['KeyZ','KeyY'].includes(e.code)){
+        e.preventDefault();if(e.code==='KeyY' || e.shiftKey)redo();else undo();
       }
     };
     document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key);
@@ -353,6 +358,7 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
   const [slot, setSlot] = useState(99);
   const [confirmImport, setConfirmImport] = useState(false);
   const [working, setWorking] = useState(false);
+  const [localOnly, setLocalOnly] = useState(false);
   const [notice, setNotice] = useState("");
   const [err, setErr] = useState("");
 
@@ -366,10 +372,15 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
   async function refreshFiles() {
     try {
       const res = await fetch("/api/layout/ma2/files");
+      if (res.status === 403) {
+        setLocalOnly(true);
+        return;
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
         return;
       }
+      setLocalOnly(false);
       const list = data.files || [];
       setFiles(list);
       setHasTemplate(Boolean(data.has_template));
@@ -393,7 +404,12 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      if (res.status === 403) {
+        setLocalOnly(true);
+        setPreviewData(null);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.err || `HTTP ${res.status}`);
       setPreviewData(data);
     } catch (e) {
@@ -431,7 +447,11 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ preview_token: previewData.preview_token }),
       });
-      const data = await res.json();
+      if (res.status === 403) {
+        setLocalOnly(true);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.err || `HTTP ${res.status}`);
       setNotice(t("layout.ma2Applied", { count: data.applied }));
       setPreviewData(null);
@@ -459,6 +479,10 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      if (res.status === 403) {
+        setLocalOnly(true);
+        return;
+      }
       if (mode === "download") {
         if (!res.ok) {
           const fail = await res.json().catch(() => ({}));
@@ -481,7 +505,7 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
         setNotice(t("layout.ma2Downloaded", { filename: dlName, mode: modeLabel, updated }));
         return;
       }
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.err || `HTTP ${res.status}`);
       const modeLabel = data.summary?.mode === "patch" ? t("layout.ma2ModePatch") : t("layout.ma2ModeNew");
       const updated = String(data.summary?.updated_ids?.length ?? 0);
@@ -550,6 +574,7 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
               <SegmentedControlItem value="export" label={t("layout.ma2TabExport")} />
             </SegmentedControl>
 
+            {localOnly && <Banner status="warning" title={t("layout.ma2LocalOnly")} />}
             {notice && <Banner status="success" title={notice} />}
             {err && <Banner status="error" title={err} />}
 
@@ -561,7 +586,7 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
                   type="file"
                   accept=".xml,application/xml,text/xml"
                   hidden
-                  disabled={disabled || working}
+                  disabled={disabled || working || localOnly}
                   onChange={onUpload}
                 />
                 <Button
@@ -569,7 +594,7 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
                   variant="primary"
                   size="md"
                   width="100%"
-                  isDisabled={disabled || working}
+                  isDisabled={disabled || working || localOnly}
                   isLoading={working && !previewData}
                   onClick={() => fileInputRef.current?.click()}
                 />
@@ -667,7 +692,7 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
                   variant="primary"
                   size="md"
                   width="100%"
-                  isDisabled={disabled || working}
+                  isDisabled={disabled || working || localOnly}
                   isLoading={working}
                   onClick={() => onExport("download")}
                 />
@@ -683,7 +708,7 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
                       variant="secondary"
                       size="sm"
                       width="100%"
-                      isDisabled={disabled || working}
+                      isDisabled={disabled || working || localOnly}
                       onClick={() => onExport("save_importexport")}
                     />
                     <NumberInput
@@ -694,13 +719,13 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
                       step={1}
                       isIntegerOnly
                       size="sm"
-                      isDisabled={disabled || working}
+                      isDisabled={disabled || working || localOnly}
                       onChange={(value) => setSlot(Math.max(1, Math.min(999, Math.round(value || 99))))}
                     />
                     <CheckboxInput
                       label={t("layout.ma2ConfirmImport", { slot })}
                       value={confirmImport}
-                      isDisabled={disabled || working || Boolean(importBlockReason)}
+                      isDisabled={disabled || working || localOnly || Boolean(importBlockReason)}
                       onChange={setConfirmImport}
                     />
                     {importBlockReason && <Banner status="warning" title={importBlockReason} />}
@@ -709,7 +734,7 @@ function Ma2LayoutXmlModal({ state, disabled, onClose }) {
                       variant="secondary"
                       size="sm"
                       width="100%"
-                      isDisabled={disabled || working || Boolean(importBlockReason) || !confirmImport}
+                      isDisabled={disabled || working || localOnly || Boolean(importBlockReason) || !confirmImport}
                       onClick={() => onExport("import_to_ma2")}
                     />
                   </div>

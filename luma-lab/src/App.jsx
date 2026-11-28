@@ -26,6 +26,8 @@ export default function App() {
   const inspectorSize = useInspectorSize();
   const state = useSyncExternalStore(bridge.subscribe, bridge.getSnapshot),
     [page, setPage] = useState("hall"),
+    [settingsTab, setSettingsTab] = useState("interface"),
+    [bridgeVersion, setBridgeVersion] = useState(""),
     [collapsed, setCollapsed] = useStored("sidebarCollapsed", false),
     [top, setTop] = useStored("topView", false),
     [ids, setIds] = useStored("showIds", true),
@@ -58,6 +60,21 @@ export default function App() {
     bridge.connect();
     return () => bridge.disconnect();
   }, []);
+  useEffect(() => {
+    if (__LUMA_HALL_VERSION__) return undefined;
+    const abort = new AbortController();
+    fetch("/api/diag", { signal: abort.signal, cache: "no-store" })
+      .then((res) => (res.ok ? res.json().catch(() => null) : null))
+      .then((data) => {
+        if (data?.version) setBridgeVersion(data.version);
+      })
+      .catch(() => {});
+    return () => abort.abort();
+  }, []);
+  function openSettings(tab = "interface") {
+    setSettingsTab(tab);
+    setPage("settings");
+  }
   useEffect(() => {
     if (wizardOpen || wizardDismissed || autoWizardChecked.current) return;
     if (!state.status) return;
@@ -293,7 +310,7 @@ export default function App() {
           {!collapsed && (
             <div>
               <strong>
-                LUMA<span>LAB</span>
+                LUMA{!hallTrial && <span>LAB</span>}
               </strong>
               <small>{t("shell.lightingControl")}</small>
             </div>
@@ -426,7 +443,7 @@ export default function App() {
           {!collapsed && (
             <div className="sidebar-version">
               <span>ma2-panel</span>
-              <span>{__LUMA_HALL_VERSION__ || "3.3.3-rc.1"}</span>
+              <span>{__LUMA_HALL_VERSION__ || bridgeVersion || "3.4.0"}</span>
             </div>
           )}
         </div>
@@ -543,7 +560,7 @@ export default function App() {
               </div>
             )}
             {page === "layout" && (
-              <Action onClick={() => setModal("preparation")}>
+              <Action onClick={() => openSettings("preparation")}>
                 {t("common.preparation")}
                 <Icon name="arrow" size={15} />
               </Action>
@@ -585,12 +602,11 @@ export default function App() {
               {!state.error && planDecision && !bridge.blockReason("show_identify") && (
                 <button onClick={() => action({ a: "show_identify" })}>{t("common.checkAgain")}</button>
               )}
-              {(state.status?.mock === true || state.error) && (
+              {(state.status?.mock === true || hallTrial || state.error) && (
                 <button
-                  onClick={() => {
-                    setPage("settings");
-                    setModal((planDecision || planIssue) && !state.error ? "preparation" : "diagnostics");
-                  }}
+                  onClick={() =>
+                    openSettings((planDecision || planIssue) && !state.error ? "preparation" : "diagnostics")
+                  }
                 >
                   {t((planDecision || planIssue) && !state.error ? "common.preparation" : "common.diagnostics")}
                 </button>
@@ -686,6 +702,8 @@ export default function App() {
                 ids,
                 setIds,
               }}
+              section={settingsTab}
+              onSectionChange={setSettingsTab}
               onShortcuts={() => setModal("shortcuts")}
               onOpenWizard={() => setWizardOpen(true)}
             />
@@ -790,31 +808,20 @@ export default function App() {
         <RecordSceneModal key={show} state={state} onClose={() => setModal(null)} />
       )}
       {groupEditor && editorReady && <GroupEditor key={show} {...{state,visuals}} initial={groupEditor} onClose={()=>setGroupEditor(null)}/>}
-      {(modal === "diagnostics" ||
-        (state.status?.mock === true && ["sceneEditor", "preparation"].includes(modal))) && (
-          <Modal
-            title={
-              modal === "sceneEditor"
-                ? t("scenes.classicEditor")
-                : modal === "diagnostics"
-                  ? t("common.diagnostics")
-                  : t("common.preparation")
-            }
-            onClose={() => setModal(null)}
-          >
-            <ErrorDetails error={modal === "preparation" ? planDecision || selectionBlock : state.error || selectionBlock} />
-            {state.status?.mock === true && (
-              <>
-                <p className="muted">{t("settings.legacy")} · {t("settings.legacyScope")}</p>
-                <LegacyFrame
-                  page={modal === "diagnostics" ? "diag.html" : "index.html"}
-                  title={t("settings.legacy")}
-                  className="modal-frame"
-                />
-              </>
-            )}
-          </Modal>
-        )}
+      {state.status?.mock === true && modal === "sceneEditor" && (
+        <Modal
+          title={t("scenes.classicEditor")}
+          onClose={() => setModal(null)}
+        >
+          <ErrorDetails error={state.error || selectionBlock} />
+          <p className="muted">{t("settings.legacy")} · {t("settings.legacyScope")}</p>
+          <LegacyFrame
+            page="index.html"
+            title={t("settings.legacy")}
+            className="modal-frame"
+          />
+        </Modal>
+      )}
       {wizardOpen && (
         <OnboardingWizard
           state={state}

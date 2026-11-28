@@ -365,7 +365,7 @@ export default function Stage({
           })}
         </g>
       </svg>
-      {!state.config && <div className="stage-empty">{t("hall.connectingMock")}</div>}
+      {!state.config && <div className="stage-empty">{t(state.status?.mock ? "hall.connectingMock" : "hall.connectingDesk")}</div>}
       {editing && <div className="zoom-controls"><button aria-label={t("hall.zoomOut")} onClick={() => setZoom(v => clamp(v - .15, .5, 4))}><Icon name="minus" size={14} /></button><span>{Math.round(z * 100)}%</span><button aria-label={t("hall.zoomIn")} onClick={() => setZoom(v => clamp(v + .15, .5, 4))}><Icon name="plus" size={14} /></button><button aria-label={t("common.resetView")} onClick={() => {
           setZoom(1);
           setOffset([0, 0]);
