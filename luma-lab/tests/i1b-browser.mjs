@@ -49,7 +49,7 @@ try {
       groupActions: "Group actions", remove: "Delete group", confirmDelete: "Delete local group?",
       library: "Scene library", stop: "Stop", undo: "Undo", properties: "Fixture properties",
       geometry: "Geometry Room and stage", width: "Room width, m", language: "Language",
-      system: "Connection and system", legacy: "Classic ma2-panel tool · Russian only",
+      interface: "Interface", system: "Connection and system", legacy: "Classic ma2-panel tool · Russian only",
       diagnostics: "Diagnostics", prep: "Venue preparation", editor: "Record new scene",
       record: "Record scene", keys: "Keyboard shortcuts", keyHint: "Add a fixture to the selection",
       timeout: "The operation timed out. Check Diagnostics.", dismiss: "Dismiss message",
@@ -62,7 +62,7 @@ try {
       groupActions: "Действия группы", remove: "Удалить группу", confirmDelete: "Удалить локальную группу?",
       library: "Библиотека сцен", stop: "Остановить", undo: "Отменить", properties: "Свойства прибора",
       geometry: "Геометрия Помещение и сцена", width: "Ширина помещения, м", language: "Язык",
-      system: "Подключение и система", legacy: "Штатный инструмент ma2-panel · только на русском",
+      interface: "Интерфейс", system: "Подключение и система", legacy: "Штатный инструмент ma2-panel · только на русском",
       diagnostics: "Диагностика", prep: "Подготовка площадки", editor: "Запись новой сцены",
       record: "Записать сцену", keys: "Горячие клавиши", keyHint: "Добавить прибор к выбору",
       timeout: "Время ожидания операции истекло. Проверьте диагностику.", dismiss: "Скрыть сообщение",
@@ -143,6 +143,7 @@ try {
     await checkOverflow(`${locale} shortcuts`);
     await page.keyboard.press("Escape");
     await nav(l.settings);
+    await button(l.interface, page.locator(".settings-nav")).click();
   }
 
   await page.goto(url.href);

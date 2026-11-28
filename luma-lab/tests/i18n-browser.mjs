@@ -77,9 +77,10 @@ try {
     a: "show_open_plan", name: deskShow, create_only: true, config_revision: "bridge:1", blackout_epoch: 7,
   }));
   await alert.getByRole("button", { name: "Диагностика", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByText("Технические сведения", { exact: true }).click();
-  const details = await dialog.locator("pre").textContent();
+  const diagnostics = page.locator(".settings-content");
+  await diagnostics.getByRole("heading", { name: "Диагностика", exact: true }).waitFor();
+  await diagnostics.getByText("Технические сведения", { exact: true }).click();
+  const details = await diagnostics.locator("pre").first().textContent();
   assert.match(details, /Техническая причина/);
   assert.doesNotMatch(details, /private-password/);
 

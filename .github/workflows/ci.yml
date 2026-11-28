@@ -254,6 +254,8 @@ jobs:
           uv run --no-sync python scripts/first_run_zip.py --output test-results/luma-first-run
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           uv run --no-sync python scripts/update_channels_windows.py --output test-results/luma-update-channels
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync python scripts/update_channels_windows.py --from-beta1 --output test-results/luma-update-from-beta1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-release-candidate

@@ -193,9 +193,8 @@ function ClassicFallbackTools({ withEmbedded = false }) {
   );
 }
 
-function ProgramUpdateCard({ state, bridgeVersion, isLocal }) {
+function ProgramUpdateCard({ isMock, bridgeVersion, isLocal }) {
   const { t } = useLanguage();
-  const isMock = Boolean(state.status?.mock);
 
   const [localOnly403, setLocalOnly403] = useState(false);
   const [phase, setPhase] = useState("idle");
@@ -547,7 +546,7 @@ function ProgramUpdateCard({ state, bridgeVersion, isLocal }) {
   );
 }
 
-function ConnectionSafetySection({ state, settingsData, settingsError, bridgeVersion, isLocal, onSaved, onOpenWizard }) {
+function ConnectionSafetySection({ state, isMock, settingsData, settingsError, bridgeVersion, isLocal, onSaved, onOpenWizard }) {
   const { t } = useLanguage();
   const hostId = useId();
   const portId = useId();
@@ -1193,7 +1192,7 @@ function ConnectionSafetySection({ state, settingsData, settingsError, bridgeVer
         </form>
       )}
 
-      <ProgramUpdateCard state={state} bridgeVersion={bridgeVersion} isLocal={isLocal} />
+      <ProgramUpdateCard isMock={isMock} bridgeVersion={bridgeVersion} isLocal={isLocal} />
 
       <ClassicFallbackTools />
     </>
@@ -1743,6 +1742,13 @@ export default function Settings({
   const [settingsData, setSettingsData] = useState(null);
   const [settingsError, setSettingsError] = useState("");
   const [bridgeVersion, setBridgeVersion] = useState("");
+  const { mock, hall_trial: hallTrial } = state.status || {};
+  const [lastMode, setLastMode] = useState(null);
+  const mode = state.status ? (mock ? "mock" : hallTrial ? "hall" : "legacy") : lastMode;
+  // Keep the restart and update status polling mounted while the socket reconnects.
+  useEffect(() => {
+    if (mode !== null) setLastMode(mode);
+  }, [mode]);
 
   const loadSettings = useCallback(() => {
     const abort = new AbortController();
@@ -1785,7 +1791,7 @@ export default function Settings({
       </select>
     </div>
   );
-  if (state.status?.mock !== true && state.status?.hall_trial !== true)
+  if (mode !== "mock" && mode !== "hall")
     return (
       <div className="settings-content">
         {languagePicker}
@@ -1899,15 +1905,16 @@ export default function Settings({
             <div className="settings-status">
               <span className="status-led" />
               <div>
-                <b>{t(state.status.mock ? "settings.isolatedLab" : "shell.hallTrial")}</b>
+                <b>{t(mode === "mock" ? "settings.isolatedLab" : "shell.hallTrial")}</b>
                 <p>React 19 · Astryx 0.7.16 · ma2-panel v{bridgeVersion || __LUMA_HALL_VERSION__ || "3.4.0"}</p>
               </div>
-              {state.status.mock && <span>MOCK</span>}
+              {mode === "mock" && <span>MOCK</span>}
             </div>
           </>
         ) : section === "system" ? (
           <ConnectionSafetySection
             state={state}
+            isMock={mode === "mock"}
             settingsData={settingsData}
             settingsError={settingsError}
             bridgeVersion={bridgeVersion}

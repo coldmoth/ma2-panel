@@ -1,3 +1,12 @@
+# 3.4.0-beta.2 — LUMA hall trial
+
+- Improve compatibility with grandMA2 onPC 3.9.60 for empty shows, FixtureType exports, Executor enumeration, Grand Master and Telnet readback.
+- Resolve the MA2 importexport directory for Layout XML, select the local drive before importing, and handle namespaced layouts.
+- Add native Settings controls for access lists, bridge restart, diagnostics and opt-in program updates. Improve first-run connection and navigation to Setup.
+- Preserve layout templates in update backups and return to LUMA after an update or rollback. Improve the onPC launcher and USB update scripts.
+
+Enable test updates in Settings to receive this beta. Back up the installation and show before hall trials.
+
 # 3.4.0-beta.1 — LUMA hall trial
 
 - Keep fixture selection and Inspector available locally during desk reconnects and on touchscreens. Sync selection before lighting commands.

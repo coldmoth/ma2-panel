@@ -1,4 +1,4 @@
-"""Real published v3.3.0 + embedded Python, existing HTTP/UI updater, mock only.
+"""Published Windows install and embedded Python, existing HTTP/UI updater, mock only.
 
 Only GitHub transport is fixture-backed (including deliberately synthetic CI
 receipts). Synthetic fixtures are NEVER published. This is not hardware acceptance
@@ -25,6 +25,7 @@ from ma2panel import release, release_quality, browser_update
 from scripts.first_run_zip import clean_environment
 
 OLD_SHA = '0dc535cb5143f5acb368ebc8a5a13cd8fceef9eef737d5616a6acb0f07163cbb'
+BETA1_SHA = 'd7c994080a942335491cc8626c8a35a9ae53c3114252ef017d312e3912eb34c9'
 REPO = 'coldmoth/ma2-panel'
 API = f'https://api.github.com/repos/{REPO}'
 # External harness, not installed application code. Propagates only the fixture
@@ -85,15 +86,18 @@ def main():
     parser.add_argument('--candidate', type=Path, default=Path('dist/update/ma2-panel-update.zip'))
     parser.add_argument('--output', type=Path, default=Path('test-results/update-channels'))
     parser.add_argument('--host-runtime', action='store_true', help='Local smoke only; not Windows acceptance')
+    parser.add_argument('--from-beta1', action='store_true', help='Upgrade the published LUMA v3.4.0-beta.1 directly')
     args = parser.parse_args()
     if os.name != 'nt' and not args.host_runtime:
         raise SystemExit('Windows x64 acceptance requires the shipped embedded runtime')
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=True)
-    cache = ROOT / 'dist/cache/published-v3.3.0-win.zip'; cache.parent.mkdir(parents=True, exist_ok=True)
+    source_version, source_sha = ('3.4.0-beta.1', BETA1_SHA) if args.from_beta1 else ('3.3.0', OLD_SHA)
+    cache = ROOT / f'dist/cache/published-v{source_version}-win.zip'
+    cache.parent.mkdir(parents=True, exist_ok=True)
     if not cache.exists():
-        with urllib.request.urlopen(f'https://github.com/{REPO}/releases/download/v3.3.0/ma2-panel-win.zip', timeout=45) as response:
+        with urllib.request.urlopen(f'https://github.com/{REPO}/releases/download/v{source_version}/ma2-panel-win.zip', timeout=45) as response:
             cache.write_bytes(response.read(32 * 1024 * 1024))
-    assert hashlib.sha256(cache.read_bytes()).hexdigest() == OLD_SHA
+    assert hashlib.sha256(cache.read_bytes()).hexdigest() == source_sha
     candidate = args.candidate.resolve(); manifest = release.check(candidate)
     stable_candidate = browser_update.version_key(manifest['version'])[3]
     with zipfile.ZipFile(candidate) as packed:
@@ -105,7 +109,11 @@ def main():
         root = temp / 'ma2-panel/program'
         executable = Path(sys.executable) if args.host_runtime else root / 'python/python.exe'
         old_version = (root / 'VERSION').read_text().strip()
-        assert old_version.startswith('3.3.0+')
+        assert old_version.startswith(source_version + '+')
+        old_luma = (root / 'static/luma/index.html').read_bytes() if args.from_beta1 else None
+        if args.from_beta1:
+            assert hall_trial and not stable_candidate and (root / 'ma2panel/HALL_TRIAL').is_file()
+            assert browser_update.version_key(manifest['version']) > browser_update.version_key(old_version)
         # Exercise the exact stable candidate if provided; otherwise construct a
         # synthetic bootstrap. The other channel uses a matching-version fixture.
         if stable_candidate:
@@ -173,6 +181,8 @@ def main():
                      'secret.env': b'MA2_PASSWORD=synthetic-ci-only\n', 'shows/QA.json': json.dumps(cfg).encode(),
                      'backups/keep.txt': b'backup sentinel', 'diag/keep.txt': b'diagnostic sentinel',
                      'bridge.log': b'operator log sentinel\n', 'rdm-search.json': b'journal sentinel'}
+        if args.from_beta1:
+            protected['layout_templates/keep.xml'] = b'<MA><Layout name="QA"/></MA>'
         for name, data in protected.items():
             path = root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
         pids = temp / 'pids.txt'
@@ -198,7 +208,8 @@ def main():
                 before = {name: (root / name).read_bytes() for name in protected}
                 browser = subprocess.Popen(['node', str(ROOT / 'scripts/update_channels_browser.cjs'), base, str(output),
                                             old_version, stable_version, rc_version,
-                                            str(trace) if hall_trial else ''], cwd=ROOT)
+                                            str(trace) if hall_trial else '',
+                                            'direct' if args.from_beta1 else ''], cwd=ROOT)
                 until = time.monotonic() + 130
                 try:
                     while browser.poll() is None:
@@ -215,6 +226,14 @@ def main():
                     elif name == 'bridge.log': assert actual.startswith(data)
                     else: assert actual == data, name
                 assert (root / 'previous').is_dir() and (root / '.updates').is_dir()
+                if args.from_beta1:
+                    with zipfile.ZipFile(candidate) as packed:
+                        expected_assets = {name for name in packed.namelist() if name.startswith('static/luma/')}
+                        installed_assets = {path.relative_to(root).as_posix()
+                                            for path in (root / 'static/luma').rglob('*') if path.is_file()}
+                        assert installed_assets == expected_assets and 'static/luma/index.html' in expected_assets
+                        for name in expected_assets | {'ma2panel/HALL_TRIAL'}:
+                            assert (root / name).read_bytes() == packed.read(name)
                 if hall_trial:
                     stop = urllib.request.Request(base + '/api/stop', data=b'', headers={'X-Stop': '1'})
                     with urllib.request.urlopen(stop, timeout=3) as response:
@@ -227,8 +246,12 @@ def main():
                     code = "from pathlib import Path; import update; raise SystemExit(update.rollback(Path.cwd(), confirm=lambda _: 'y'))"
                     subprocess.run([str(executable), '-c', code], cwd=root, env=clean_environment(),
                                    check=True, timeout=90)
-                    assert (root / 'VERSION').read_text().strip() == stable_version
-                    assert not (root / 'static/luma').exists()
+                    assert (root / 'VERSION').read_text().strip() == (old_version if args.from_beta1 else stable_version)
+                    if args.from_beta1:
+                        assert (root / 'ma2panel/HALL_TRIAL').is_file()
+                        assert (root / 'static/luma/index.html').read_bytes() == old_luma
+                    else:
+                        assert not (root / 'static/luma').exists()
                     for name, data in before.items():
                         actual = (root / name).read_bytes()
                         if name == 'settings.json':
@@ -237,14 +260,15 @@ def main():
                             assert actual.startswith(data)
                         else:
                             assert actual == data, name
-                result = {'published_old': old_version, 'published_old_sha256': OLD_SHA,
+                result = {'published_old': old_version, 'published_old_sha256': source_sha,
                           'stable_target': stable_version, 'rc_target': rc_version, 'candidate': manifest['version'],
                           'stable_is_fixture': not stable_candidate, 'rc_is_fixture': stable_candidate,
-                          'runtime': 'host-smoke' if args.host_runtime else 'published-v3.3.0-embedded-windows-x64',
+                          'runtime': 'host-smoke' if args.host_runtime else f'published-v{source_version}-embedded-windows-x64',
                           'transport': 'fixture GitHub; synthetic CI evidence; no public stable asserted',
-                          'old_button_upgrade': 'success', 'rc_button_upgrade': 'success',
+                          'old_button_upgrade': None if args.from_beta1 else 'success', 'rc_button_upgrade': 'success',
                           'preference_after_restart': True, 'private_data': 'preserved', 'rollback_snapshot': 'present',
-                          'hall_trial_rollback': 'success' if hall_trial else None}
+                          'hall_trial_rollback': 'success' if hall_trial else None,
+                          'direct_hall_upgrade': 'success' if args.from_beta1 else None}
                 (output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
                 print(json.dumps(result))
             finally:

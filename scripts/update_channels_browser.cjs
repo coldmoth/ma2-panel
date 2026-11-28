@@ -2,7 +2,7 @@ const {chromium} = require('./browser_smoke/node_modules/playwright');
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 (async () => {
-  const [base, output, old, stable, rc, peerTrace] = process.argv.slice(2);
+  const [base, output, old, stable, rc, peerTrace, direct] = process.argv.slice(2);
   const deskCommands = () => JSON.parse(fs.readFileSync(peerTrace, "utf8"));
   const browser = await chromium.launch({headless:true});
   const page = await browser.newPage({viewport:{width:1024,height:900}});
@@ -18,11 +18,6 @@ const assert = require('node:assert/strict');
   try {
     await page.goto(base+'/settings.html');
     await page.getByText('Установлено: '+old, {exact:true}).waitFor();
-    await page.locator('#update-check').click();
-    await page.locator('#update-start:not([disabled])').waitFor();
-    assert.ok((await page.locator('#update-version').textContent()).includes('v'+stable.split('+')[0]));
-    await waitIdle();
-    await page.locator('#update-start').click();
     async function waitVersion(version) {
       const deadline=Date.now()+55000, history=[];
       while (true) {
@@ -38,10 +33,18 @@ const assert = require('node:assert/strict');
       await page.goto(base+'/settings.html');
       await page.getByText('Установлено: '+version, {exact:true}).waitFor();
     }
-    await waitVersion(stable);
-    if (peerTrace) {
+    if (direct) {
+      await page.setViewportSize({width:1440,height:900});
       await page.goto(base + '/');
+      await page.locator('.sidebar-version').getByText(old.split('+')[0], {exact:true}).waitFor();
       await page.goto(base + '/settings.html');
+    } else {
+      await page.locator('#update-check').click();
+      await page.locator('#update-start:not([disabled])').waitFor();
+      assert.ok((await page.locator('#update-version').textContent()).includes('v'+stable.split('+')[0]));
+      await waitIdle();
+      await page.locator('#update-start').click();
+      await waitVersion(stable);
     }
     await page.locator('#update-check').click();
     await page.getByText('Новых обновлений в выбранном канале нет.', {exact:true}).waitFor();
@@ -87,7 +90,21 @@ const assert = require('node:assert/strict');
       assert.deepEqual(deskCommands(), beforeLuma, 'LUMA startup must send no Telnet commands');
       assert(assets.some(path => /^\/luma\/assets\/index-[\w-]+\.js$/.test(path)));
       assert(assets.some(path => /^\/luma\/assets\/index-[\w-]+\.css$/.test(path)));
-      await connect.click();
+      if (direct) {
+        await page.goto(base + '/luma/?setup=1');
+        assert.equal(await page.title(), 'LUMA · ma2-panel');
+        const wizard = page.getByRole('dialog');
+        await wizard.getByRole('button', { name: 'Done, go to connection →', exact: true }).click();
+        await wizard.getByText('Waiting to connect', {exact:true}).waitFor();
+        assert.equal(statuses.at(-1)?.ma2, 'manual_off');
+        assert.deepEqual(deskCommands(), beforeLuma, 'Opening Setup must keep Telnet closed');
+        await wizard.getByRole('button', {name: 'Connect to MA2', exact:true}).click();
+        await wizard.getByText(/Connected to grandMA2 .* · User luma-ci/).waitFor();
+        await wizard.getByRole('button', {name:'Close', exact:true}).click();
+      } else {
+        await connect.click();
+      }
+      assert.deepEqual(sent.filter(({a}) => a === 'link_connect').map(({a}) => a), ['link_connect']);
       await page.getByText('MA2 connected', { exact: true }).waitFor();
       assert.equal(statuses.at(-1)?.login?.USER, 'luma-ci');
       await page.locator('[data-fixture="1"]').click();
@@ -109,6 +126,35 @@ const assert = require('node:assert/strict');
       assert.deepEqual(sent.filter(({a}) => a === 'dim').map(({v}) => v), [50]);
       const classic = page.getByRole('link', {name: 'Classic panel', exact: true});
       assert.equal(await classic.getAttribute('href'), '/index.html');
+      if (direct) {
+        const nav = name => page.locator('.main-nav').getByRole('button', {name, exact:true}).click();
+        const category = name => page.locator('.settings-nav').getByRole('button', {name, exact:true}).click();
+        await nav('Settings');
+        await category('Connection and system');
+        await page.getByRole('heading', {name:'Program update', exact:true}).waitFor();
+        const testChannel = page.getByRole('switch', {name:'Receive test updates'});
+        await testChannel.waitFor();
+        assert.equal(await testChannel.isChecked(), true);
+        assert.equal(await page.getByRole('textbox', {name:'Allowed fixtures', exact:true}).inputValue(), '1');
+        const check = page.waitForResponse(response => response.url().endsWith('/api/update/check') && response.ok());
+        await page.getByRole('button', {name:'Check for updates', exact:true}).click();
+        await check;
+        await page.getByText('No newer updates are available in the selected channel.', {exact:true}).waitFor();
+        await category('Diagnostics');
+        await page.getByRole('heading', {name:'Diagnostics', exact:true}).waitFor();
+        await page.locator('.diag-raw-details summary').click();
+        assert.match(await page.locator('.diag-raw-pre').innerText(), /\[\d{2}:\d{2}:\d{2}\] \[sent\] At 50/);
+        await nav('Layout');
+        await page.getByRole('button', {name:'MA2 Layout XML', exact:true}).click();
+        const xml = page.getByRole('dialog');
+        await xml.getByText('Load from MA2', {exact:true}).waitFor();
+        await xml.getByText('Export to MA2', {exact:true}).click();
+        const [download] = await Promise.all([
+          page.waitForEvent('download'),
+          xml.getByRole('button', {name:'Download XML for MA2', exact:true}).click(),
+        ]);
+        assert.match(fs.readFileSync(await download.path(), 'utf8'), /<MA[\s>]/);
+      }
       assert.deepEqual(errors, []);
       await page.screenshot({path: output + '/luma-delivered.png', fullPage:true});
     }

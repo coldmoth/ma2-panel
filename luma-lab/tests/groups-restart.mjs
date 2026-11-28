@@ -12,8 +12,8 @@ try {
  const config=await p.evaluate(async()=>{const {bridge}=await import('/src/client.mjs');return bridge.state.config;});
  const g=config.groups.find(g=>g.label==='Проверка рестарта');assert.deepEqual(g.fixtures,[2,10]);assert.equal(g.color,'#7ab7b0');assert.equal(g.icon,'sun');
  await p.getByRole('button',{name:'Приборы',exact:true}).click();const nav=p.getByRole('complementary',{name:'Категории приборов'});
- for(const label of ['MA2 · Балкон','MA2 · Сцена']) {
-  await nav.getByRole('button').filter({hasText:label}).click();assert.equal(await p.locator('.fixture-card').count(),2);
+ for(const label of ['Балкон','Сцена']) {
+  await nav.getByTitle(label,{exact:true}).click();assert.equal(await p.locator('.fixture-card').count(),2);
   assert.equal(await p.getByLabel('Действия группы').count(),0);assert.equal(await p.getByRole('button',{name:'Изменить состав',exact:true}).count(),0);
   await p.getByRole('button',{name:'Выделить группу',exact:true}).click();await p.waitForFunction(async()=>{const {bridge}=await import('/src/client.mjs');return !bridge.state.selecting;});
   assert.deepEqual(await p.evaluate(async()=>{const {bridge}=await import('/src/client.mjs');return bridge.state.selected;}),label.includes('Балкон')?[1,9]:[15,19]);
