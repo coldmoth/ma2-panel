@@ -3777,6 +3777,26 @@ input[type="range"]:disabled {
   line-height: 1.45;
   color: var(--sub);
 }
+.wizard-live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.wizard-allowlist-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.allowlist-field-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
 .wizard-show-card {
   display: flex;
   flex-direction: column;

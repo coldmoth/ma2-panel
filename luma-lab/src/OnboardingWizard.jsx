@@ -16,10 +16,17 @@ import { Icon } from "./Icons.jsx";
 import { useLanguage } from "./Language.jsx";
 import { bridge } from "./client.mjs";
 import { errorMessage } from "./errors.mjs";
+import {
+  formatExecRange,
+  formatFixtureRange,
+  parseExecRange,
+  parseFixtureRange,
+} from "./allowlist.mjs";
 import { SAFETY_FLAGS, SAFETY_PRESETS } from "./Settings.jsx";
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 const UNCONFIGURED_HOST = "ma2-unconfigured.invalid";
+const RESTART_TIMEOUT_MS = 25000;
 
 function MenuPath({ items }) {
   return (
@@ -41,8 +48,10 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
   const [step, setStep] = useState(0);
   const [setupData, setSetupData] = useState(null);
   const [setupError, setSetupError] = useState("");
+  const [setupErrorCode, setSetupErrorCode] = useState("");
   const [settingsData, setSettingsData] = useState(null);
   const [settingsError, setSettingsError] = useState("");
+  const [settingsLocalOnly, setSettingsLocalOnly] = useState(!isLocal);
 
   const [draft, setDraft] = useState(null);
   const [password, setPassword] = useState("");
@@ -53,31 +62,59 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
   const [restartNeeded, setRestartNeeded] = useState(false);
 
   const [restarting, setRestarting] = useState(false);
+  const [autoConnectPending, setAutoConnectPending] = useState(false);
+  const [connectBusy, setConnectBusy] = useState(false);
   const restartBaseRef = useRef(null);
+  const restartTimeoutRef = useRef(null);
+  const restartErrorSetterRef = useRef(null);
+  const inFlightRef = useRef(false);
   const initializedRef = useRef(false);
 
   const [prepBusy, setPrepBusy] = useState("");
   const [prepNotice, setPrepNotice] = useState("");
   const [prepError, setPrepError] = useState("");
+  const [grantBusy, setGrantBusy] = useState(false);
 
   const [lanBusy, setLanBusy] = useState(false);
   const [lanNotice, setLanNotice] = useState("");
   const [lanError, setLanError] = useState("");
 
+  const clearRestartWatch = useCallback(() => {
+    restartBaseRef.current = null;
+    restartErrorSetterRef.current = null;
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
+    setRestarting(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+        restartTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   const loadSettings = useCallback(async (forceResetDraft = false) => {
     if (!isLocal) {
+      setSettingsLocalOnly(true);
       setSettingsError(t("wizard.localOnly"));
       return null;
     }
     try {
       const res = await fetch("/api/settings", { cache: "no-store" });
       if (res.status === 403) {
+        setSettingsLocalOnly(true);
         setSettingsError(t("wizard.localOnly"));
         return null;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setSettingsData(data);
+      setSettingsLocalOnly(false);
       setSettingsError("");
       if (!initializedRef.current || forceResetDraft) {
         const ma2 = { ...(data.defaults?.ma2 || {}), ...(data.settings?.ma2 || {}) };
@@ -99,6 +136,9 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
           flags: useSuggestedMode && freshDefaultPreset
             ? { ...freshDefaultPreset.flags }
             : Object.fromEntries(SAFETY_FLAGS.map((k) => [k, Boolean(safety[k])])),
+          allowed_fixtures_text: formatFixtureRange(safety.allowed_fixtures || []),
+          allowed_scenes_text: formatExecRange(safety.allowed_scenes || []),
+          store_execs_text: formatExecRange(safety.store_execs || []),
         });
         initializedRef.current = true;
       }
@@ -111,12 +151,16 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
 
   const pollSetup = useCallback(async () => {
     if (!isLocal) {
+      setSetupErrorCode("localOnly");
       setSetupError(t("wizard.localOnly"));
       return;
     }
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     try {
       const res = await fetch("/api/setup", { cache: "no-store", signal: AbortSignal.timeout(4000) });
       if (res.status === 403) {
+        setSetupErrorCode("localOnly");
         setSetupError(t("wizard.localOnly"));
         return;
       }
@@ -126,20 +170,31 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
       }
       setSetupData(data);
       setSetupError("");
+      setSetupErrorCode("");
       if (restartBaseRef.current && data.instance && data.instance !== restartBaseRef.current) {
-        restartBaseRef.current = null;
-        setRestarting(false);
+        clearRestartWatch();
         setRestartNeeded(false);
         setSaveNotice(t("wizard.step1.restarted"));
         setLanNotice("");
-        loadSettings(false);
+        loadSettings(true);
+        const manualAfterRestart =
+          !data.mock &&
+          (data.ma2?.state === "manual_off" ||
+            bridge.state.status?.manual === true ||
+            bridge.state.status?.ma2 === "manual_off");
+        if (manualAfterRestart) {
+          setAutoConnectPending(true);
+        }
       }
     } catch (e) {
       if (e.name !== "AbortError") {
+        setSetupErrorCode("network");
         setSetupError(e.message || String(e));
       }
+    } finally {
+      inFlightRef.current = false;
     }
-  }, [isLocal, loadSettings, t]);
+  }, [clearRestartWatch, isLocal, loadSettings, t]);
 
   useEffect(() => {
     loadSettings(false);
@@ -153,7 +208,7 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
     return () => clearInterval(timer);
   }, [isLocal, restarting, pollSetup]);
 
-  async function requestRestart(setNoticeFn) {
+  async function requestRestart(setNoticeFn, setErrorFn = setSaveError) {
     try {
       const res = await fetch("/api/restart", {
         method: "POST",
@@ -165,14 +220,36 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
         setNoticeFn(data.err || t("wizard.step1.restartManual"));
         return false;
       }
+      if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
       restartBaseRef.current = data.instance || setupData?.instance || "pending";
+      restartErrorSetterRef.current = setErrorFn;
       setRestarting(true);
       setNoticeFn(t("wizard.step1.savedRestarting"));
+      restartTimeoutRef.current = setTimeout(() => {
+        const errSetter = restartErrorSetterRef.current;
+        clearRestartWatch();
+        setRestartNeeded(true);
+        setNoticeFn("");
+        errSetter?.(t("wizard.step1.restartTimeout"));
+      }, RESTART_TIMEOUT_MS);
       return true;
     } catch {
       setRestartNeeded(true);
       setNoticeFn(t("wizard.step1.restartManual"));
       return false;
+    }
+  }
+
+  async function handleConnectMa2() {
+    if (connectBusy) return;
+    setConnectBusy(true);
+    setSaveError("");
+    try {
+      await bridge.action({ a: "link_connect" });
+    } catch (e) {
+      setSaveError(e.err || errorMessage(e, t) || e.message || String(e));
+    } finally {
+      setConnectBusy(false);
     }
   }
 
@@ -183,6 +260,19 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
     setSaveError("");
     setSaveNotice("");
     try {
+      const parsedFixtures = parseFixtureRange(draft.allowed_fixtures_text);
+      if (!parsedFixtures.ok) {
+        throw new Error(t("settings.allowlistInvalidFixtures", { token: parsedFixtures.invalid }));
+      }
+      const parsedScenes = parseExecRange(draft.allowed_scenes_text);
+      if (!parsedScenes.ok) {
+        throw new Error(t("settings.allowlistInvalidScenes", { token: parsedScenes.invalid }));
+      }
+      const parsedStore = parseExecRange(draft.store_execs_text);
+      if (!parsedStore.ok) {
+        throw new Error(t("settings.allowlistInvalidStore", { token: parsedStore.invalid }));
+      }
+
       const freshRes = await fetch("/api/settings", { cache: "no-store" });
       if (!freshRes.ok) throw new Error(`HTTP ${freshRes.status}`);
       const freshData = await freshRes.json();
@@ -192,12 +282,17 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
       const nextHost = draft.host.trim() || "127.0.0.1";
       const nextPort = Number(draft.port) || 30000;
       const nextUser = draft.user.trim() || "Remote";
+      const allowlistChanged =
+        JSON.stringify(prevSafety.allowed_fixtures || []) !== JSON.stringify(parsedFixtures.values) ||
+        JSON.stringify(prevSafety.allowed_scenes || []) !== JSON.stringify(parsedScenes.values) ||
+        JSON.stringify(prevSafety.store_execs || []) !== JSON.stringify(parsedStore.values);
       const connectionChanged =
         (prevMa2.host || "") !== nextHost ||
         Number(prevMa2.port || 30000) !== nextPort ||
         (prevMa2.user || "") !== nextUser ||
         (passwordTouched && Boolean(password)) ||
         (prevSafety.mode || "test") !== draft.mode ||
+        allowlistChanged ||
         SAFETY_FLAGS.some((k) => Boolean(prevSafety[k]) !== Boolean(draft.flags[k]));
 
       next.ma2 = {
@@ -211,6 +306,9 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
         ...(next.safety || {}),
         mode: draft.mode,
         ...draft.flags,
+        allowed_fixtures: parsedFixtures.values,
+        allowed_scenes: parsedScenes.values,
+        store_execs: parsedStore.values,
       };
       const body = { settings: next };
       if (passwordTouched && password) body.password = password;
@@ -226,9 +324,9 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
       }
       setPassword("");
       setPasswordTouched(false);
-      await loadSettings(false);
+      await loadSettings(true);
       if (connectionChanged) {
-        await requestRestart(setSaveNotice);
+        await requestRestart(setSaveNotice, setSaveError);
       } else {
         setSaveNotice(t("wizard.step1.savedOnly"));
       }
@@ -236,6 +334,58 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
       setSaveError(e.message || String(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleAllowLoadedInSettings() {
+    if (!isLocal || grantBusy || restarting) return;
+    setGrantBusy(true);
+    setPrepError("");
+    setPrepNotice("");
+    try {
+      const freshRes = await fetch("/api/settings", { cache: "no-store" });
+      if (freshRes.status === 403) {
+        throw new Error(t("wizard.localOnly"));
+      }
+      if (!freshRes.ok) throw new Error(`HTTP ${freshRes.status}`);
+      const freshData = await freshRes.json();
+      const next = structuredClone(freshData.settings || {});
+      const prevSafety = next.safety || {};
+      const mergedFixtures = [
+        ...new Set([
+          ...(Array.isArray(prevSafety.allowed_fixtures) ? prevSafety.allowed_fixtures.map(Number) : []),
+          ...fixtures.map((f) => Number(f.id)).filter((n) => Number.isInteger(n) && n >= 1),
+        ]),
+      ].sort((a, b) => a - b);
+      const mergedScenes = [
+        ...new Set([
+          ...(Array.isArray(prevSafety.allowed_scenes) ? prevSafety.allowed_scenes.map(String) : []),
+          ...scenes.map((s) => String(s.exec || "")).filter((e) => /^\d+\.\d+$/.test(e)),
+        ]),
+      ];
+      next.safety = {
+        ...prevSafety,
+        allowed_fixtures: mergedFixtures,
+        allowed_scenes: mergedScenes,
+      };
+      const saveRes = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: next }),
+      });
+      const saveJson = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok || saveJson.ok === false) {
+        throw new Error(saveJson.err || `HTTP ${saveRes.status}`);
+      }
+      await loadSettings(true);
+      const ok = await requestRestart(setPrepNotice, setPrepError);
+      if (ok) {
+        setPrepNotice(t("wizard.step2.allowLoadedSaved", { fixtures: mergedFixtures.length, scenes: mergedScenes.length }));
+      }
+    } catch (e) {
+      setPrepError(e.message || String(e));
+    } finally {
+      setGrantBusy(false);
     }
   }
 
@@ -260,7 +410,7 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
         throw new Error(saveJson.err || `HTTP ${saveRes.status}`);
       }
       await loadSettings(false);
-      await requestRestart(setLanNotice);
+      await requestRestart(setLanNotice, setLanError);
     } catch (e) {
       setLanError(e.message || String(e));
     } finally {
@@ -287,6 +437,7 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
   const ma2Info = setupData?.ma2 || null;
   const ma2Ready = Boolean(ma2Info?.ready && !ma2Info?.halted);
   const ma2State = ma2Info?.state || state.status?.ma2 || "down";
+  const isManualOff = !isMock && (ma2State === "manual_off" || state.status?.manual === true);
   const deskShow = state.status?.readiness?.show?.name || null;
   const showState = state.status?.readiness?.show?.state || "pending";
   const planShow = state.config?.show || "—";
@@ -296,11 +447,24 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
   const scenes = state.config?.scenes || [];
   const ma2Layout = state.config?.ma2_layout || null;
 
+  useEffect(() => {
+    if (!autoConnectPending) return;
+    if (ma2Ready) {
+      setAutoConnectPending(false);
+      return;
+    }
+    if (state.connected && isManualOff && !bridge.blockReason("link_connect")) {
+      setAutoConnectPending(false);
+      bridge.action({ a: "link_connect" }).catch(() => {});
+    }
+  }, [autoConnectPending, state.connected, isManualOff, ma2Ready]);
+
   const identifyBlock = bridge.blockReason("show_identify");
   const bindBlock = bridge.blockReason("show_bind");
   const openPlanBlock = bridge.blockReason("show_open_plan");
   const fetchBlock = bridge.blockReason("fixtures_fetch");
   const importScenesBlock = bridge.blockReason("scenes_import");
+  const connectBlock = bridge.blockReason("link_connect");
 
   const canCreatePlan = planDecision?.code === "plan_missing" && Boolean(deskShow) && !openPlanBlock;
   const canBindPlan = Boolean(deskShow) && deskShow !== state.config?.show && !bindBlock && !canCreatePlan;
@@ -312,15 +476,40 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
     state.status?.safety?.mode ||
     "test";
 
+  const savedSafety = settingsData?.settings?.safety || {};
+  const savedAllowedFixtures = new Set(
+    Array.isArray(savedSafety.allowed_fixtures) ? savedSafety.allowed_fixtures.map(Number) : [],
+  );
+  const savedAllowedScenes = new Set(
+    Array.isArray(savedSafety.allowed_scenes) ? savedSafety.allowed_scenes.map(String) : [],
+  );
+  const hasUnallowedLoaded =
+    (activeSafetyMode === "test" || activeSafetyMode === "store") &&
+    ((fixtures.length > 0 && fixtures.some((f) => !savedAllowedFixtures.has(Number(f.id)))) ||
+      (scenes.length > 0 && scenes.some((s) => s.exec && !savedAllowedScenes.has(String(s.exec)))));
+
+  const draftFixturesCheck = draft ? parseFixtureRange(draft.allowed_fixtures_text) : { ok: true, values: [] };
+  const draftScenesCheck = draft ? parseExecRange(draft.allowed_scenes_text) : { ok: true, values: [] };
+  const draftStoreCheck = draft ? parseExecRange(draft.store_execs_text) : { ok: true, values: [] };
+  const draftAllowlistEmpty =
+    Boolean(draft) &&
+    (draft.mode === "test" || draft.mode === "store") &&
+    draftFixturesCheck.ok &&
+    draftScenesCheck.ok &&
+    draftFixturesCheck.values.length === 0 &&
+    draftScenesCheck.values.length === 0;
+
   const connectionStepStatus = restarting
     ? undefined
-    : isMock
-      ? "success"
-      : ma2Ready
+    : setupErrorCode === "localOnly"
+      ? undefined
+      : isMock
         ? "success"
-        : ma2State === "login_failed"
-          ? "error"
-          : undefined;
+        : ma2Ready
+          ? "success"
+          : ma2State === "login_failed"
+            ? "error"
+            : undefined;
 
   function renderLiveStatus() {
     if (restarting) {
@@ -331,6 +520,16 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
         badgeLabel: t("connection.connecting"),
         title: t("wizard.step1.liveRestarting"),
         desc: `${draft?.host || ma2Info?.host || "127.0.0.1"}:${draft?.port || ma2Info?.port || 30000}`,
+      };
+    }
+    if (setupErrorCode === "localOnly") {
+      return {
+        dot: "neutral",
+        pulsing: false,
+        badgeVariant: "info",
+        badgeLabel: t("wizard.localOnlyBadge"),
+        title: t("wizard.localOnlyTitle"),
+        desc: t("wizard.localOnly"),
       };
     }
     if (setupError && !setupData) {
@@ -376,6 +575,17 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
         desc: ma2Info?.profile
           ? `${ma2Info.host}:${ma2Info.port} · ${ma2Info.profile}`
           : t("wizard.step1.liveConnectedHint"),
+      };
+    }
+    if (isManualOff) {
+      return {
+        dot: "warning",
+        pulsing: false,
+        badgeVariant: "warning",
+        badgeLabel: t("wizard.step1.liveManualOffBadge"),
+        title: t("wizard.step1.liveManualOffTitle"),
+        desc: t("wizard.step1.liveManualOffDesc"),
+        showConnectAction: true,
       };
     }
     if (ma2State === "login_failed") {
@@ -536,7 +746,14 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
                   <p>{t("wizard.step1.intro")}</p>
                 </div>
 
-                {settingsError && <Banner status="warning" title={settingsError} className="wizard-banner" />}
+                {settingsError && (
+                  <Banner
+                    status={settingsLocalOnly ? "info" : "warning"}
+                    title={settingsLocalOnly ? t("wizard.localOnlyTitle") : settingsError}
+                    description={settingsLocalOnly ? t("wizard.localOnly") : undefined}
+                    className="wizard-banner"
+                  />
+                )}
 
                 {draft && (
                   <form className="wizard-connect-form" onSubmit={handleSaveConnect}>
@@ -650,6 +867,105 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
                         </div>
                       </div>
 
+                      {(draft.mode === "test" || draft.mode === "store") ? (
+                        <div className="wizard-allowlist-block">
+                          <div className="wizard-safety-label">{t("settings.accessScopeTitle")}</div>
+                          <div className="wizard-fields-grid">
+                            <div className="allowlist-field-group">
+                              <TextInput
+                                label={t("settings.allowedFixtures")}
+                                description={t("settings.allowedFixturesDesc")}
+                                value={draft.allowed_fixtures_text}
+                                onChange={(value) => setDraft((d) => ({ ...d, allowed_fixtures_text: value }))}
+                                placeholder="1-20, 25"
+                                isDisabled={saving || restarting}
+                                status={
+                                  !draftFixturesCheck.ok
+                                    ? { type: "error", message: t("settings.allowlistInvalidFixtures", { token: draftFixturesCheck.invalid }) }
+                                    : undefined
+                                }
+                                size="md"
+                                width="100%"
+                              />
+                              {fixtures.length > 0 && (
+                                <Button
+                                  type="button"
+                                  label={t("settings.fillAllFromPlan")}
+                                  variant="secondary"
+                                  size="sm"
+                                  isDisabled={saving || restarting}
+                                  onClick={() =>
+                                    setDraft((d) => ({
+                                      ...d,
+                                      allowed_fixtures_text: formatFixtureRange(fixtures.map((f) => f.id)),
+                                    }))
+                                  }
+                                />
+                              )}
+                            </div>
+                            <div className="allowlist-field-group">
+                              <TextInput
+                                label={t("settings.allowedScenes")}
+                                description={t("settings.allowedScenesDesc")}
+                                value={draft.allowed_scenes_text}
+                                onChange={(value) => setDraft((d) => ({ ...d, allowed_scenes_text: value }))}
+                                placeholder="1.101-1.110, 2.1"
+                                isDisabled={saving || restarting}
+                                status={
+                                  !draftScenesCheck.ok
+                                    ? { type: "error", message: t("settings.allowlistInvalidScenes", { token: draftScenesCheck.invalid }) }
+                                    : undefined
+                                }
+                                size="md"
+                                width="100%"
+                              />
+                              {scenes.length > 0 && (
+                                <Button
+                                  type="button"
+                                  label={t("settings.fillAllFromPlan")}
+                                  variant="secondary"
+                                  size="sm"
+                                  isDisabled={saving || restarting}
+                                  onClick={() =>
+                                    setDraft((d) => ({
+                                      ...d,
+                                      allowed_scenes_text: formatExecRange(scenes.map((s) => s.exec)),
+                                    }))
+                                  }
+                                />
+                              )}
+                            </div>
+                            {draft.mode === "store" && (
+                              <TextInput
+                                label={t("settings.storeExecs")}
+                                description={t("settings.storeExecsDesc")}
+                                value={draft.store_execs_text}
+                                onChange={(value) => setDraft((d) => ({ ...d, store_execs_text: value }))}
+                                placeholder="1.101-1.120"
+                                isDisabled={saving || restarting}
+                                status={
+                                  !draftStoreCheck.ok
+                                    ? { type: "error", message: t("settings.allowlistInvalidStore", { token: draftStoreCheck.invalid }) }
+                                    : undefined
+                                }
+                                size="md"
+                                width="100%"
+                              />
+                            )}
+                          </div>
+                          {draftAllowlistEmpty && (
+                            <Banner
+                              status="info"
+                              title={t("wizard.step1.emptyAllowlistTitle")}
+                              description={t("wizard.step1.emptyAllowlistDesc")}
+                              className="wizard-banner"
+                            />
+                          )}
+                        </div>
+                      ) : (
+                        <small className="wizard-guide-note">{t("wizard.step1.fullAllowlistNote")}</small>
+                      )}
+
                       <div className="wizard-form-actions">
                         <Button
                           type="submit"
@@ -665,7 +981,7 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
                             label={t("wizard.step1.restartBridge")}
                             variant="secondary"
                             size="md"
-                            onClick={() => requestRestart(setSaveNotice)}
+                            onClick={() => requestRestart(setSaveNotice, setSaveError)}
                           />
                         )}
                       </div>
@@ -692,6 +1008,20 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
                   </div>
                   <strong className="wizard-live-main">{live.title}</strong>
                   <p className="wizard-live-desc">{live.desc}</p>
+                  {live.showConnectAction && (
+                    <div className="wizard-live-actions">
+                      <Button
+                        type="button"
+                        label={t("wizard.step1.connectMa2")}
+                        variant="primary"
+                        size="sm"
+                        isLoading={connectBusy}
+                        isDisabled={connectBusy || Boolean(connectBlock)}
+                        tooltip={errorMessage(connectBlock, t) || undefined}
+                        onClick={handleConnectMa2}
+                      />
+                    </div>
+                  )}
                 </Card>
               </div>
             )}
@@ -805,7 +1135,7 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
                         tooltip={errorMessage(fetchBlock, t) || undefined}
                         onClick={() =>
                           runPrepAction("fixtures_fetch", { a: "fixtures_fetch" }, (res) =>
-                            t("settings.prepFixturesFetched", { count: res?.count ?? fixtures.length }),
+                            t("settings.prepFixturesFetched", { count: res?.total ?? res?.added ?? fixtures.length }),
                           )
                         }
                       />
@@ -876,6 +1206,29 @@ export default function OnboardingWizard({ state, onClose, onOpenHall, onOpenLay
                       />
                     </div>
                   </Card>
+
+                  {isLocal && hasUnallowedLoaded && (
+                    <Banner
+                      status="warning"
+                      title={t("wizard.step2.allowLoadedTitle")}
+                      description={t("wizard.step2.allowLoadedDesc")}
+                      className="wizard-banner"
+                      endContent={
+                        <Button
+                          type="button"
+                          label={t("wizard.step2.allowLoadedBtn")}
+                          variant="primary"
+                          size="sm"
+                          isLoading={grantBusy || restarting}
+                          isDisabled={grantBusy || restarting}
+                          onClick={handleAllowLoadedInSettings}
+                        />
+                      }
+                    />
+                  )}
+                  {activeSafetyMode === "full" && (
+                    <small className="wizard-guide-note">{t("wizard.step1.fullAllowlistNote")}</small>
+                  )}
                 </div>
               </div>
             )}
