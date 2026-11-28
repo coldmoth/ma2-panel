@@ -75,7 +75,7 @@ def test_failed_native_launch_never_clears_programmer(context, failure):
             if line.startswith('List Executor '): return True, 'Executor '+line.split()[-1]+' Priority=Normal SoftLTP=on Chaser=off'
             if 'PANELSCENE' in line:
                 import re
-                probe = re.search(r"PANELSCENE','([a-f0-9]{16})", line)[1] + ' manual'
+                probe = re.search(r"PANELSCENE = %q'\):format\(string\.char\(36\),'([a-f0-9]{16})", line)[1] + ' manual'
             return True, 'Global : $SHOWFILE = Mock show\nGlobal : $PANELSCENE = ' + probe if line == 'ListVar' else 'OK'
         c.link.send = send
         assert await c.execute('scene_go', scene_frame(c.config_msg()['config'], {'a': 'scene_go', 'id': 'pianist'}), session, [])

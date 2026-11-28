@@ -57,11 +57,14 @@ def merge_scenes(existing, incoming):
     return result, added
 
 
+VALID_EXEC_SLOTS = (*range(1, 91), *range(101, 191), *range(201, 221))
+
+
 def slot_candidates(mode, allowed, occupied, page=None):
     occupied = {canonical_exec(ex) for ex in occupied}
     if mode == 'full':
         target_page = page if page is not None else 1
-        pool = {f'{target_page}.{n}' for n in range(1, 251)}
+        pool = {f'{target_page}.{n}' for n in VALID_EXEC_SLOTS}
     elif mode == 'store':
         pool = {canonical_exec(ex) for ex in allowed}
         if page is not None:

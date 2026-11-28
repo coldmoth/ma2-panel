@@ -11,7 +11,7 @@
     "export_cmd": "Export Fixture 1 Thru 9999 \"panel_fixtures\""
   },
   "master": {
-    "cmd": "Master 2.1 At {v}"
+    "cmd": "SpecialMaster 2.1 At {v}"
   },
   "safety": {
     "mode": "test",

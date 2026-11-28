@@ -801,7 +801,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         if a in ("store_scene", "scene_create", "scene_slot_find", "scene_rename", "page_save"):
             return reason("safety_denied", f"запись в пульт и служебные действия заблокированы в режиме {mode}")
         if a == "master" and not safety["allow_master"]:
-            return reason("safety_denied", "общая яркость (Master 2.1) заблокирована: allow_master в settings.json")
+            return reason("safety_denied", "общая яркость (SpecialMaster 2.1) заблокирована: allow_master в settings.json")
         if a == "page_go" and not safety["allow_page_change"]:
             return reason("safety_denied", "смена страницы пульта заблокирована: allow_page_change в settings.json")
         return None
@@ -1018,7 +1018,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             return transition_lines(action, cfg, lambda ex: mode == "full" or ex in allowed_scenes, transition_owners), {}
         if a == "blackout":
             raise ActionError("Blackout выполняется отдельной транзакцией Grand Master")
-        return build(action, {**cfg, "master": settings.get("master", cfg.get("master", {"cmd": "Master 2.1 At {v}"}))}), {}
+        return build(action, {**cfg, "master": settings.get("master", cfg.get("master", {"cmd": "SpecialMaster 2.1 At {v}"}))}), {}
 
     def read_scene_identity(ex, scene):
         try:
@@ -1511,8 +1511,20 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
             beam["invert"] = not beam["invert"]
         return {"fixtures": [{**f, "beam": beam} if f is fixture else f for f in fixtures]}
 
+    def normalize_pages(raw):
+        if isinstance(raw, list):
+            return [p for p in raw if isinstance(p, dict) and type(p.get("n")) is int and p["n"] > 0]
+        if isinstance(raw, dict):
+            out = []
+            for k, v in raw.items():
+                if str(k).isdigit() and int(k) > 0:
+                    label = v if isinstance(v, str) else v.get("label", "") if isinstance(v, dict) else ""
+                    out.append({"n": int(k), "label": str(label)})
+            return out
+        return []
+
     def scene_pages():
-        return sorted({exec_page(s["exec"]) for s in cfg["scenes"]} | {p["n"] for p in cfg.get("pages", [])} | {1})
+        return sorted({exec_page(s["exec"]) for s in cfg["scenes"]} | {p["n"] for p in normalize_pages(cfg.get("pages"))} | {1})
 
     def list_cmd(page, top=250):
         return ma2.get("list_cmd", "List Executor {page}.1 Thru {page}.{top}").format(page=page, top=top)
@@ -1870,16 +1882,19 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         # "Page  2 2    Page         (7)" for a page with 7 objects. ponytail: only the count column is trusted.
         ok, reply = await link.send("List Page", gen=context[0])
         require_scene_context(context)
-        filled = {int(m[1]) for m in re.finditer(r"(?m)^Page\s+(\d+)\s.*\(\d+\)\s*$", reply)} if ok else set()
-        if not ok or not filled:
+        cleaned_lines = [re.sub(r"^(?:\s*\[[^\]]*\]>\s*)+", "", ln).strip() for ln in reply.splitlines()] if ok else []
+        page_rows = [ln for ln in cleaned_lines if re.match(r"^Page\s+(\d+)\b", ln)]
+        filled = {int(m[1]) for ln in page_rows if (m := re.match(r"^Page\s+(\d+)\s.*\(\d+\)\s*$", ln))}
+        if not ok or not page_rows:
             reason = " ".join(reply.split())[:200] or "ответ не распознан"
             raise ActionError(f"List Page: список страниц не подтверждён ({reason}); план не изменён, повторите импорт вручную")
-        for page in sorted(set(scene_pages()) | filled):
-            ok, reply = await list_execs(page, context)
-            if not ok:
-                raise ActionError(reply.strip() or "ошибка пульта")
-            unrecognised += unrecognised_lines(reply)
-            incoming.extend(parse_executors(reply))
+        if filled:
+            for page in sorted(set(scene_pages()) | filled):
+                ok, reply = await list_execs(page, context)
+                if not ok:
+                    raise ActionError(reply.strip() or "ошибка пульта")
+                unrecognised += unrecognised_lines(reply)
+                incoming.extend(parse_executors(reply))
         scenes, added = merge_scenes(scenes, incoming)
         await confirm_scene_show(context)
         return scenes, added, unrecognised
@@ -2348,7 +2363,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 raise ActionError("неверный файл плана шоу", code="plan_io")
         else:
             loaded = {**active_plan_data(), "fixtures": [], "groups": [], "ma2groups": [], "ma2presets": {"colors": [], "positions": []},
-                      "scenes": [], "presets": [], "pages": {}, "show": name}
+                      "scenes": [], "presets": [], "pages": [], "show": name}
         loaded, runtime = prepare_show_plan(loaded)
         save_working_plan(loaded)
         state.pop("plan_selection", None)
@@ -3194,7 +3209,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 # Reject stale intent before it can flush unrelated, pending light values.
                 check_scene_intent(action)
             if a in SLIDERS:
-                check_move(action) if a == "move" else build(action, {**cfg, "master": settings.get("master", cfg.get("master", {"cmd": "Master 2.1 At {v}"}))})  # reject bad values now, not on the tick
+                check_move(action) if a == "move" else build(action, {**cfg, "master": settings.get("master", cfg.get("master", {"cmd": "SpecialMaster 2.1 At {v}"}))})  # reject bad values now, not on the tick
                 if a == "master":
                     ids = []
                 elif a == "move":
@@ -3235,6 +3250,14 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                 throttle.put(key, {"ws": ws, "a": a, "action": action, "ids": ids, "operation": operation.get(), "ticket": intent_ticket})
                 return None
             if a == "blackout":
+                if why := blackout_block():
+                    return refusal(a, why)
+                if state["loading"]:
+                    raise ActionError("идёт загрузка шоу", code="show_loading")
+                if state.get("recovering"):
+                    return {"ok": False, "a": a, "err": "восстанавливается контекст MA2; действие отменено"}
+                if why := link_block():
+                    return refusal(a, why)
                 # No await before the barrier: cancel queued values instead of flushing them.
                 state["blackout_epoch"] += 1
                 intent_ticket = action_ticket(ws)
@@ -3294,7 +3317,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                         raise ActionError("идёт загрузка шоу", code="show_loading")
                     gen = link._gen
                     await confirm_write_show(gen)
-                    scenes, pages = cfg["scenes"], cfg.get("pages", [])
+                    scenes, pages = cfg["scenes"], normalize_pages(cfg.get("pages"))
                     if a == "scene_create":
                         ex = canonical_exec(str(action.get("exec")))
                         old = None
@@ -3355,6 +3378,13 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                         if replacing:
                             recovery.update(previous_identity=old["identity"], fixtures=ids)
                         save_config(recovery_path, recovery)
+                        committing = False
+
+                        def begin_create():
+                            nonlocal committing
+                            committing = True
+                            save_config(recovery_path, {**recovery, "phase": "committing"})
+
                         async def send_scene(line, *, before_write=None):
                             if not ticket_valid(intent_ticket):
                                 raise ActionError("контекст действия изменился; запись отменена")
@@ -3366,7 +3396,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                                 raise ActionError("контекст записи изменился; оставшиеся команды отменены")
                             if not ticket_valid(intent_ticket):
                                 raise ActionError("контекст действия изменился; запись отменена")
-                            ok, reply = await link.send(line, gen=gen, before_write=before_write,
+                            hook = before_write or (begin_create if not replacing and line.startswith(f"Store Executor {ex} ") else None)
+                            ok, reply = await link.send(line, gen=gen, before_write=hook,
                                                         valid=lambda: ticket_valid(intent_ticket)
                                                         and context == (state['plan_epoch'], link._gen, link._stop_epoch, cfg.get('show')))
                             if not ok:
@@ -3374,7 +3405,6 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                             if context != (state["plan_epoch"], link._gen, link._stop_epoch, cfg.get("show")):
                                 raise ActionError("контекст записи изменился; оставшиеся команды отменены")
                             return reply
-                        committing = False
 
                         def begin_overwrite():
                             nonlocal committing
@@ -3395,7 +3425,7 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
                         try:
                             await store_scene(send_scene, ex, label, ids, spare=spare, send_overwrite=overwrite)
                         finally:
-                            if replacing and not committing:
+                            if not committing:
                                 # No target write was admitted. Leave any spare on the desk.
                                 recovery_path.unlink(missing_ok=True)
                         ok, reply = await link.send(f"List Executor {ex}", gen=gen)

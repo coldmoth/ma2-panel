@@ -149,3 +149,10 @@ def test_migrated_export_path_with_password_word_can_be_loaded(tmp_path):
     config, settings = workspace(tmp_path, ma2={'export_dir': 'C:/password-tests/importexport'})
     migrate_config(config, settings)
     assert load_settings(settings)['ma2']['export_dir'] == 'C:/password-tests/importexport'
+
+
+def test_migration_accepts_specialmaster_cmd(tmp_path):
+    cp, sp = workspace(tmp_path, master={'cmd': 'SpecialMaster 2.1 At {v}'})
+    cfg, settings = migrate_config(cp, sp)
+    assert cfg['version'] == 5
+    assert settings['master'] == {'cmd': 'SpecialMaster 2.1 At {v}'}

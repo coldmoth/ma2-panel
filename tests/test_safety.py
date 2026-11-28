@@ -365,3 +365,33 @@ def test_legacy_password_refused_before_backup(tmp_path):
         create_app(cfg, True, str(path), LIVE)
     assert path.read_bytes() == before
     assert not (tmp_path / "backups").exists()
+
+
+def test_specialmaster_allowed_with_allow_master_in_test_and_store_modes():
+    for mode in ("test", "store"):
+        g_off = make_guard(effective_safety({"safety": {"mode": mode, "allow_master": False}}))
+        assert g_off("SpecialMaster 2.1 At 50") is not None
+        assert g_off("Master 2.1 At 50") is not None
+
+        g_on = make_guard(effective_safety({"safety": {"mode": mode, "allow_master": True}}))
+        assert g_on("SpecialMaster 2.1 At 0") is None
+        assert g_on("SpecialMaster 2.1 At 50.5") is None
+        assert g_on("SpecialMaster 2.1 At 100") is None
+        assert g_on("Master 2.1 At 50") is None
+        # Out-of-range and other SpecialMasters remain blocked
+        assert g_on("SpecialMaster 2.1 At 101") is not None
+        assert g_on("SpecialMaster 2.2 At 50") is not None
+
+
+def test_rejected_blackout_does_not_mutate_epoch_throttle_or_evidence(tmp_path):
+    with tabs(tmp_path, {"safety": {**LIVE["safety"], "mode": "test"}, "rate_hz": 1}, n=1) as ((ws,), mock, _, _p):
+        assert ask(ws, {"a": "select_fixtures", "ids": [12]})["ok"] is True
+        ws.send_json({"a": "dim", "v": 40})
+        # Blackout in test mode must be refused WITHOUT clearing queued dim or advancing blackout_epoch
+        r = ask(ws, {"a": "blackout"})
+        assert r["ok"] is False and r["code"] == "safety_denied"
+        time.sleep(1.3)
+        assert ("Fixture 12", "At 40") in list(zip(mock.received[2:], mock.received[3:]))
+        # Subsequent light action without blackout_epoch must NOT be rejected as stale epoch
+        ws.send_json({"a": "dim", "v": 55})
+        until(ws, lambda m: m.get("shown", {}).get("12", {}).get("dim") == 55)

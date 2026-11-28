@@ -17,8 +17,23 @@ MUTATING = re.compile(r'(?:Fixture \d+(?: \+ \d+)*|Group \d+|ClearAll|Fixture Th
 
 
 # Exact read-only Lua protocol templates; arbitrary Lua remains rejected.
-SCENE_PROBE = re.compile('Lua\\ "local\\ c=gma\\.show\\.getobj\\.handle\\(\'Executor\\ \\d+\\.\\d+\\ Cue\\ 1\'\\);\\ local\\ p=c\\ and\\ gma\\.show\\.getobj\\.parent\\(c\\);\\ local\\ n=p\\ and\\ gma\\.show\\.getobj\\.amount\\(p\\);\\ local\\ q=c\\ and\\ gma\\.show\\.getobj\\.child\\(c,0\\);\\ local\\ cmd;\\ if\\ q\\ then\\ for\\ i=0,gma\\.show\\.property\\.amount\\(q\\)\\-1\\ do\\ if\\ gma\\.show\\.property\\.name\\(q,i\\)==\'CMD\'\\ then\\ cmd=gma\\.show\\.property\\.get\\(q,i\\)\\ end\\ end\\ end;\\ local\\ ok=n\\ and\\ n>=1\\ and\\ n<=2\\ and\\ gma\\.show\\.property\\.get\\(c,\'trig\'\\)==\'Go\'\\ and\\ gma\\.show\\.getobj\\.amount\\(c\\)==1\\ and\\ cmd==\'\';\\ local\\ seen=0;\\ if\\ ok\\ then\\ for\\ i=0,n\\-1\\ do\\ local\\ h=gma\\.show\\.getobj\\.child\\(p,i\\);\\ local\\ k=h\\ and\\ tonumber\\(gma\\.show\\.getobj\\.number\\(h\\)\\);\\ if\\ not\\ h\\ then\\ if\\ i\\~=0\\ then\\ ok=false\\ end\\ elseif\\ h==c\\ and\\ k==1\\ then\\ seen=seen\\+1\\ elseif\\ k\\~=0\\ then\\ ok=false\\ end\\ end\\ end;\\ ok=ok\\ and\\ seen==1;\\ gma\\.show\\.setvar\\(\'PANELSCENE\',\'[0-9a-f]{16}\\ \'\\.\\.\\(ok\\ and\\ \'manual\'\\ or\\ \'unknown\'\\)\\)"')
-GRAND_PROBE = re.compile('Lua\\ "local\\ h=gma\\.show\\.getobj\\.handle\\(\'SpecialMaster\\ 2\\.1\'\\);\\ local\\ v=h\\ and\\ gma\\.show\\.property\\.get\\(h,\'value\'\\);\\ gma\\.show\\.setvar\\(\'PANELGM\',\'[0-9a-f]{16}\\ \'\\.\\.tostring\\(v\\)\\)"')
+SCENE_PROBE = re.compile(
+    r'Lua "local o,r=gma\.show\.getobj,gma\.show\.property; '
+    r"local c=o\.handle\('Executor \d+\.\d+ Cue 1'\); "
+    r'local p=c and o\.parent\(c\); local n=p and o\.amount\(p\); '
+    r'local q=c and o\.child\(c,0\); local m; '
+    r"if q then for i=0,r\.amount\(q\)-1 do if r\.name\(q,i\)=='CMD' then m=r\.get\(q,i\) end end end; "
+    r"local k=n and \(n==1 or n==2\) and r\.get\(c,'trig'\)=='Go' and o\.amount\(c\)==1 and m==''; "
+    r'local h,j=k and o\.child\(p,0\),k and o\.child\(p,1\); '
+    r'local a,b=h and tonumber\(o\.number\(h\)\),j and tonumber\(o\.number\(j\)\); '
+    r'k=k and \(n==1 and h==c and a==1 or n==2 and \(h==c and a==1 and j and b==0 or \(not h or a==0\) and j==c and b==1\)\); '
+    r"gma\.cmd\(\('SetVar %sPANELSCENE = %q'\):format\(string\.char\(36\),'[0-9a-f]{16} '\.\.\(k and 'manual' or 'unknown'\)\)\)\""
+)
+GRAND_PROBE = re.compile(
+    r'Lua "local h=gma\.show\.getobj\.handle\(\'SpecialMaster 2\.1\'\); '
+    r"local v=h and gma\.show\.property\.get\(h,'value'\); "
+    r"gma\.cmd\(\('SetVar %sPANELGM = %q'\):format\(string\.char\(36\),'[0-9a-f]{16} '\.\.tostring\(v\)\)\)\""
+)
 SCENE_WRITE = re.compile(r'(?:(?:Store Executor \d+\.\d+ Cue 1 /Source=Output /Use=Allforselected)|(?:Assign Cue 1 Executor \d+\.\d+ /Trig=Go)|(?:Masterfade (?:\d+(?:\.\d+)?) Executor \d+\.\d+))\Z')
 
 

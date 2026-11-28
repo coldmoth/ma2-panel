@@ -14,10 +14,18 @@ def test_parse_sample():
     assert found[3]["address"] is None
 
 
-@pytest.mark.parametrize("text", ["<x", "<MA/>"])
+@pytest.mark.parametrize("text", ["<x", "<Other/>"])
 def test_parse_bad(text):
     with pytest.raises(ValueError):
         parse_export(text)
+
+
+@pytest.mark.parametrize("text", [
+    "<MA/>",
+    '<MA xmlns="http://schemas.malighting.de/grandma2/xml/MA"><Info showfile="Empty"/></MA>',
+])
+def test_parse_empty_show_ma_xml(text):
+    assert parse_export(text) == []
 
 
 def test_merge_keeps_manual():

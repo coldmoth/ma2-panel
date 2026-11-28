@@ -103,8 +103,14 @@ def validate_auto_plan(data, prepared):
         require(string_fields(scene, ("label",)), "scenes.label")
     for preset in rows("presets", "id", named):
         require(isinstance(preset.get("pos"), dict), "presets.pos")
-    for key in ("plan", "pages", "dmx_map", "dmx_map_saved", "ma2presets", "attrs"):
+    for key in ("plan", "dmx_map", "dmx_map_saved", "ma2presets", "attrs"):
         require(isinstance(data.get(key, {}), dict), key)
+    pages = data.get("pages", [])
+    require(
+        (isinstance(pages, list) and all(isinstance(p, dict) and positive(p.get("n")) and string_fields(p, ("label",)) for p in pages))
+        or isinstance(pages, dict),
+        "pages",
+    )
     for key in ("dmx_map", "attrs"):
         require(all(isinstance(v, dict) for v in data.get(key, {}).values()), key)
     require(isinstance(data.get("ma2groups", []), list)

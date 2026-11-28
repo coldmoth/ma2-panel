@@ -94,8 +94,8 @@ def migrate_config(config_path, settings_path, *, archive_path=None):
     if 'master' in migrated_settings:
         master = migrated_settings['master']
         if (not isinstance(master, dict) or not isinstance(master.get('cmd'), str)
-                or not re.fullmatch(r'Master \d+\.\d+ At \{v\}', master['cmd'])):
-            raise ValueError('master.cmd: требуется Master N.N At {v}')
+                or not re.fullmatch(r'(?:Special)?Master \d+\.\d+ At \{v\}', master['cmd'])):
+            raise ValueError('master.cmd: требуется SpecialMaster N.N At {v} или Master N.N At {v}')
     migrated_cfg = {key: value for key, value in cfg.items() if key not in SITE_KEYS}
     migrated_cfg['version'] = 5
 

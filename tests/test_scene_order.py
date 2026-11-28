@@ -30,8 +30,10 @@ def test_merge_keeps_identity_and_order_and_updates_names():
 def test_slot_candidates_respect_scope_and_existing_plan():
     slot_candidates = rules().slot_candidates
     full = slot_candidates('full', set(), {'1.1'})
-    assert len(full) == 249 and full[0] == '1.2' and full[-1] == '1.250'
+    assert len(full) == 199 and full[0] == '1.2' and full[-1] == '1.220'
+    for nonexistent in ('1.91', '1.100', '1.191', '1.200', '1.221', '1.250'):
+        assert nonexistent not in full
     assert slot_candidates('store', {'2.110','1.102','1.101'}, {'1.102'}) == ['1.101','2.110']
     assert slot_candidates('store', {'2.110','1.102','1.101'}, {'1.102'}, page=2) == ['2.110']
     full_p2 = slot_candidates('full', set(), {'2.1'}, page=2)
-    assert len(full_p2) == 249 and full_p2[0] == '2.2' and full_p2[-1] == '2.250'
+    assert len(full_p2) == 199 and full_p2[0] == '2.2' and full_p2[-1] == '2.220'

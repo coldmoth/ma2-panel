@@ -267,7 +267,7 @@ def test_client_swap_cannot_release_unowned_catalogue_entries(context):
             if line.startswith('List Executor '): return True, 'Executor '+line.split()[-1]+' Priority=Normal SoftLTP=on Chaser=off'
             if 'PANELSCENE' in line:
                 import re
-                probe = re.search(r"PANELSCENE','([a-f0-9]{16})", line)[1] + ' manual'
+                probe = re.search(r"PANELSCENE = %q'\):format\(string\.char\(36\),'([a-f0-9]{16})", line)[1] + ' manual'
             return True, 'Global : $SHOWFILE = Mock show\nGlobal : $PANELSCENE = ' + probe if line == 'ListVar' else ''
         c.link.send = send
         ws = object()

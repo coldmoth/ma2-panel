@@ -160,7 +160,7 @@ def test_unknown_grand_read_is_refused_without_a_master_write(bridge_cfg, monkey
     original = MockMA2._reply
     def reply(self, line):
         result = original(self, line)
-        if "setvar('PANELGM'" in line: self.vars['PANELGM'] = 'obsolete 100'
+        if 'PANELGM' in line: self.vars['PANELGM'] = 'obsolete 100'
         return result
     monkeypatch.setattr(MockMA2, '_reply', reply)
     with bridge_cfg() as (ws, mock, path):
@@ -174,8 +174,8 @@ def test_bare_numeric_grand_value_has_no_proven_units(bridge_cfg, monkeypatch):
     original = MockMA2._reply
     def reply(self, line):
         result = original(self, line)
-        if "setvar('PANELGM'" in line:
-            self.vars['PANELGM'] = self.vars['PANELGM'].split()[0] + ' 37.5'
+        if 'PANELGM' in line:
+            self.vars['PANELGM'] = self.vars['PANELGM'].strip('"').split()[0] + ' 37.5'
         return result
     monkeypatch.setattr(MockMA2, '_reply', reply)
     with bridge_cfg() as (ws, mock, path):
@@ -211,9 +211,9 @@ def test_restore_preserves_original_level_across_precision_and_zero(bridge_cfg, 
         original = mock._reply
         def reply(line):
             result = original(line)
-            if "setvar('PANELGM'" in line:
-                nonce = mock.vars['PANELGM'].split()[0]
-                mock.vars['PANELGM'] = nonce + ' ' + str(mock.grand_master) + '%'
+            if 'PANELGM' in line:
+                nonce = mock.vars['PANELGM'].strip('"').split()[0]
+                mock.vars['PANELGM'] = f'"{nonce} {mock.grand_master}%"'
             return result
         mock._reply = reply
         assert ask(ws, {'a':'blackout'})['ok']
@@ -269,7 +269,7 @@ def test_unknown_save_result_is_not_replayed():
         if line.startswith('List Executor '): return 'Executor '+line.split()[-1]+' Priority=Normal SoftLTP=on Chaser=off'
         if 'PANELSCENE' in line:
             import re
-            send.probe = re.search(r"PANELSCENE','([a-f0-9]{16})", line)[1] + ' manual'
+            send.probe = re.search(r"PANELSCENE = %q'\):format\(string\.char\(36\),'([a-f0-9]{16})", line)[1] + ' manual'
         if line == 'ListVar': return '$PANELSCENE = ' + send.probe
         return 'OK'
     with pytest.raises(ActionError, match='неизвестен'):
@@ -298,7 +298,7 @@ def test_loss_of_context_stops_native_transition_without_late_commands(tmp_path,
         if line.startswith('List Executor '): return True, 'Executor '+line.split()[-1]+' Priority=Normal SoftLTP=on Chaser=off'
         if 'PANELSCENE' in line:
             import re
-            c.state['probe'] = re.search(r"PANELSCENE','([a-f0-9]{16})", line)[1] + ' manual'
+            c.state['probe'] = re.search(r"PANELSCENE = %q'\):format\(string\.char\(36\),'([a-f0-9]{16})", line)[1] + ' manual'
         if line.startswith('Goto '):
             if change == 'gen': c.link._gen += 1
             elif change == 'stop': c.link.halted = True; c.link.halted = False

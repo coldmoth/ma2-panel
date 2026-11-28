@@ -358,14 +358,14 @@ class MockMA2:
             return f"Executing : {text}\r\n[Channel]>"
         if 'PANELSCENE' in text:
             ex = re.search(r"handle\('Executor (\d+\.\d+) Cue 1'\)", text)
-            nonce = re.search(r"setvar\('PANELSCENE','([0-9a-f]{16}) '", text)
+            nonce = re.search(r"(?:setvar\('PANELSCENE','|SetVar %sPANELSCENE = %q'\):format\(string\.char\(36\),')([0-9a-f]{16}) ", text)
             if ex and nonce:
                 cues = self.cues.get(ex[1], {})
                 manual = (set(cues) == {1} and self.cue_triggers.get(ex[1], 'Go') == 'Go'
                           and not self.cue_commands.get(ex[1], ''))
-                self.vars['PANELSCENE'] = nonce[1] + (' manual' if manual else ' unknown')
-        if m := re.search(r"gma.show.setvar\('PANELGM','([0-9a-f]{16}) '", text):
-            self.vars['PANELGM'] = f'{m[1]} {self.grand_master:g}%'
+                self.vars['PANELSCENE'] = f'"{nonce[1]} ' + ('manual"' if manual else 'unknown"')
+        if m := re.search(r"(?:gma\.show\.setvar\('PANELGM','|SetVar %sPANELGM = %q'\):format\(string\.char\(36\),')([0-9a-f]{16}) ", text):
+            self.vars['PANELGM'] = f'"{m[1]} {self.grand_master:g}%"'
         if m := re.fullmatch(r'SpecialMaster 2\.1 At (\d+(?:\.\d+)?)', text):
             self.grand_master = float(m[1])
         if m := re.fullmatch(r'Masterfade (\d+(?:\.\d+)?) Executor (\d+\.\d+)', text):

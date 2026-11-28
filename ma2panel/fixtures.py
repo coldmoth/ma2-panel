@@ -67,11 +67,15 @@ def parse_export(xml_text: str, skipped: list | None = None) -> list[dict]:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
         raise ValueError(f"битый XML: {e}") from e
+    if local(root.tag) != "MA":
+        raise ValueError(f"некорректный XML-экспорт MA2 ({describe(root)})")
     found = []
     seen = set()
+    had_fixture_elem = False
     for elem in root.iter():
         if local(elem.tag) != "Fixture":  # SubFixture, FixtureType and the like are not fixtures
             continue
+        had_fixture_elem = True
         # The id the operator sees (FixId). A bare "index" is the 0-based pool position: using it would shift every id.
         raw_id = next((elem.get(key) for key in ("fixture_id", "id") if elem.get(key, "").isdigit()), None)
         if raw_id is None:
@@ -115,6 +119,8 @@ def parse_export(xml_text: str, skipped: list | None = None) -> list[dict]:
             entry["channels"] = channels  # the 3.9 export lists channels by index only, without attribute names
         found.append(entry)
     if not found:
+        if not had_fixture_elem:
+            return []
         raise ValueError(f"в XML не найдено приборов с fixture_id ({describe(root)})")
     return found
 

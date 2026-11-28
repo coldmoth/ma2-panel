@@ -243,7 +243,7 @@ def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=(), 
             return "копирование Cue вне разрешённой области записи"
         if re.match(r'(?:blackout|specialmaster|masterfade)\b', low):
             if re.fullmatch(r'SpecialMaster 2\.1 At (?:100(?:\.0+)?|\d{1,2}(?:\.\d+)?)', line):
-                return None if safety['mode'] == 'full' else 'глобальное затемнение требует full'
+                return None if safety['mode'] == 'full' or safety.get('allow_master') is True else 'общая яркость / затемнение требуют allow_master или режим full'
             if m := re.fullmatch(rf'Masterfade {NUM} Executor (\d+\.\d+)', line):
                 return None if safety['mode'] == 'full' or m[1] in execs else 'Executor не разрешён'
             return 'неразрешённая глобальная команда'
@@ -253,12 +253,8 @@ def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=(), 
                 return None
             return 'запись Cue вне разрешённой области'
         if line.startswith('Lua "local h=gma.show.getobj.handle(\'SpecialMaster 2.1\')'):
-            expected = ('Lua "local h=gma.show.getobj.handle(\'SpecialMaster 2.1\'); '
-                        'local v=h and gma.show.property.get(h,\'value\'); '
-                        "gma.show.setvar('PANELGM','")
-            suffix = " '..tostring(v))\""
-            nonce = line[len(expected):-len(suffix)]
-            return None if safety['mode'] == 'full' and line == expected + nonce + suffix and re.fullmatch('[0-9a-f]{16}', nonce) else 'недопустимое чтение Grand Master'
+            from .scene_runtime import is_grand_probe_command
+            return None if safety['mode'] == 'full' and is_grand_probe_command(line) else 'недопустимое чтение Grand Master'
         if re.match(r"store\s+group\b", low):
             valid = re.fullmatch(r'Store Group [1-9]\d* "[^";\x00-\x1f\x7f-\x9f]+"', line)
             return None if safety.get("allow_group_store") is True and valid else "запись группы заблокирована: allow_group_store и безопасная команда Store Group"

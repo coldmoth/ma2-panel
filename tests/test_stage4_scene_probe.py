@@ -10,6 +10,11 @@ from ma2panel.scene_runtime import confirm_manual_scene
 EXECUTOR = 'Exec 1.101  No.=1.101 Name=Sequ Sequence=Seq 1(2) Width=1 SoftLTP=on Chaser=off Priority=Normal OffTime=Default\n[LayoutSelection]>'
 
 
+def _extract_nonce(line, var):
+    m = re.search(rf"SetVar %s{var} = %q'\):format\(string\.char\(36\),'([0-9a-f]{{16}}) ", line)
+    return m[1]
+
+
 def confirm(reply):
     calls = []
     nonce = [None]
@@ -17,8 +22,8 @@ def confirm(reply):
         calls.append(line)
         if line == 'List Executor 1.101': return reply
         if line.startswith('Lua '):
-            nonce[0] = re.search(r"setvar\('PANELSCENE','([0-9a-f]{16}) '",line)[1]
-        if line == 'ListVar': return f'Global : $PANELSCENE = {nonce[0]} manual\n[LayoutSelection]>'
+            nonce[0] = _extract_nonce(line, 'PANELSCENE')
+        if line == 'ListVar': return f'Global : $PANELSCENE = "{nonce[0]} manual"\n[LayoutSelection]>'
         return 'OK\n[LayoutSelection]>'
     asyncio.run(confirm_manual_scene(send,'1.101'))
     return calls
@@ -65,11 +70,11 @@ def test_delayed_lua_result_uses_only_fresh_nonce_without_replaying_lua(result):
     async def send(line):
         calls.append(line)
         if line=='List Executor 1.101':return EXECUTOR
-        if line.startswith('Lua '):nonce[0]=re.search(r"PANELSCENE','([0-9a-f]{16})",line)[1]
+        if line.startswith('Lua '):nonce[0]=_extract_nonce(line, 'PANELSCENE')
         if line=='ListVar':
             reads[0]+=1
-            return ('$PANELSCENE = 0000000000000000 manual' if reads[0]==1
-                    else f'$PANELSCENE = {nonce[0]} {result}')
+            return ('$PANELSCENE = "0000000000000000 manual"' if reads[0]==1
+                    else f'$PANELSCENE = "{nonce[0]} {result}"')
         return 'OK'
     if result=='manual':asyncio.run(confirm_manual_scene(send,'1.101'))
     else:
@@ -79,20 +84,41 @@ def test_delayed_lua_result_uses_only_fresh_nonce_without_replaying_lua(result):
 
 
 def test_grand_read_waits_for_fresh_snapshot_without_writing_a_master(tmp_path):
-    from ma2panel.scene_runtime import GrandMasterBlackout
+    from ma2panel.scene_runtime import GrandMasterBlackout, grand_probe_command
+    assert len(grand_probe_command('0' * 16)) <= 255
     calls=[];nonce=[None];reads=[0]
     async def send(line):
         calls.append(line)
-        if line.startswith('Lua '):nonce[0]=re.search(r"PANELGM','([0-9a-f]{16})",line)[1]
+        if line.startswith('Lua '):nonce[0]=_extract_nonce(line, 'PANELGM')
         if line=='ListVar':
             reads[0]+=1
-            return ('$PANELGM = 0000000000000000 100%' if reads[0]==1
-                    else f'$PANELGM = {nonce[0]} 37.5%')
+            return ('$PANELGM = "0000000000000000 100%"' if reads[0]==1
+                    else f'$PANELGM = "{nonce[0]} 37.5%"')
         return 'OK'
     grand=GrandMasterBlackout(tmp_path/'blackout.json',lambda *args:None)
     assert asyncio.run(grand.read(send))==37.5
     assert reads[0]==2 and sum(line.startswith('Lua ') for line in calls)==1
     assert not any(line.startswith('SpecialMaster ') for line in calls)
+
+
+def test_confirm_manual_scene_supports_prompt_prefix_and_tabular_list_executor():
+    prefixed = '[Fixture]>' + EXECUTOR
+    assert 'List Executor 1.101' in confirm(prefixed)
+
+    tabular_ok = (
+        '           No.    Name  Sequence  Width  SoftLTP  Chaser  Priority  OffTime\n'
+        'Exec 1.101 1.101  Sequ  Seq 1(2)  1      on       off     Normal    Default\n'
+        '[Fixture]>'
+    )
+    assert 'List Executor 1.101' in confirm(tabular_ok)
+
+    for bad in (
+        tabular_ok.replace('Normal', 'HTP   '),
+        tabular_ok.replace('on     ', 'off    '),
+        tabular_ok.replace('off     ', 'on      '),
+    ):
+        with pytest.raises(ActionError):
+            confirm(bad)
 
 
 def test_grand_waits_for_applied_level_without_repeating_master_write(tmp_path):
