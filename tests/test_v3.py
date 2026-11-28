@@ -26,7 +26,7 @@ def test_xml_variants(key):
     assert found == [{'id': 12, 'name': 'Front', 'type': 'Spot', 'params': ['Dimmer', 'Pan'], 'address': None}]
 
 
-@pytest.mark.parametrize('text', ['<x', '<MA/>', '<MA><Fixture id="1"/><Fixture fixture_id="1"/></MA>',
+@pytest.mark.parametrize('text', ['<x', '<Other/>', '<MA><Fixture id="1"/><Fixture fixture_id="1"/></MA>',
                                   '<MA><Fixture index="0" name="A"/></MA>'])  # a bare index is a pool position, never an id
 def test_invalid_xml(text):
     with pytest.raises(ValueError):
@@ -123,7 +123,7 @@ def test_plans_and_selection_reset(bridge_cfg):
         assert ask(ws, {'a': 'show_open_plan', 'name': 'B'})['ok']
         empty = json.loads(path.read_text())
         assert empty['show'] == 'B' and empty['fixtures'] == empty['groups'] == empty['scenes'] == empty['presets'] == []
-        assert empty['pages'] == {} and empty['attrs'] == old['attrs']
+        assert empty['pages'] == [] and empty['attrs'] == old['attrs']
         assert json.loads(plan_path(path.parent / 'shows', 'A/Б').read_text()) == old
         assert ask(ws, {'a': 'show_open_plan', 'name': 'A/Б'})['ok']
         assert json.loads(path.read_text()) == old

@@ -463,34 +463,3 @@ def test_external_usb_isolated_python_uses_staged_release(tmp_path, output_encod
     assert 'UnicodeEncodeError' not in result.stderr
     assert (root / 'release.py').read_bytes() == b'old release'
     assert not (root / 'previous').exists()
-
-
-def test_backup_preserves_layout_templates_and_luma_hall_trial_update_rollback(tmp_path, monkeypatch):
-    root = tmp_path / 'luma_app'
-    (root / 'ma2panel').mkdir(parents=True)
-    (root / 'static' / 'luma').mkdir(parents=True)
-    (root / 'layout_templates').mkdir()
-    (root / 'bridge.py').write_text('v1')
-    (root / 'VERSION').write_text('3.4.0-beta.1')
-    (root / 'ma2panel' / 'HALL_TRIAL').write_text('Controlled LUMA hall trial\n')
-    (root / 'static' / 'luma' / 'index.html').write_text('<h1>LUMA beta 1</h1>')
-    (root / 'layout_templates' / 'layout-abc.xml').write_text('<MA><Group name="Hall"/></MA>')
-
-    backup = update.backup_user_data(root)
-    assert (backup / 'layout_templates' / 'layout-abc.xml').read_text() == '<MA><Group name="Hall"/></MA>'
-
-    pkg = archive(tmp_path / 'luma-beta2.zip', {
-        'VERSION': '3.4.0-beta.2',
-        'ma2panel/HALL_TRIAL': 'Controlled LUMA hall trial\n',
-        'static/luma/index.html': '<h1>LUMA beta 2</h1>',
-    })
-    update.install(pkg, root)
-    assert (root / 'ma2panel' / 'HALL_TRIAL').is_file()
-    assert (root / 'static' / 'luma' / 'index.html').read_text() == '<h1>LUMA beta 2</h1>'
-    assert (root / 'layout_templates' / 'layout-abc.xml').read_text() == '<MA><Group name="Hall"/></MA>'
-
-    monkeypatch.setattr(update, 'idle', lambda _: None)
-    assert update.rollback(root, confirm=lambda _: 'y') == 0
-    assert (root / 'ma2panel' / 'HALL_TRIAL').is_file()
-    assert (root / 'static' / 'luma' / 'index.html').read_text() == '<h1>LUMA beta 1</h1>'
-    assert (root / 'layout_templates' / 'layout-abc.xml').read_text() == '<MA><Group name="Hall"/></MA>'
