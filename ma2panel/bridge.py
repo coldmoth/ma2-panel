@@ -1671,7 +1671,8 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
         patched = [f for f in fixtures if absolute(f.get("address"))]
         kinds = {f.get("type") or "" for f in patched}
         valid = {k for k in kinds if maps.get(k) and not maps[k].get("stale")
-                 and not maps[k].get("unsupported") and (all(maps[k].get(c) for c in "rgb")
+                 and not maps[k].get("unsupported") and not maps[k].get("color_unsupported")
+                 and (all(maps[k].get(c) for c in "rgb")
                  or maps[k].get("dim") and not any(maps[k].get(c) for c in "rgb"))}
         live = live_from_dmx(fixtures, fresh, maps) if link.ready and not state["loading"] else {}
         read = state.get("dmx_read") or {}
@@ -3959,9 +3960,9 @@ def create_app(cfg: dict, mock: bool, config_path: str, settings: dict | None = 
     files = exports.bind(link, ma2, export_dir, export_extra, state, config_path, safe_data)
     export_folders, listing, save_diag_json, export_type, export_once, run_export_probe = (
         files.export_folders, files.listing, files.save_diag_json, files.export_type, files.export_once, files.run_export_probe)
-    layout_xml_files, read_layout_xml_file, write_layout_xml_file, sanitize_layout_stem, check_layout_slot_empty, import_layout_to_ma2 = (
-        files.layout_xml_files, files.read_layout_xml_file, files.write_layout_xml_file, files.sanitize_layout_stem,
-        files.check_layout_slot_empty, files.import_layout_to_ma2)
+    layout_write_dir, layout_xml_files, read_layout_xml_file, write_layout_xml_file, sanitize_layout_stem, check_layout_slot_empty, import_layout_to_ma2 = (
+        files.layout_write_dir, files.layout_xml_files, files.read_layout_xml_file, files.write_layout_xml_file,
+        files.sanitize_layout_stem, files.check_layout_slot_empty, files.import_layout_to_ma2)
 
     def layout_templates_dir():
         folder = Path(config_path).parent / "layout_templates"

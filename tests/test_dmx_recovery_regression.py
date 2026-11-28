@@ -58,6 +58,48 @@ def test_unmapped_colour_is_not_measured_white(attribute):
                          {1: 255, 2: 0}, {'Other': spec}) == {}
 
 
+def test_rgbw_and_ct_and_colorwheel_profiles_retain_capabilities():
+    rgbw = parse_fixture_type(
+        '<FixtureType><Module>'
+        '<ChannelType attribute="DIM" coarse="1"/>'
+        '<ChannelType attribute="COLORRGB1" coarse="2"/>'
+        '<ChannelType attribute="COLORRGB2" coarse="3"/>'
+        '<ChannelType attribute="COLORRGB3" coarse="4"/>'
+        '<ChannelType attribute="COLORRGB4" coarse="5"/>'
+        '<ChannelType attribute="COLOR_TEMP" coarse="6"/>'
+        '<ChannelType attribute="PAN" coarse="7"/>'
+        '<ChannelType attribute="TILT" coarse="8"/>'
+        '<ChannelType attribute="ZOOM" coarse="9"/>'
+        '<ChannelType attribute="SHUTTER" coarse="10">'
+        '  <ChannelFunction name="Open" from_dmx="0" to_dmx="10"/>'
+        '  <ChannelFunction name="Strobe" from_dmx="11" to_dmx="200"/>'
+        '</ChannelType>'
+        '</Module></FixtureType>'
+    )
+    assert not rgbw.get('unsupported')
+    assert not rgbw.get('color_unsupported')
+    assert rgbw['dim'] == 1 and rgbw['r'] == 2 and rgbw['g'] == 3 and rgbw['b'] == 4
+    assert {'pos', 'zoom', 'strobe'} <= set(rgbw['has'])
+    assert live_from_dmx([{'id': 1, 'type': 'RGBW', 'address': '1.001'}],
+                         {1: 255, 2: 255, 3: 0, 4: 0, 10: 5}, {'RGBW': rgbw}) == {1: {'dim': 100.0, 'rgb': [100.0, 0.0, 0.0]}}
+
+    wheel_head = parse_fixture_type(
+        '<FixtureType><Module>'
+        '<ChannelType attribute="DIM" coarse="1"/>'
+        '<ChannelType attribute="COLOR1" coarse="2"/>'
+        '<ChannelType attribute="PAN" coarse="3"/>'
+        '<ChannelType attribute="TILT" coarse="4"/>'
+        '<ChannelType attribute="FOCUS" coarse="5"/>'
+        '</Module></FixtureType>'
+    )
+    assert not wheel_head.get('unsupported')
+    assert wheel_head.get('color_unsupported') is True
+    assert wheel_head['dim'] == 1 and {'pos', 'focus'} <= set(wheel_head['has'])
+    # Dimmer + color wheel without RGB must still not invent white in DMX live readback
+    assert live_from_dmx([{'id': 1, 'type': 'Spot', 'address': '1.001'}],
+                         {1: 255, 2: 50}, {'Spot': wheel_head}) == {}
+
+
 def test_partial_manual_rgb_map_does_not_invent_white():
     assert live_from_dmx([{'id': 1, 'type': 'Other', 'address': '1.001'}],
                          {1: 255, 2: 255}, {'Other': {'dim': 1, 'r': 2}}) == {}

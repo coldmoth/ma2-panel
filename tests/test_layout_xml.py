@@ -1,4 +1,5 @@
 """Unit & round-trip tests for bidirectional grandMA2 Layout XML (MA2 <-> LUMA)."""
+from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -325,4 +326,107 @@ def test_http_layout_xml_round_trip_and_safety_gate(tmp_path):
         assert not (export_dir / "Should_Not_Write.xml").exists()
         ok_imp = client3.post("/api/layout/ma2/export", json={"mode": "import_to_ma2", "slot": 99, "confirm_import": True, "filename": "Hall_Patched"}).json()
         assert ok_imp["ok"] and ok_imp["slot"] == 99 and ok_imp["cmd"] == 'Import "Hall_Patched" At Layout 99'
+        assert "SelectDrive 1" in app3.state.mock.received
+        assert app3.state.mock.received.index("SelectDrive 1") < app3.state.mock.received.index('Import "Hall_Patched" At Layout 99')
+
+
+def test_patch_layout_xml_handles_namespace_prefixed_tags():
+    xml_ns = """<?xml version="1.0" encoding="utf-8"?>
+    <ma:MA xmlns:ma="http://schemas.malighting.de/grandma2/xml/MA">
+      <ma:Group index="0" name="Prefixed">
+        <ma:LayoutData index="0">
+          <ma:SubFixtures>
+            <ma:LayoutSubFix center_x="0.000" center_y="0.000">
+              <ma:Subfixture fix_id="1" />
+            </ma:LayoutSubFix>
+            <ma:LayoutSubFix center_x="10.000" center_y="10.000">
+              <ma:Subfixture fix_id="2" />
+            </ma:LayoutSubFix>
+          </ma:SubFixtures>
+        </ma:LayoutData>
+      </ma:Group>
+    </ma:MA>"""
+    fixtures = [{"id": 1, "label": "F1"}, {"id": 2, "label": "F2"}]
+    preview = preview_layout_import(xml_ns, fixtures)
+    for f in fixtures:
+        m = next(x for x in preview["matched"] if x["id"] == f["id"])
+        f["x"], f["y"] = m["new_x"], m["new_y"]
+    fixtures[0]["x"], fixtures[0]["y"] = 0.5, 0.5
+
+    patched, summary = patch_layout_xml(xml_ns, fixtures, {
+        "bounds": preview["bounds"],
+        "imported_positions": preview["imported_positions"],
+    })
+    assert summary["updated_ids"] == [1]
+    assert summary["unchanged_ids"] == [2]
+    reparsed = parse_layout_xml(patched)
+    coords = {i["fixture_id"]: (i["ma2_x"], i["ma2_y"]) for i in reparsed["items"]}
+    assert coords[1] == (5.0, 5.0)
+    assert coords[2] == (10.0, 10.0)
+
+
+def test_layout_write_dir_prefers_ma2_path_and_search_when_export_dir_unset(tmp_path):
+    from types import SimpleNamespace
+    from ma2panel import exports
+
+    app_dir = tmp_path / "luma_app"
+    app_dir.mkdir()
+    local_fallback = app_dir / "importexport"
+    ma_old = tmp_path / "ProgramData" / "grandma" / "gma2_V_3.9.51" / "importexport"
+    ma_new = tmp_path / "ProgramData" / "grandma" / "gma2_V_3.9.60" / "importexport"
+    ma_active = tmp_path / "ProgramData" / "grandma" / "gma2_V_3.9.60.68" / "importexport"
+    for d in (ma_old, ma_new, ma_active):
+        d.mkdir(parents=True)
+
+    link = SimpleNamespace(vars={})
+    ma2 = {"export_search": [str(tmp_path / "ProgramData" / "grandma" / "*" / "importexport")], "export_wait": 0.1}
+    files = exports.bind(link, ma2, str(local_fallback), set(), {"type_reads": {}, "plan_epoch": 0}, str(app_dir / "config.json"), lambda x: x)
+
+    # Without $PATH, picks newest version from export_search instead of local fallback
+    written = files.write_layout_xml_file("<MA/>", "from_search")
+    assert Path(written["path"]).parent == ma_active.resolve()
+
+    # With active $PATH pointing to 3.9.60, prioritizes $PATH/importexport
+    link.vars["PATH"] = str(ma_new.parent)
+    written2 = files.write_layout_xml_file("<MA/>", "from_path")
+    assert Path(written2["path"]).parent == ma_new.resolve()
+
+    # When ma2.export_dir is explicitly configured, always honors it
+    explicit = tmp_path / "explicit_ie"
+    explicit.mkdir()
+    ma2_explicit = {**ma2, "export_dir": str(explicit)}
+    files_exp = exports.bind(link, ma2_explicit, str(explicit), set(), {"type_reads": {}, "plan_epoch": 0}, str(app_dir / "config.json"), lambda x: x)
+    written3 = files_exp.write_layout_xml_file("<MA/>", "from_explicit")
+    assert Path(written3["path"]).parent == explicit.resolve()
+
+
+def test_export_type_finds_xml_in_ma2_library_folder(tmp_path):
+    import asyncio
+    import re
+    from types import SimpleNamespace
+    from ma2panel import exports
+
+    app_dir = tmp_path / "luma_app"
+    app_dir.mkdir()
+    install = tmp_path / "ProgramData" / "grandma" / "gma2_V_3.9.60"
+    lib_dir = install / "library"
+    ie_dir = install / "importexport"
+    lib_dir.mkdir(parents=True)
+    ie_dir.mkdir(parents=True)
+
+    xml = '<FixtureType><Module><ChannelType attribute="DIM" coarse="1"/><ChannelType attribute="COLORRGB1" coarse="2"/><ChannelType attribute="COLORRGB2" coarse="3"/><ChannelType attribute="COLORRGB3" coarse="4"/></Module></FixtureType>'
+
+    async def send(cmd, gen=None):
+        name = re.search(r'"([^"]+)"', cmd)[1]
+        (lib_dir / f"{name}.xml").write_text(xml, encoding="utf-8")
+        return True, "Executing"
+
+    link = SimpleNamespace(vars={"PATH": str(install)}, _gen=1, send=send)
+    ma2 = {"export_search": [str(install.parent / "*" / "importexport")], "export_wait": 1.0}
+    files = exports.bind(link, ma2, str(app_dir / "importexport"), set(), {"type_reads": {}, "plan_epoch": 0}, str(app_dir / "config.json"), lambda x: x)
+
+    spec = asyncio.run(files.export_type(3))
+    assert spec["dim"] == 1 and spec["r"] == 2 and spec["g"] == 3 and spec["b"] == 4
+    assert not list(lib_dir.glob("*.xml"))  # cleaned up after read
+
 

@@ -101,7 +101,7 @@ def register(app, c, is_loopback):
         has_template = c.load_layout_template(current) is not None
         return {
             "ok": True,
-            "export_dir": str(export_dir),
+            "export_dir": str(c.layout_write_dir()),
             "files": c.layout_xml_files(),
             "current": current,
             "has_template": has_template,

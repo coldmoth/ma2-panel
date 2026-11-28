@@ -296,7 +296,13 @@ def make_guard(safety: dict, attr_names=None, export_cmd=None, export_extra=(), 
             valid = re.fullmatch(r'LoadShow "[^"\x00-\x1f\x7f-\x9f]+"(?: /nosave)?', line)
             return None if safety.get("allow_show_load") is True and valid else "загрузка шоу заблокирована: allow_show_load"
         if low.startswith("selectdrive"):
-            return None if line == "SelectDrive 1" and line in export_extra and (safety.get("allow_show_load") is True or safety.get("allow_show_save") is True) else "выбор диска: только подтверждённая операция файла шоу"
+            allowed_drive = (
+                safety.get("allow_show_load") is True
+                or safety.get("allow_show_save") is True
+                or safety.get("allow_layout_import") is True
+                or safety.get("allow_fixture_read") is True
+            )
+            return None if line == "SelectDrive 1" and line in export_extra and allowed_drive else "выбор диска: только подтверждённая операция файла шоу или импорта/экспорта"
         if low.startswith("saveshow"):
             return None if safety.get("allow_show_save") is True and line == "SaveShow" else "сохранение шоу заблокировано: allow_show_save"
         if re.match(r"delete\s+executor\b", low):  # scene_delete with desk: only one executor, only where storing is allowed

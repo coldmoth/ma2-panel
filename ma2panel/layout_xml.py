@@ -307,6 +307,23 @@ def patch_layout_xml(template_xml: str, fixtures: list[dict], layout_meta: dict)
     updated_ids: list[int] = []
     unchanged_ids: list[int] = []
 
+    ns_map: dict[str, str] = {}
+    for m_ns in re.finditer(r'\b(xmlns(?::[A-Za-z_][\w.-]*)?)\s*=\s*(["\'][^"\']*["\'])', template_xml):
+        ns_map.setdefault(m_ns.group(1), m_ns.group(2))
+    ns_attrs = " ".join(f"{k}={v}" for k, v in ns_map.items())
+
+    def _parse_fragment(fragment: str) -> ET.Element | None:
+        try:
+            return ET.fromstring(fragment)
+        except ET.ParseError:
+            if not ns_attrs:
+                return None
+            try:
+                wrapper = ET.fromstring(f"<_luma_wrap {ns_attrs}>{fragment}</_luma_wrap>")
+                return wrapper[0] if len(wrapper) else None
+            except ET.ParseError:
+                return None
+
     def _patch_block(match: re.Match[str]) -> str:
         full = match.group(0)
         is_self_closing = match.group("stag") is not None
@@ -314,9 +331,8 @@ def patch_layout_xml(template_xml: str, fixtures: list[dict], layout_meta: dict)
         body = "" if is_self_closing else match.group("body")
         close_tag = "" if is_self_closing else match.group(5)
 
-        try:
-            elem = ET.fromstring(full)
-        except ET.ParseError:
+        elem = _parse_fragment(full)
+        if elem is None:
             return full
 
         fid, _ = _extract_fixture_id(elem)

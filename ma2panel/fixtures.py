@@ -129,6 +129,8 @@ def parse_fixture_type(xml_text: str) -> dict:
     spec, root = {}, ET.fromstring(xml_text)
     has = set()
     axes = set()
+    extra_color = False
+    has_cmy = False
     instances = [e for e in root.iter() if local(e.tag) == "Instance"]
     if (sum(local(e.tag) == "Module" for e in root.iter()) > 1
             or len(instances) > 1
@@ -155,10 +157,12 @@ def parse_fixture_type(xml_text: str) -> dict:
         if attr.upper() in ("PAN", "TILT"):
             axes.add(attr.upper())
         key = TYPE_ATTRS.get(attr.upper())
-        # A wheel, CMY, white/amber emitter, etc. needs its own colour model.
-        # A dimmer byte alone cannot prove white output for such a profile.
+        # A wheel, CMY, white/amber emitter, or CT channel alone cannot prove white output from DMX dim.
+        # Keep the rest of the profile (dim, footprint, strobe, pos, zoom, focus, and RGB when COLORRGB1..3 exist) usable.
         if attr.upper().startswith("COLOR") and key not in ("r", "g", "b"):
-            spec["unsupported"] = True
+            extra_color = True
+            if attr.upper().startswith("COLORCMY"):
+                has_cmy = True
         if key and key not in spec and (e.get("coarse") or "").isdigit() and 1 <= int(e.get("coarse")) <= 64:
             spec[key] = int(e.get("coarse"))
         elif key:
@@ -190,6 +194,8 @@ def parse_fixture_type(xml_text: str) -> dict:
                 has.add("strobe")
     if axes == {"PAN", "TILT"}:
         has.add("pos")
+    if not spec.get("unsupported") and (has_cmy or (extra_color and not all(k in spec for k in ("r", "g", "b")))):
+        spec["color_unsupported"] = True
     spec["has"] = sorted(has)
     return spec
 

@@ -21,16 +21,51 @@ log = logging.getLogger("bridge")
 
 
 def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
+    def _install_importexport():
+        install = (link.vars.get("PATH") or "").strip()
+        if not install:
+            return None
+        base = Path(install)
+        return base if base.name.lower() == "importexport" else base / "importexport"
+
+    def _search_importexport():
+        found = []
+        for pattern in ma2["export_search"]:
+            for directory in glob.glob(pattern):
+                folder = Path(directory)
+                if folder.is_dir():
+                    found.append(folder)
+        def _sort_key(p):
+            nums = tuple(int(n) for n in re.findall(r"\d+", str(p)))
+            try:
+                mtime = p.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            return (nums, mtime, str(p).lower())
+        found.sort(key=_sort_key, reverse=True)
+        return list(dict.fromkeys(found))
+
+    def _has_explicit_export_dir():
+        explicit = (ma2.get("export_dir") or "").strip()
+        if not explicit:
+            return False
+        default_local = Path(config_path).parent / "importexport"
+        try:
+            return Path(explicit).resolve() != default_local.resolve()
+        except OSError:
+            return Path(explicit) != default_local
+
     def export_folders():
-        """Where an export may land: ma2.export_dir first, then every existing folder matching ma2.export_search."""
+        """Where an export may land: ma2.export_dir first, then active $PATH and every existing folder matching ma2.export_search."""
         # hall 2026-10-18: Export Fixture lands in <install>\fixtures, next to importexport (Layers etc. land in importexport)
         found = [Path(export_dir), Path(export_dir).parent / "fixtures"]
-        for pattern in ma2["export_search"]:
-            for directory in sorted(glob.glob(pattern)):
-                folder = Path(directory)
-                found.append(folder)
-                if folder.name.lower() == "importexport":
-                    found.append(folder.parent / "fixtures")
+        inst_ie = _install_importexport()
+        if inst_ie is not None and inst_ie.is_dir():
+            found.extend([inst_ie, inst_ie.parent / "fixtures"])
+        for folder in _search_importexport():
+            found.append(folder)
+            if folder.name.lower() == "importexport":
+                found.append(folder.parent / "fixtures")
         return list(dict.fromkeys(found))
 
     def listing(folder, newest=30):
@@ -61,8 +96,14 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
         without naming it, so the file is looked for by name in the console's folders and one level below them."""
         unique = f"panel_type{no}_{uuid.uuid4().hex[:16]}"
         cmd = f'Export FixtureType {no} "{unique}"'
-        install = link.vars.get("PATH", "")
-        roots = list(dict.fromkeys([Path(export_dir).parent, *([Path(install).parent] if install else []), *export_folders()]))
+        install = (link.vars.get("PATH") or "").strip()
+        type_roots = [Path(export_dir).parent]
+        if install:
+            inst = Path(install)
+            type_roots.extend([inst, inst / "library", inst / "fixture_types", inst.parent])
+        for folder in [*importexport_folders(), *export_folders()]:
+            type_roots.extend([folder, folder.parent / "library", folder.parent / "fixture_types"])
+        roots = list(dict.fromkeys(type_roots))
         trace = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "cmd": cmd, "roots": [str(r) for r in roots],
                  "context": (state["plan_epoch"], link._gen)}
         state["type_reads"][str(no)] = trace
@@ -249,11 +290,28 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
 
     def importexport_folders():
         """Directories where MA2 reads/writes Layout XML files (importexport only, never fixtures/)."""
-        found = [Path(export_dir)]
-        for pattern in ma2["export_search"]:
-            for directory in sorted(glob.glob(pattern)):
-                found.append(Path(directory))
+        ma2_dirs = []
+        inst_ie = _install_importexport()
+        if inst_ie is not None and inst_ie.is_dir():
+            ma2_dirs.append(inst_ie)
+        ma2_dirs.extend(_search_importexport())
+        if _has_explicit_export_dir():
+            found = [Path(export_dir), *ma2_dirs]
+        else:
+            found = [*ma2_dirs, Path(export_dir)]
         return list(dict.fromkeys(found))
+
+    def layout_write_dir():
+        """Target importexport directory for writing Layout XML so grandMA2 Import can find it."""
+        if _has_explicit_export_dir():
+            return Path(export_dir)
+        inst_ie = _install_importexport()
+        if inst_ie is not None and inst_ie.is_dir():
+            return inst_ie
+        searched = _search_importexport()
+        if searched:
+            return searched[0]
+        return Path(export_dir)
 
     def layout_xml_files(limit=50):
         """List .xml files available in known MA2 importexport folders, newest first."""
@@ -304,7 +362,7 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
     def write_layout_xml_file(xml_text, filename=None):
         """Write Layout XML into the primary MA2 importexport directory safely."""
         stem = sanitize_layout_stem(filename)
-        folder = Path(export_dir)
+        folder = layout_write_dir()
         folder.mkdir(parents=True, exist_ok=True)
         target = (folder / f"{stem}.xml").resolve()
         if target.parent != folder.resolve():
@@ -334,11 +392,17 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
             raise ActionError("небезопасное имя файла для команды Import в MA2")
         if check_slot:
             await check_layout_slot_empty(slot, gen=gen, empty_re=empty_re)
+        select_drive = "SelectDrive 1"
         cmd = f'Import "{stem}" At Layout {slot}'
+        export_extra.add(select_drive)
         export_extra.add(cmd)
         try:
+            ok_drive, drive_reply = await link.send(select_drive, gen=gen)
+            if not ok_drive:
+                raise ActionError(f"MA2 отклонил выбор внутреннего диска (SelectDrive 1): {' '.join(drive_reply.split())[:300] or 'ошибка пульта'}")
             ok, reply = await link.send(cmd, gen=gen)
         finally:
+            export_extra.discard(select_drive)
             export_extra.discard(cmd)
         if not ok:
             raise ActionError(f"MA2 отклонил импорт Layout: {' '.join(reply.split())[:300] or 'ошибка пульта'}")
@@ -346,7 +410,8 @@ def bind(link, ma2, export_dir, export_extra, state, config_path, safe_data):
 
     return SimpleNamespace(export_folders=export_folders, listing=listing, save_diag_json=save_diag_json, export_type=export_type,
                            export_once=export_once, run_export_probe=run_export_probe,
-                           importexport_folders=importexport_folders, layout_xml_files=layout_xml_files,
+                           importexport_folders=importexport_folders, layout_write_dir=layout_write_dir,
+                           layout_xml_files=layout_xml_files,
                            read_layout_xml_file=read_layout_xml_file, write_layout_xml_file=write_layout_xml_file,
                            sanitize_layout_stem=sanitize_layout_stem, check_layout_slot_empty=check_layout_slot_empty,
                            import_layout_to_ma2=import_layout_to_ma2)

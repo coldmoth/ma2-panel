@@ -605,7 +605,7 @@ def live_from_dmx(fixtures: list[dict], dmx: dict[int, float], dmx_map: dict) ->
     live = {}
     for f in fixtures:
         start, spec = absolute(f.get("address")), dmx_map.get(f.get("type") or "")
-        if f.get("missing") or f.get("patch_unsupported") or start is None or not spec or spec.get("stale") or spec.get("unsupported"):
+        if f.get("missing") or f.get("patch_unsupported") or start is None or not spec or spec.get("stale") or spec.get("unsupported") or spec.get("color_unsupported"):
             continue
         get = lambda key: dmx.get(start + spec[key] - 1) if spec.get(key) else None  # noqa: E731
         # A missing mapped byte is unknown, not an absent channel in the profile.
